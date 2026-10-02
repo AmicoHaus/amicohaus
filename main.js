@@ -1258,6 +1258,38 @@ async function loadMarketplaceTab() {
   loadAgentAlerts();
 }
 
+// A quick-scan table above the full proposal cards, once there's something to compare — the whole point of
+// Agent Strategy is comparing agents fairly, so this shouldn't require scrolling through full cards first.
+function renderBidComparisonTable(bids, canAct) {
+  if (!bids || bids.length < 2) return '';
+  const rows = bids.map(b => {
+    const winRatePct = b.winRate !== null && b.winRate !== undefined ? `${Math.round(b.winRate * 100)}%` : '—';
+    const respLabel = formatResponseHours(b.avgResponseHours) || '—';
+    const feeParts = [b.commissionPct ? `${b.commissionPct}%` : '', b.flatFee ? money(b.flatFee) : ''].filter(Boolean);
+    const serviceCount = (b.services || []).length;
+    const statusBadge = `<span class="badge ${b.status === 'accepted' ? 'badge-active' : b.status === 'declined' ? 'badge-paused' : 'badge-gold'}">${b.status}</span>`;
+    return `<tr>
+      <td><a class="profile-link" href="profile.html?id=${b.agentUserId}">${escapeHtml(b.agentName)}</a>${b.topRated ? ' 🏆' : ''}</td>
+      <td>${ratingChipHtml(b.rating, b.reviewCount)}</td>
+      <td>${feeParts.length ? feeParts.join(' + ') : '—'}</td>
+      <td>${serviceCount} service${serviceCount === 1 ? '' : 's'}</td>
+      <td>${winRatePct}</td>
+      <td>${respLabel}</td>
+      <td>${statusBadge}</td>
+      <td>${canAct && b.status === 'pending' ? `<button type="button" class="btn btn-primary btn-sm" data-action="accept-bid" data-bid-id="${b.id}">Accept</button>` : ''}</td>
+    </tr>`;
+  }).join('');
+  return `
+    <div class="comparison-table-wrap">
+      <table class="comparison-table">
+        <thead><tr><th>Agent</th><th>Rating</th><th>Fee</th><th>Services</th><th>Win rate</th><th>Replies in</th><th>Status</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    <p class="tiny">Full details for each proposal, including their message and what's included, are below.</p>
+  `;
+}
+
 function renderBidCard(b, canAct) {
   const winRatePct = b.winRate !== null && b.winRate !== undefined ? Math.round(b.winRate * 100) : null;
   const respLabel = formatResponseHours(b.avgResponseHours);
@@ -1511,7 +1543,7 @@ async function openPreListingDetail(id, opts = {}) {
       </div>
       ${isOwner && p.status === 'open' ? renderPreListingEditForm(p) : ''}
       ${isOwner
-        ? `<h3>Proposals (${bids.length})</h3>${bids.length ? bids.map(b => renderBidCard(b, true)).join('') : '<div class="empty-state">No proposals yet.</div>'}
+        ? `<h3>Proposals (${bids.length})</h3>${bids.length ? `${renderBidComparisonTable(bids, true)}${bids.map(b => renderBidCard(b, true)).join('')}` : '<div class="empty-state">No proposals yet.</div>'}
            ${p.status === 'open' ? renderInviteAgentPanel() : ''}
            ${p.status === 'awarded' ? `<div id="milestonesPanel"></div>${renderDisputePanel()}${renderReviewForm()}` : ''}`
         : (currentAgentProfile && currentAgentProfile.status === 'approved'
@@ -1549,7 +1581,7 @@ async function openTransactionDetail(id) {
         <p class="tiny">Either trade partner can accept a proposal — coordinate with your trade partner via messages first.</p>
       </div>
       ${isParty
-        ? `<h3>Proposals (${bids.length})</h3>${bids.length ? bids.map(b => renderBidCard(b, true)).join('') : '<div class="empty-state">No proposals yet.</div>'}
+        ? `<h3>Proposals (${bids.length})</h3>${bids.length ? `${renderBidComparisonTable(bids, true)}${bids.map(b => renderBidCard(b, true)).join('')}` : '<div class="empty-state">No proposals yet.</div>'}
            ${t.status === 'open' ? renderInviteAgentPanel() : ''}
            ${t.status === 'awarded' ? `<div id="milestonesPanel"></div>${renderDisputePanel()}${renderReviewForm()}` : ''}`
         : (currentAgentProfile && currentAgentProfile.status === 'approved'

@@ -14,14 +14,20 @@ const OUT = path.join(ROOT, 'dist');
 
 // Never published, by name or by extension.
 const SKIP_NAMES = new Set([
-  'dist', 'functions', 'tools', 'node_modules', '.wrangler', '.git', '.claude', 'property-art',
+  'dist', 'functions', 'tools', 'node_modules', '.wrangler', '.git', '.claude', 'property-art', 'Press',
   'wrangler.toml', 'build-dist.js', 'package.json', 'package-lock.json',
 ]);
 const SKIP_EXTS = new Set(['.sql', '.zip', '.md', '.log']);
 
+// Applies the same name/extension rules at every depth, not just the project root — a subdirectory that isn't
+// itself skipped (e.g. a new folder someone drops in later) used to have its entire contents copied unfiltered,
+// extension rules and all, because this recursion never re-checked them. That's how a non-public folder
+// (`Press/`, full of outreach drafts) ended up in a build once; this closes that gap for good, not just for Press.
 function copyTree(src, dest) {
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const ext = path.extname(entry.name).toLowerCase();
+    if (SKIP_NAMES.has(entry.name) || (!entry.isDirectory() && SKIP_EXTS.has(ext))) continue;
     const from = path.join(src, entry.name);
     const to = path.join(dest, entry.name);
     if (entry.isDirectory()) copyTree(from, to);

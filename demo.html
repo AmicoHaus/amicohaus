@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light" class="demo-page">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Demo: Agent Strategy Showcase — Amico Haus</title>
+<meta name="description" content="Agent Strategy in action: a sample pre-listing showcase where local agent experts evaluate a home's price and share their strategy. Demo data only.">
+<link rel="canonical" href="https://amicohaus.com/demo">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Amico Haus">
+<meta property="og:title" content="Live Demo: Agent Strategy Showcase — Amico Haus">
+<meta property="og:description" content="Agent Strategy in action: a sample pre-listing showcase where local agent experts evaluate a home's price and share their strategy, with sample matches. Demo data only.">
+<meta property="og:url" content="https://amicohaus.com/demo">
+<meta property="og:image" content="https://amicohaus.com/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Live Demo: Agent Strategy Showcase — Amico Haus">
+<meta name="twitter:description" content="Agent Strategy in action: a sample pre-listing showcase where local agent experts evaluate a home's price and share their strategy, with sample matches. Demo data only.">
+<meta name="twitter:image" content="https://amicohaus.com/og-image.png">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <a class="agent-strip" href="/about">Presented by <strong>Rudy Flores</strong> &middot; Coldwell Banker West &middot; DRE #02257808</a>
+  <header class="topbar">
+    <a class="brand" href="/">
+      <svg viewBox="0 0 48 48" class="logo" aria-hidden="true">
+        <path d="M24 4 L44 20 V42 H30 V28 H18 V42 H4 V20 Z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+      </svg>
+      <span class="brand-text">AMICO <span class="accent">HAUS</span></span>
+    </a>
+    <nav class="tabs">
+      <a class="tab tab-demo active" href="/demo">Demo - Start Here!</a>
+      <a class="tab" href="/#how">How it works</a>
+      <a class="tab" href="/#directory">Live listings</a>
+      <a class="tab" href="/calculator">Calculator</a>
+      <a class="tab" href="/about">About</a>
+    </nav>
+    <div class="auth-cta">
+      <a class="btn btn-ghost btn-sm" href="/login">Log In</a>
+      <a class="btn btn-primary btn-sm" href="/signup">Sign Up</a>
+    </div>
+  </header>
+
+  <main>
+    <h1>Agent Strategy, in action</h1>
+    <p class="section-sub">This page shows sample activity only — never real users' data. Start with Agent Strategy: a homeowner posts a pre-listing showcase, local agent experts evaluate the asking price and present their strategy for selling the home, and both sides evaluate each other. Below that are the sample listings, mutual matches and daisy chains behind the platform. You can also bring your own real estate agent in at any point, or connect with one of ours for hands-on help through the process.</p>
+
+    <nav class="pill-nav pill-nav-top" id="demoPills" aria-label="Demo sections"></nav>
+
+    <section class="demo-section" id="agents">
+      <nav class="pill-nav pill-nav-section" data-pills aria-label="Jump to another section"></nav>
+      <h2>Agent Strategy</h2>
+      <p class="section-sub">A pre-listing is a showcase of a home before it's listed. Local agent experts evaluate the asking price — too high, about right, or too low — and present their strategy for selling it: fee, included services and timeline. It's a mutual evaluation: the homeowner weighs each agent's strategy and track record, the agents assess the home and its price, and both sides review each other when the work is done. A homeowner can also open a matched trade to agents, or simply keep working with an agent they already know.</p>
+      <p class="sample-note">Everything in this section is an illustrative walkthrough with fictional agents. It is not pulled from real accounts. In the live marketplace, agents are reviewed by an admin based on what they report about themselves, license numbers are not independently verified with any state board, and no payment runs through Amico Haus.</p>
+
+      <h3>Meet the agents</h3>
+      <p class="section-sub">Homeowners can search the agent directory and narrow it down. Try the filters below.</p>
+      <div class="pill-nav pill-nav-filters" id="demoAgentFilters" role="group" aria-label="Filter sample agents"></div>
+      <p class="tiny" id="demoAgentCount" aria-live="polite"></p>
+      <div class="grid" id="demoAgents"></div>
+
+      <h3>A pre-listing, start to finish</h3>
+      <div class="timeline" id="demoStory"></div>
+
+      <h3>When two homeowners match</h3>
+      <p class="section-sub">Either trade partner can open a matched swap to agents, to get help coordinating the closing on both sides.</p>
+      <div id="demoTransaction"></div>
+    </section>
+
+    <section class="demo-section" id="overview">
+      <nav class="pill-nav pill-nav-section" data-pills aria-label="Jump to another section"></nav>
+      <h2>Overview of the sample data</h2>
+      <p class="section-sub">These numbers describe the demo's sample accounts only. The real numbers are on the <a href="/">home page</a>.</p>
+      <div class="stat-grid" id="demoStats"></div>
+    </section>
+
+    <section class="demo-section" id="listings">
+      <nav class="pill-nav pill-nav-section" data-pills aria-label="Jump to another section"></nav>
+      <h2>Sample Listings</h2>
+      <p class="section-sub">What homeowners post: the home they have and what would make them move. A few of each property type, with how many mutual matches each one is already part of.</p>
+      <div class="grid" id="demoListings"></div>
+    </section>
+
+    <section class="demo-section" id="matches">
+      <nav class="pill-nav pill-nav-section" data-pills aria-label="Jump to another section"></nav>
+      <h2>Sample Mutual Matches</h2>
+      <div class="stack" id="demoMatches"></div>
+    </section>
+
+    <section class="demo-section" id="chains">
+      <nav class="pill-nav pill-nav-section" data-pills aria-label="Jump to another section"></nav>
+      <h2>Sample Daisy Chains</h2>
+      <div class="stack" id="demoChains"></div>
+    </section>
+
+
+    <section class="demo-section" id="feed">
+      <nav class="pill-nav pill-nav-section" data-pills aria-label="Jump to another section"></nav>
+      <h2>Sample Feed Activity</h2>
+      <div class="stack" id="demoFeed"></div>
+    </section>
+
+    <div class="form-actions">
+      <a class="btn btn-primary" href="/signup?as=homeowner">Post Your Home</a>
+      <a class="btn btn-ghost" href="/signup?as=agent">I'm an Agent</a>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    Amico Haus — where homeowners and vetted agents find each other. <a href="/about">About</a> · <a href="/contact">Contact</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="https://www.tiktok.com/@amicohaus" target="_blank" rel="noopener noreferrer">TikTok</a> · <a href="https://www.youtube.com/@amicohaus" target="_blank" rel="noopener noreferrer">YouTube</a>
+  </footer>
+</div>
+<script src="client.js"></script>
+<script src="demo-sample-data.js"></script>
+<script src="page-demo.js"></script>
+<!-- Cloudflare Web Analytics -->
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "91a193988b2d45e58aa1c27d5abf6bdb"}'></script>
+<!-- End Cloudflare Web Analytics -->
+</body>
+</html>

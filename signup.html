@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign Up — Amico Haus</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <a class="agent-strip" href="/about">Presented by <strong>Rudy Flores</strong> &middot; Coldwell Banker West &middot; DRE #02257808</a>
+  <header class="topbar">
+    <a class="brand" href="/">
+      <svg viewBox="0 0 48 48" class="logo" aria-hidden="true">
+        <path d="M24 4 L44 20 V42 H30 V28 H18 V42 H4 V20 Z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+      </svg>
+      <span class="brand-text">AMICO <span class="accent">HAUS</span></span>
+    </a>
+  </header>
+  <main class="auth-main">
+    <div class="auth-card">
+      <div id="signupPanel">
+      <h1>Create your account</h1>
+      <p class="section-sub">Tell us which side you're on, then your name and email. We'll email you a link to confirm your address and choose a password.</p>
+
+      <form id="signupForm" class="profile-form">
+        <fieldset class="audience-choice">
+          <legend>I'm signing up as <span class="required-mark">*</span></legend>
+          <div class="choice-row">
+            <label class="choice"><input type="radio" name="intent" value="homeowner" checked><span><strong>A homeowner</strong><span class="tiny">Show your home to agent experts</span></span></label>
+            <label class="choice"><input type="radio" name="intent" value="agent"><span><strong>An agent</strong><span class="tiny">Get vetted, share your strategy</span></span></label>
+          </div>
+        </fieldset>
+        <div class="field">
+          <label for="displayName">Your name <span class="required-mark">*</span></label>
+          <input type="text" id="displayName" required maxlength="80" placeholder="e.g. Jordan Ellis">
+        </div>
+        <div class="field">
+          <label for="email">Email <span class="required-mark">*</span></label>
+          <input type="email" id="email" required maxlength="200" placeholder="you@example.com">
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary" id="submitBtn">Email Me a Link</button>
+        </div>
+      </form>
+
+      <p class="form-note">By signing up, you agree to the <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>.</p>
+      <p class="form-note">Already have an account? <a href="/login">Log in</a></p>
+      </div>
+
+      <div id="checkEmailPanel" class="hidden">
+        <h1>Check your email</h1>
+        <p class="section-sub">We sent a link to <strong id="sentTo"></strong>. Open it to confirm your email and choose your password — that finishes creating your account.</p>
+        <p class="form-note">Nothing yet? Look in your spam or promotions folder, then <button type="button" class="link-btn" id="resendBtn">send it again</button>.</p>
+        <p class="form-note" id="resendStatus" role="status" aria-live="polite"></p>
+        <p class="form-note"><a href="/signup">Use a different email</a></p>
+      </div>
+    </div>
+  </main>
+</div>
+<script src="client.js"></script>
+<script src="page-signup.js"></script>
+<!-- Cloudflare Web Analytics -->
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "91a193988b2d45e58aa1c27d5abf6bdb"}'></script>
+<!-- End Cloudflare Web Analytics -->
+</body>
+</html>

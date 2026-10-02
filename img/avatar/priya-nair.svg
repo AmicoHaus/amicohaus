@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="240" height="240" role="img" aria-label="Illustrated portrait of Priya Nair">
+  <defs>
+    <radialGradient id="bg" cx="0.5" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#e6dcf0"/><stop offset="1" stop-color="#b7a3cf"/>
+    </radialGradient>
+  </defs>
+  <rect width="120" height="120" fill="url(#bg)"/>
+  <path d="M34 52 C31 27 46 18 60 18 C76 18 89 27 86 52 C87 66 89 77 84 82 L36 82 C31 77 33 66 34 52 Z" fill="#1e1a1a"/>
+  <path d="M38 84 L82 84 L82 120 L38 120 Z" fill="#f4f1ea"/>
+  <path d="M50 64 L50 86 Q60 93 70 86 L70 64 Z" fill="#7f4c2a"/>
+  <path d="M5 120 C7 98 28 88 48 85 L60 107 L57 120 Z" fill="#6d2f3d"/>
+  <path d="M115 120 C113 98 92 88 72 85 L60 107 L63 120 Z" fill="#6d2f3d"/>
+  <path d="M48 85 L60 107 L51 100 Z" fill="#000" opacity="0.18"/>
+  <path d="M72 85 L60 107 L69 100 Z" fill="#000" opacity="0.18"/>
+  
+  <ellipse cx="39.5" cy="54" rx="3.6" ry="5.2" fill="#9a6238"/>
+  <ellipse cx="80.5" cy="54" rx="3.6" ry="5.2" fill="#9a6238"/>
+  <ellipse cx="60" cy="52" rx="20.5" ry="24.5" fill="#9a6238"/>
+  
+  <path d="M47 45.5 Q52 42.8 57 45.2" fill="none" stroke="#1e1a1a" stroke-width="2.1" stroke-linecap="round"/>
+  <path d="M63 45.2 Q68 42.8 73 45.5" fill="none" stroke="#1e1a1a" stroke-width="2.1" stroke-linecap="round"/>
+  <ellipse cx="52" cy="52" rx="2.1" ry="2.5" fill="#251c1a"/>
+  <ellipse cx="68" cy="52" rx="2.1" ry="2.5" fill="#251c1a"/>
+  <path d="M60 54.5 Q63 60.5 59.2 61.8" fill="none" stroke="#7f4c2a" stroke-width="1.6" stroke-linecap="round"/>
+  <circle cx="46.5" cy="60.5" r="4.2" fill="#d9584c" opacity="0.13"/>
+  <circle cx="73.5" cy="60.5" r="4.2" fill="#d9584c" opacity="0.13"/>
+  <path d="M53 66 Q60 71.5 67 66" fill="none" stroke="#7d3a33" stroke-width="2" stroke-linecap="round"/>
+  <path d="M39 54 C36 33 48 21 60 21 C72 21 84 33 81 54 C77 42 68 35 60 31 C52 35 43 42 39 54 Z" fill="#1e1a1a"/>
+  <g fill="none" stroke="#2a2a2e" stroke-width="1.8" stroke-linecap="round">
+         <circle cx="52" cy="52" r="7.6"/><circle cx="68" cy="52" r="7.6"/>
+         <path d="M59.6 51.5 Q60 50.4 60.4 51.5"/><path d="M44.4 51.5 L40.5 50.2"/><path d="M75.6 51.5 L79.5 50.2"/>
+       </g>
+</svg>

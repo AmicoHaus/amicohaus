@@ -1,0 +1,14 @@
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com https://cdnjs.cloudflare.com; style-src 'self' https://cdnjs.cloudflare.com; img-src 'self' data: https://images.pexels.com https://cdnjs.cloudflare.com https://*.tile.openstreetmap.org; font-src 'self'; connect-src 'self' https://cloudflareinsights.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(), camera=(), microphone=(), payment=(), usb=()
+  Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+
+# JS/CSS staleness is handled by build-dist.js (content-hash query strings), not
+# here: Cloudflare's zone-level Browser Cache TTL rewrites their Cache-Control to
+# 4 hours regardless of what this file says. Photos never change under the same
+# filename, and their 7 days is longer than that floor, so this rule does stick.
+/img/*
+  Cache-Control: public, max-age=604800

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300">
+  <defs>
+    <linearGradient id="sky2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e9eef2"/>
+      <stop offset="1" stop-color="#f7f4ee"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="300" fill="url(#sky2)"/>
+  <rect x="0" y="250" width="400" height="50" fill="#dfe6d8"/>
+  <rect x="110" y="60" width="120" height="190" fill="#5c7a94"/>
+  <rect x="70" y="100" width="40" height="150" fill="#456179"/>
+  <rect x="230" y="100" width="40" height="150" fill="#456179"/>
+  <g fill="#eef2f5">
+    <rect x="125" y="80" width="22" height="22"/><rect x="160" y="80" width="22" height="22"/><rect x="195" y="80" width="22" height="22"/>
+    <rect x="125" y="115" width="22" height="22"/><rect x="160" y="115" width="22" height="22"/><rect x="195" y="115" width="22" height="22"/>
+    <rect x="125" y="150" width="22" height="22"/><rect x="160" y="150" width="22" height="22"/><rect x="195" y="150" width="22" height="22"/>
+    <rect x="125" y="185" width="22" height="22"/><rect x="160" y="185" width="22" height="22"/><rect x="195" y="185" width="22" height="22"/>
+    <rect x="80" y="120" width="20" height="20"/><rect x="80" y="160" width="20" height="20"/><rect x="80" y="200" width="20" height="20"/>
+    <rect x="240" y="120" width="20" height="20"/><rect x="240" y="160" width="20" height="20"/><rect x="240" y="200" width="20" height="20"/>
+  </g>
+  <rect x="145" y="220" width="30" height="30" fill="#182430"/>
+</svg>

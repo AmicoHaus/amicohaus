@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Verify Email — Amico Haus</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <a class="agent-strip" href="/about">Presented by <strong>Rudy Flores</strong> &middot; Coldwell Banker West &middot; DRE #02257808</a>
+  <header class="topbar">
+    <a class="brand" href="/">
+      <svg viewBox="0 0 48 48" class="logo" aria-hidden="true">
+        <path d="M24 4 L44 20 V42 H30 V28 H18 V42 H4 V20 Z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+      </svg>
+      <span class="brand-text">AMICO <span class="accent">HAUS</span></span>
+    </a>
+  </header>
+  <main class="auth-main">
+    <div class="auth-card">
+      <h1 id="verifyTitle">Confirming your link…</h1>
+      <p class="section-sub" id="statusLine" role="status" aria-live="polite">One moment.</p>
+
+      <form id="passwordForm" class="profile-form hidden">
+        <div class="field">
+          <label for="password">Choose a password <span class="required-mark">*</span></label>
+          <input type="password" id="password" required minlength="8" maxlength="200" autocomplete="new-password" placeholder="At least 8 characters">
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary" id="submitBtn">Create My Account</button>
+        </div>
+      </form>
+
+      <form id="resendForm" class="profile-form hidden">
+        <div class="field">
+          <label for="resendEmail">Your email</label>
+          <input type="email" id="resendEmail" required maxlength="200" placeholder="you@example.com">
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary" id="resendSubmit">Send Me a New Link</button>
+        </div>
+      </form>
+
+      <p class="form-note"><a href="/login">Log in</a> &middot; <a href="/signup">Start over</a></p>
+    </div>
+  </main>
+</div>
+<script src="client.js"></script>
+<script src="page-verify-email.js"></script>
+<!-- Cloudflare Web Analytics -->
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "91a193988b2d45e58aa1c27d5abf6bdb"}'></script>
+<!-- End Cloudflare Web Analytics -->
+</body>
+</html>

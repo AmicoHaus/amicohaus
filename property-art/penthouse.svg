@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300">
+  <defs>
+    <linearGradient id="sky4" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#dfe7ee"/>
+      <stop offset="1" stop-color="#f7f4ee"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="300" fill="url(#sky4)"/>
+  <rect x="0" y="260" width="400" height="40" fill="#dfe6d8"/>
+  <rect x="150" y="40" width="100" height="220" fill="#3a4b5c"/>
+  <rect x="120" y="90" width="30" height="170" fill="#2c3947"/>
+  <rect x="250" y="90" width="30" height="170" fill="#2c3947"/>
+  <g fill="#a9c4d6" opacity="0.85">
+    <rect x="160" y="55" width="18" height="18"/><rect x="185" y="55" width="18" height="18"/><rect x="210" y="55" width="18" height="18"/>
+    <rect x="160" y="80" width="18" height="18"/><rect x="185" y="80" width="18" height="18"/><rect x="210" y="80" width="18" height="18"/>
+    <rect x="160" y="105" width="18" height="18"/><rect x="185" y="105" width="18" height="18"/><rect x="210" y="105" width="18" height="18"/>
+    <rect x="160" y="130" width="18" height="18"/><rect x="185" y="130" width="18" height="18"/><rect x="210" y="130" width="18" height="18"/>
+    <rect x="160" y="155" width="18" height="18"/><rect x="185" y="155" width="18" height="18"/><rect x="210" y="155" width="18" height="18"/>
+  </g>
+  <!-- rooftop terrace -->
+  <rect x="140" y="25" width="120" height="15" fill="#cf9f5e"/>
+  <rect x="150" y="10" width="6" height="15" fill="#cf9f5e"/>
+  <rect x="170" y="10" width="6" height="15" fill="#cf9f5e"/>
+  <rect x="190" y="10" width="6" height="15" fill="#cf9f5e"/>
+  <rect x="210" y="10" width="6" height="15" fill="#cf9f5e"/>
+  <rect x="230" y="10" width="6" height="15" fill="#cf9f5e"/>
+  <rect x="245" y="10" width="6" height="15" fill="#cf9f5e"/>
+</svg>

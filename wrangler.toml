@@ -1,0 +1,12 @@
+name = "amicohaus-local-test"
+compatibility_date = "2026-08-01"
+pages_build_output_dir = "."
+
+[[d1_databases]]
+binding = "DB"
+database_name = "amicohaus"
+database_id = "ef0209d0-b680-4894-a42e-af26ba85577f"
+
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "amicohaus-photos"

@@ -1,0 +1,5 @@
+# Cloudflare Pages' _redirects file only supports relative (same-host) paths —
+# a www -> apex redirect needs a Cloudflare "Redirect Rule" configured in the
+# dashboard instead (Rules > Redirect Rules), since that's a hostname-level
+# concern the _redirects file can't express. Confirmed via local Wrangler
+# testing: an absolute cross-host rule here is silently skipped, not applied.

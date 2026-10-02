@@ -1,0 +1,34 @@
+# Amico Haus
+
+> Amico Haus is a pre-listing showcase called Agent Strategy: a homeowner posts their home before listing it, local real estate agent experts evaluate the asking price (too high, about right, or too low — an opinion, not an appraisal) and present their strategy for selling it (fee, included services, turnaround), and the homeowner compares and chooses. The evaluation is mutual: agents assess the home, the homeowner assesses each agent, and both review each other afterward. Agents apply and are reviewed by an admin (license numbers are self-reported, not independently verified); homeowners can also invite an agent they already know. No payments run through the platform. Amico Haus also lets homeowners trade homes instead of listing them, matching them into mutual swaps and three-or-more-party "daisy chains".
+
+Each user creates a profile describing their current home (location, type, price, beds/baths, optional links to Airbnb/Zillow listings) and what would make them move (target locations, property type, price range, minimum beds/baths). Only city/neighborhood is public; the exact address stays private until a match is confirmed.
+
+## Key concepts (Agent Strategy)
+
+- **Pre-listing showcase**: a homeowner's home shown to agents before it is listed — basic home details, photos, asking price and optional preferences (local specialist, language, minimum experience). The street address stays private.
+- **Price evaluation**: approved agents vote whether the asking price looks too high, too low, or about right.
+- **Strategy (proposal)**: an agent's plan for the home — fee, included services, turnaround and a message. The homeowner sees every proposal; an agent sees only their own.
+- **Vetted agent**: an agent whose application (brokerage, license number, experience) an admin has reviewed. License numbers are self-reported and not independently verified.
+- **Agent profile**: service packages (Basic / Standard / Premium), case studies, an optional video, service area, specialties, languages, response time and win rate.
+- **Progress checklist and reviews**: once a proposal is accepted, both sides share a checklist and can review each other; either side can report a problem to an admin.
+
+## Key concepts (home trading)
+
+- **Listing**: a user's current home plus their "wants" criteria for a trade.
+- **Groups**: users are automatically placed into groups by home-value price tier and by geographic area, so they see relevant posts and members.
+- **Feed**: a social feed where users post, comment, and like — either platform-wide or scoped to a specific group.
+- **Match score**: a 0–100 fit score weighing location, property type, price band, and bed/bath minimums; location and price act as near-hard requirements.
+- **Daisy chain**: a closed cycle of 3+ users whose wants and haves interlock, enabling a multi-party simultaneous trade that no single listing search could surface.
+- **Directory**: a public, no-login-required browse of active listings.
+
+## Pages
+
+- [Amico Haus](https://amicohaus.com/): landing page, how it works, live counts, real agents as an admin approves them, and a live directory of listings. Sample data is kept separate, on the demo page.
+- [Demo](https://amicohaus.com/demo): a walkthrough of agent interactions (sample agents, a pre-listing from start to finish), then sample listings, matches and daisy chains.
+- [Sign up](https://amicohaus.com/signup.html) / [Log in](https://amicohaus.com/login.html): account creation.
+- The main app (agents hub, pre-listings and proposals, listing management, groups, matches, messages) requires an account.
+
+## Origin
+
+This platform originated from a real estate CRM feature concept by Rudy P. Flores, drawing an analogy to how wireless carriers privately trade tower co-location access with each other.

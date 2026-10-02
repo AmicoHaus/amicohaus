@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trade-for-Lease Calculator — Amico Haus</title>
+<meta name="description" content="See roughly how many years of a luxury rental your home's value could fund instead of trading straight across for another house. Slide to see live estimates.">
+<link rel="canonical" href="https://amicohaus.com/calculator">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Amico Haus">
+<meta property="og:title" content="Trade-for-Lease Calculator — Amico Haus">
+<meta property="og:description" content="See roughly how many years of a luxury rental your home's value could fund instead of trading straight across for another house. Slide to see live estimates.">
+<meta property="og:url" content="https://amicohaus.com/calculator">
+<meta property="og:image" content="https://amicohaus.com/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Trade-for-Lease Calculator — Amico Haus">
+<meta name="twitter:description" content="See roughly how many years of a luxury rental your home's value could fund instead of trading straight across for another house. Slide to see live estimates.">
+<meta name="twitter:image" content="https://amicohaus.com/og-image.png">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles.css">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Trade-for-Lease Calculator","url":"https://amicohaus.com/calculator","applicationCategory":"FinanceApplication","operatingSystem":"Any web browser","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"isPartOf":{"@type":"WebSite","name":"Amico Haus","url":"https://amicohaus.com/"}}</script>
+</head>
+<body>
+<div id="app">
+  <a class="agent-strip" href="/about">Presented by <strong>Rudy Flores</strong> &middot; Coldwell Banker West &middot; DRE #02257808</a>
+  <header class="topbar">
+    <a class="brand" href="/">
+      <svg viewBox="0 0 48 48" class="logo" aria-hidden="true">
+        <path d="M24 4 L44 20 V42 H30 V28 H18 V42 H4 V20 Z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+      </svg>
+      <span class="brand-text">AMICO <span class="accent">HAUS</span></span>
+    </a>
+    <nav class="tabs">
+      <a class="tab tab-demo" href="/demo">Demo - Start Here!</a>
+      <a class="tab" href="/#how">How it works</a>
+      <a class="tab" href="/#directory">Live listings</a>
+      <a class="tab active" href="/calculator">Calculator</a>
+      <a class="tab" href="/about">About</a>
+    </nav>
+    <div class="auth-cta" id="authCta">
+      <a class="btn btn-ghost btn-sm" href="/login">Log In</a>
+      <a class="btn btn-primary btn-sm" href="/signup">Sign Up</a>
+    </div>
+  </header>
+
+  <main class="prose">
+    <h1>What could your home fund instead?</h1>
+    <p class="section-sub">Some homeowners don't want another mortgage — they'd rather sell and put the proceeds toward a long-term luxury rental instead. Slide the numbers below to see roughly how long that could last.</p>
+
+    <div class="calc-layout">
+      <div class="calc-panel">
+        <div class="calc-row">
+          <div class="calc-row-head">
+            <label for="homeValue">Your home's value</label>
+            <span class="calc-readout" id="homeValueReadout"></span>
+          </div>
+          <input type="range" id="homeValue" min="100000" max="5000000" step="10000" value="1000000">
+        </div>
+
+        <div class="calc-row">
+          <div class="calc-row-head">
+            <label for="sellingCosts">Estimated selling costs</label>
+            <span class="calc-readout" id="sellingCostsReadout"></span>
+          </div>
+          <input type="range" id="sellingCosts" min="0" max="10" step="0.5" value="7">
+        </div>
+
+        <div class="calc-row">
+          <div class="calc-row-head">
+            <label for="monthlyRent">Target rental, per month</label>
+            <span class="calc-readout" id="monthlyRentReadout"></span>
+          </div>
+          <input type="range" id="monthlyRent" min="1000" max="50000" step="500" value="10000">
+          <div class="calc-presets">
+            <button type="button" class="btn btn-ghost btn-sm" data-rent="4000">Nice Condo · $4k/mo</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-rent="10000">Luxury Beachfront · $10k/mo</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-rent="25000">Ultra-Luxury Estate · $25k/mo</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="calc-result">
+        <span class="calc-result-label">That could fund about</span>
+        <span class="calc-result-value" id="yearsResult">—</span>
+        <span class="calc-result-label" id="rentLabel"></span>
+        <div class="calc-breakdown">
+          <div><span class="label">Net proceeds after selling costs</span><strong id="netProceedsOut">—</strong></div>
+          <div><span class="label">Extra time for paying it as a lump sum</span><strong id="bonusTimeOut">—</strong></div>
+        </div>
+      </div>
+    </div>
+
+    <p class="form-note">This is a rough, illustrative estimate only — not financial, investment, tax, or legal advice, and not a lease offer. The range shown is a starting point for negotiation: the low end is the exact math (net proceeds ÷ annual rent), and the high end adds 15% more time, reflecting that a landlord receiving the full amount upfront as a lump sum avoids vacancy and collections risk compared to collecting it monthly. It doesn't account for rent increases over time, investment returns on unspent proceeds, capital gains taxes, or moving costs, and any actual lease term, price, and lump-sum arrangement is negotiated directly between landlord and tenant, not set by Amico Haus. Talk to a financial advisor before making a decision like this.</p>
+
+    <div class="form-actions">
+      <a class="btn btn-primary" href="/signup">Create Your Profile</a>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    Amico Haus — where homeowners and vetted agents find each other. <a href="/about">About</a> · <a href="/contact">Contact</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="https://www.tiktok.com/@amicohaus" target="_blank" rel="noopener noreferrer">TikTok</a> · <a href="https://www.youtube.com/@amicohaus" target="_blank" rel="noopener noreferrer">YouTube</a>
+  </footer>
+</div>
+<script src="client.js"></script>
+<script src="page-calculator.js"></script>
+<!-- Cloudflare Web Analytics -->
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "91a193988b2d45e58aa1c27d5abf6bdb"}'></script>
+<!-- End Cloudflare Web Analytics -->
+</body>
+</html>

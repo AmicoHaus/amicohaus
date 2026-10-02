@@ -1,0 +1,487 @@
+// Two-user authorization test against production. Creates throwaway test-authz-* accounts, plants recognisable
+// secrets in user A's data, then tries to read / change it as other users and anonymously.
+// Usage: node tools/authz-test.js <projectRoot>   then: node tools/authz-cleanup.js <projectRoot>
+// Needs wrangler logged in (it seeds two approved agents with SQL). Uses 5 signups, the hourly per-IP limit.
+const { execSync } = require('child_process');
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+
+const ROOT = process.argv[2];
+const BASE = 'https://amicohaus.com';
+const RUN = Math.random().toString(36).slice(2, 8);
+const PASSWORD = 'AuthzTest-' + Math.random().toString(36).slice(2, 12) + '!';
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+
+const MARK = {
+  clientName: 'SECRETCLIENT' + RUN,
+  address: '123 SECRETADDR' + RUN + ' St',
+  preAddress: '456 HIDDENADDR' + RUN + ' Ave',
+  lockbox: 'LOCKBOXCODE' + RUN,
+  message: 'PRIVATEMSG' + RUN,
+  comment: 'AUTHZCOMMENT' + RUN,
+};
+
+const results = [];
+const findings = [];
+function record(section, label, ok, detail = '') {
+  results.push({ section, label, ok, detail });
+  if (!ok) findings.push(`[${section}] ${label}${detail ? ' — ' + detail : ''}`);
+  console.log(`${ok ? 'PASS' : 'FAIL'}  [${section}] ${label}${ok ? '' : '  <<< ' + detail}`);
+}
+
+function sql(command) {
+  const out = execSync(`npx wrangler d1 execute amicohaus --remote --json --command "${command.replace(/"/g, '\\"')}"`, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], shell: true, maxBuffer: 20 * 1024 * 1024 });
+  const j = JSON.parse(out.slice(out.indexOf('[')));
+  return j[0].results || [];
+}
+
+class User {
+  constructor(role) { this.role = role; this.cookie = ''; this.id = null; this.email = `delivered+authz-${role}-${RUN}@resend.dev`; }
+  async call(method, url, body, opts = {}) {
+    const headers = {};
+    if (this.cookie) headers.Cookie = this.cookie;
+    let payload;
+    if (opts.form) payload = opts.form;
+    else if (body !== undefined) { headers['Content-Type'] = 'application/json'; payload = JSON.stringify(body); }
+    let res;
+    try { res = await fetch(BASE + url, { method, headers, body: payload, redirect: 'manual', signal: AbortSignal.timeout(30000) }); }
+    catch (e) { throw new Error(`${method} ${url} failed: ${e.name} ${e.message}`); } // say WHICH request, not just "timeout"
+    const text = res.headers.get('content-type')?.startsWith('image/') ? '' : await res.text();
+    let json = null; try { json = JSON.parse(text); } catch { /* not json */ }
+    const sc = res.headers.getSetCookie ? res.headers.getSetCookie() : [];
+    for (const c of sc) { const m = /^ah_session=([^;]*)/.exec(c); if (m) this.cookie = m[1] ? `ah_session=${m[1]}` : ''; }
+    return { status: res.status, json, text };
+  }
+  // Signing up now only creates a pending account and emails a link. The real link's token exists only in the
+  // email, so the test plants a known token's hash and follows the real confirm endpoint with it.
+  async signup(extra = {}) {
+    const r = await this.call('POST', '/api/auth/signup', { email: this.email, displayName: `Authz ${this.role}`, ...extra });
+    if (r.status !== 201 || !r.json.pendingConfirmation) throw new Error(`signup ${this.role} failed: ${r.status} ${r.text.slice(0, 150)}`);
+    this.id = sql(`SELECT id FROM users WHERE email = '${this.email}'`)[0].id;
+    return r;
+  }
+  async confirm() {
+    const token = crypto.randomBytes(32).toString('hex');
+    const hash = crypto.createHash('sha256').update(token).digest('hex');
+    sql(`UPDATE users SET verify_token = '${hash}', verify_token_expires = '${new Date(Date.now() + 3600e3).toISOString()}' WHERE id = ${this.id}`);
+    const r = await this.call('POST', '/api/auth/verify-email', { token, password: PASSWORD });
+    if (r.status !== 200) throw new Error(`confirm ${this.role} failed: ${r.status} ${r.text.slice(0, 150)}`);
+    return r;
+  }
+}
+const anon = new User('anon');
+
+// Records every account this run made (matched by its own email pattern) plus their R2 photos, for authz-cleanup.js.
+// Called at the end AND when the run crashes, so an aborted run can still be cleaned up.
+function writeCleanupFile() {
+  const ids = sql(`SELECT id FROM users WHERE email LIKE 'delivered+authz-%-${RUN}@resend.dev'`).map(r => r.id);
+  if (!ids.length) return 0;
+  const list = ids.join(',');
+  const r2keys = sql(`SELECT r2_key FROM pre_listing_photos WHERE pre_listing_id IN (SELECT id FROM pre_listings WHERE user_id IN (${list})) UNION SELECT r2_key FROM listing_photos WHERE listing_id IN (SELECT id FROM listings WHERE user_id IN (${list}))`).map(r => r.r2_key);
+  fs.writeFileSync(path.join(__dirname, 'authz-cleanup.json'), JSON.stringify({ run: RUN, userIds: ids, r2keys }));
+  return ids.length;
+}
+
+// Any 4xx counts as "refused" — some handlers answer a non-party with 400 ("You are not a party…") rather than 403.
+// What must never happen is a 2xx, and the follow-up state checks below catch anything that slipped through.
+const denied = r => r.status >= 400 && r.status < 500;
+
+(async () => {
+  const A = new User('homeowner'), B = new User('attacker'), C = new User('partner'), G = new User('agent1'), H = new User('agent2');
+
+  // ---------- setup ----------
+  console.log('== setup ==');
+  await A.signup(); await C.signup(); await G.signup(); await H.signup();
+  // B signs up with privilege-escalation fields in the body.
+  const bSignup = await B.signup({ role: 'admin', isAdmin: true, is_verified: 1, isVerified: true, password: PASSWORD });
+  console.log('users', { A: A.id, B: B.id, C: C.id, G: G.id, H: H.id });
+
+  // Magic-link signup: until the emailed link is used the account is inert.
+  record('signup', 'signup response issues no session cookie', B.cookie === '' && !('user' in bSignup.json), JSON.stringify(bSignup.json));
+  const pendingLogin = await B.call('POST', '/api/auth/login', { email: B.email, password: PASSWORD });
+  record('signup', 'a pending account cannot log in (even with the password sent at signup)', pendingLogin.status === 403 && pendingLogin.json.code === 'email_unconfirmed', `status ${pendingLogin.status}`);
+  const pendingRow = sql(`SELECT password_hash, email_confirmation_pending AS pending, verify_token FROM users WHERE id = ${B.id}`)[0];
+  record('signup', 'a pending account has no password and no usable token stored in the clear', pendingRow.password_hash === null && pendingRow.pending === 1 && /^[0-9a-f]{64}$/.test(pendingRow.verify_token), JSON.stringify(pendingRow).slice(0, 120));
+  const noPw = await anon.call('POST', '/api/auth/verify-email', { token: 'x'.repeat(64) });
+  record('signup', 'a made-up link token is refused', noPw.status === 400 && noPw.json.code === 'invalid', `status ${noPw.status}`);
+  for (const u of [A, B, C, G, H]) await u.confirm();
+  const reuse = await anon.call('POST', '/api/auth/verify-email', { token: 'reused', password: PASSWORD });
+  record('signup', 'confirming gives a working session', (await B.call('GET', '/api/me')).status === 200, '');
+  const bAfter = sql(`SELECT role, email_confirmation_pending AS pending, verify_token FROM users WHERE id = ${B.id}`)[0];
+  record('privilege', 'signup ignores role/isAdmin/isVerified in the body', bAfter.role === 'user' && bAfter.pending === 0 && bAfter.verify_token === null, JSON.stringify(bAfter));
+  const bDb = sql(`SELECT role, is_verified FROM users WHERE id = ${B.id}`)[0];
+  record('privilege', 'attacker row in DB is role=user, unverified', bDb.role === 'user' && !bDb.is_verified, JSON.stringify(bDb));
+
+  sql(`INSERT INTO agent_profiles (user_id, status, brokerage_name, license_number, years_experience, bio) VALUES (${G.id}, 'approved', 'Authz Realty One', 'TESTLIC-1', 5, 'bio'), (${H.id}, 'approved', 'Authz Realty Two', 'TESTLIC-2', 6, 'bio')`);
+
+  const listingBody = (over) => ({ title: 'AUTHZ Home', city: 'San Diego', state: 'CA', propertyType: 'Single Family Home', beds: 3, baths: 2, estimatedValue: 600000,
+    address: MARK.address, clientName: MARK.clientName, description: 'authz test', locations: 'Sacramento, CA', desiredType: 'Condo', priceMin: 500000, priceMax: 700000,
+    minBeds: 1, minBaths: 1, cashMode: 'none', ...over });
+  const la = await A.call('POST', '/api/listings', listingBody());
+  const LA = la.json && la.json.id;
+  const lc = await C.call('POST', '/api/listings', listingBody({ title: 'AUTHZ Partner Home', city: 'Sacramento', propertyType: 'Condo', locations: 'San Diego, CA', desiredType: 'Single Family Home', address: '', clientName: '' }));
+  const LC = lc.json && lc.json.id;
+  console.log('listings', { LA, LC, laStatus: la.status, lcStatus: lc.status });
+
+  const ph = new FormData(); ph.append('photo', new Blob([PNG], { type: 'image/png' }), 'x.png');
+  const laPhoto = await A.call('POST', `/api/listings/${LA}/photos`, undefined, { form: ph });
+  const LA_PHOTO = laPhoto.json && laPhoto.json.id;
+
+  const post = await A.call('POST', '/api/posts', { body: 'AUTHZ post by A' });
+  const P = post.json && post.json.id;
+  const cm = await C.call('POST', `/api/posts/${P}/comments`, { body: MARK.comment });
+  const CM = cm.json && cm.json.id;
+  const conv = await A.call('POST', '/api/conversations', { userId: C.id });
+  const K = conv.json && conv.json.id;
+  await A.call('POST', `/api/conversations/${K}/messages`, { body: MARK.message });
+  const ss = await A.call('POST', '/api/saved-searches', { locations: 'San Diego', propertyType: 'Any' });
+  const SS = ss.json && ss.json.id;
+  const al = await A.call('POST', '/api/agent-search-alerts', { label: 'authz alert', filters: { minRating: 4 } });
+  const AL = al.json && al.json.id;
+
+  const pl = await A.call('POST', '/api/pre-listings', { title: 'AUTHZ Pre', askingPrice: 750000, city: 'San Diego', state: 'CA', zip: '92104', neighborhood: 'North Park', address: MARK.preAddress,
+    propertyType: 'Single Family Home', beds: 3, baths: 2, description: 'authz pre', occupancyStatus: 'occupied', showingNoticeHours: 24, specialInstructions: MARK.lockbox });
+  const PL = pl.json && pl.json.id;
+  const plPhotoForm = new FormData(); plPhotoForm.append('photo', new Blob([PNG], { type: 'image/png' }), 'x.png');
+  const plPhoto = await A.call('POST', `/api/pre-listings/${PL}/photos`, undefined, { form: plPhotoForm });
+  const PLPHOTO = plPhoto.json && plPhoto.json.id;
+  // A second pre-listing that stays open: the first one is awarded during setup, and awarded ones take no more price votes.
+  const PL2_BODY = { title: 'AUTHZ Pre 2', askingPrice: 750000, city: 'San Diego', state: 'CA', zip: '92104', neighborhood: 'North Park', address: MARK.preAddress,
+    propertyType: 'Single Family Home', beds: 3, baths: 2, description: 'authz pre 2', occupancyStatus: 'occupied', showingNoticeHours: 24, specialInstructions: MARK.lockbox };
+  const PL2 = ((await A.call('POST', '/api/pre-listings', PL2_BODY)).json || {}).id;
+
+  const tx = await A.call('POST', '/api/transactions', { listingIdA: LA, listingIdB: LC, note: 'authz swap' });
+  const T = tx.json && tx.json.id;
+  console.log('resources', { P, CM, K, SS, AL, PL, PLPHOTO, T, txStatus: tx.status, txErr: tx.status !== 201 ? tx.text.slice(0, 120) : '' });
+
+  const bidBody = { message: 'AUTHZ bid', commissionPct: 2, flatFee: 500, services: [{ type: 'photography' }], turnaroundDays: 3 };
+  const gBid = await G.call('POST', `/api/pre-listings/${PL}/bids`, bidBody);
+  const hBid = await H.call('POST', `/api/pre-listings/${PL}/bids`, { ...bidBody, message: 'AUTHZ bid H' });
+  console.log('bids', { g: gBid.status, h: hBid.status, gErr: gBid.status !== 201 ? gBid.text.slice(0, 140) : '' });
+  const plAsA = await A.call('GET', `/api/pre-listings/${PL}`);
+  const bids = (plAsA.json && plAsA.json.bids) || [];
+  const GBID = (bids.find(b => b.agentUserId === G.id) || {}).id;
+  const HBID = (bids.find(b => b.agentUserId === H.id) || {}).id;
+  let TG = null, TH = null;
+  if (T) {
+    const tg = await G.call('POST', `/api/transactions/${T}/bids`, bidBody); TG = tg.status;
+    const th = await H.call('POST', `/api/transactions/${T}/bids`, { ...bidBody, message: 'AUTHZ tx bid H' }); TH = th.status;
+  }
+  const txAsA = T ? await A.call('GET', `/api/transactions/${T}`) : null;
+  const tbids = (txAsA && txAsA.json && txAsA.json.bids) || [];
+  const TGBID = (tbids.find(b => b.agentUserId === G.id) || {}).id;
+  const THBID = (tbids.find(b => b.agentUserId === H.id) || {}).id;
+  console.log('bid ids', { GBID, HBID, TGBID, THBID, TG, TH });
+
+  // Award G on the pre-listing so milestones exist.
+  const acc = await A.call('PUT', `/api/pre-listings/${PL}/bids/${GBID}`, { action: 'accept' });
+  record('setup', 'owner can accept a proposal on their own pre-listing', acc.status === 200, `status ${acc.status}`);
+
+  // ---------- 1. anonymous ----------
+  console.log('\n== anonymous ==');
+  for (const [label, url] of [
+    ['pre-listing browse', '/api/pre-listings'], ['pre-listing detail', `/api/pre-listings/${PL}`], ['pre-listing photo list', `/api/pre-listings/${PL}/photos`],
+    ['pre-listing photo file', `/api/pre-listing-photos/${PLPHOTO}`], ['pre-listing votes', `/api/pre-listings/${PL}/votes`],
+    ['transaction list', '/api/transactions'], ['transaction detail', `/api/transactions/${T}`], ['conversation list', '/api/conversations'],
+    ['license photo', `/api/license-photos/${G.id}`], ['account export', '/api/account/export'], ['admin overview', '/api/admin/overview'],
+  ]) {
+    const r = await anon.call('GET', url);
+    record('anonymous', `${label} requires sign-in`, r.status === 401, `status ${r.status}`);
+  }
+  const anonListing = await anon.call('GET', `/api/listings/${LA}`);
+  const al_ = anonListing.json && anonListing.json.listing || {};
+  // The feed, its comments and groups are public by design (the feed handler explicitly serves anonymous viewers).
+  for (const [label, url] of [['post comments', `/api/posts/${P}/comments`], ['groups list', '/api/groups'], ['posts feed', '/api/posts']]) {
+    const r = await anon.call('GET', url);
+    record('anonymous', `${label} stay publicly readable (by design)`, r.status === 200, `status ${r.status}`);
+  }
+  record('anonymous', 'listing detail hides address, client name and views',anonListing.status === 200 && !('address' in al_) && !('client_name' in al_) && !('views' in al_), JSON.stringify(Object.keys(al_)).slice(0, 200));
+  const anonUser = await anon.call('GET', `/api/users/${A.id}`);
+  record('anonymous', 'public profile does not expose email or password hash', !/@example\.com|password|hash/i.test(anonUser.text), anonUser.text.slice(0, 120));
+  const anonAgent = await anon.call('GET', `/api/agents/${G.id}`);
+  const ap = anonAgent.json && anonAgent.json.profile || {};
+  record('anonymous', 'public agent profile leaves out internal fields', anonAgent.status === 200 && !('notifyNewRequests' in ap) && !('rejectionReason' in ap) && !('appliedAt' in ap) && !('reviewedAt' in ap), JSON.stringify(Object.keys(ap)).slice(0, 220));
+
+  // ---------- 1b. the live site and the demo stay separate ----------
+  console.log('\n== live vs demo ==');
+  const DEMO = "'%@demo.amicohaus.local'";
+  const demoListingIds = new Set(sql(`SELECT id FROM listings WHERE user_id IN (SELECT id FROM users WHERE email LIKE ${DEMO})`).map(r => r.id));
+  if (demoListingIds.size) {
+    const someDemo = [...demoListingIds][0];
+    record('separation', 'a demo listing has no public page', (await anon.call('GET', `/listing/${someDemo}`)).status === 404, '');
+    record('separation', 'a demo listing has no public API detail', (await anon.call('GET', `/api/listings/${someDemo}`)).status === 404, '');
+    record('separation', 'a demo listing has no API detail for a signed-in user either', (await A.call('GET', `/api/listings/${someDemo}`)).status === 404, '');
+    const dir = await anon.call('GET', '/api/directory?limit=100');
+    record('separation', 'the live directory contains no demo listing', dir.status === 200 && !dir.json.listings.some(l => demoListingIds.has(l.id)), '');
+    const sm = await anon.call('GET', '/sitemap.xml');
+    record('separation', 'the sitemap lists no demo listing', ![...demoListingIds].some(id => sm.text.includes(`/listing/${id}<`)), '');
+  } else console.log('  (no demo listings in this database — skipping demo-listing checks)');
+  const stats = await anon.call('GET', '/api/public-stats');
+  const truth = sql(`SELECT (SELECT COUNT(*) FROM agent_profiles JOIN users ON users.id = agent_profiles.user_id WHERE agent_profiles.status = 'approved' AND users.email NOT LIKE ${DEMO}) AS agents, (SELECT COUNT(*) FROM pre_listings JOIN users ON users.id = pre_listings.user_id WHERE pre_listings.status = 'open' AND users.email NOT LIKE ${DEMO}) + (SELECT COUNT(*) FROM transaction_requests JOIN users ON users.id = transaction_requests.user_a_id WHERE transaction_requests.status = 'open' AND users.email NOT LIKE ${DEMO}) AS requests, (SELECT COUNT(*) FROM listings JOIN users ON users.id = listings.user_id WHERE listings.status = 'active' AND listings.is_buyer_only = 0 AND users.email NOT LIKE ${DEMO} AND listings.id NOT IN (SELECT member_listing_id FROM portfolio_members)) AS listings`)[0];
+  record('separation', 'public stats are counts only and match the database exactly (demo excluded)', stats.status === 200 && Object.keys(stats.json).sort().join() === 'agents,listings,openRequests' && stats.json.agents === truth.agents && stats.json.openRequests === truth.requests && stats.json.listings === truth.listings, JSON.stringify(stats.json) + ' vs ' + JSON.stringify(truth));
+  const home = await anon.call('GET', '/');
+  record('separation', 'the home page ships no demo data or fictional agents', !home.text.includes('demo-sample-data.js') && !/Marisol Vega|Devon Brooks|Priya Nair|Tom Alvarez/.test(home.text), '');
+  const demoPage = await anon.call('GET', '/demo');
+  record('separation', 'the demo page is still the home of the fictional samples', demoPage.text.includes('demo-sample-data.js'), '');
+
+  // ---------- 2. attacker B (ordinary signed-in user) ----------
+  console.log('\n== attacker (signed-in, not a party) ==');
+  const chk = async (section, label, method, url, body) => { const r = await B.call(method, url, body); record(section, label, denied(r), `status ${r.status} ${r.text.slice(0, 90)}`); return r; };
+  await chk('listings', 'cannot edit another user\'s listing', 'PUT', `/api/listings/${LA}`, { action: 'edit', ...listingBody({ title: 'HACKED' }) });
+  await chk('listings', 'cannot pause another user\'s listing', 'PUT', `/api/listings/${LA}`, { action: 'pause' });
+  await chk('listings', 'cannot delete another user\'s listing', 'DELETE', `/api/listings/${LA}`);
+  { const f = new FormData(); f.append('photo', new Blob([PNG], { type: 'image/png' }), 'x.png'); const r = await B.call('POST', `/api/listings/${LA}/photos`, undefined, { form: f }); record('listings', 'cannot add photos to another user\'s listing', denied(r), `status ${r.status}`); }
+  if (LA_PHOTO) await chk('listings', 'cannot delete another user\'s listing photo', 'DELETE', `/api/listings/${LA}/photos/${LA_PHOTO}`);
+  const aAfter = await A.call('GET', `/api/listings/${LA}`);
+  record('listings', 'listing is untouched after the attempts', aAfter.json && aAfter.json.listing && aAfter.json.listing.title === 'AUTHZ Home' && aAfter.json.listing.status === 'active', JSON.stringify(aAfter.json && aAfter.json.listing && { t: aAfter.json.listing.title, s: aAfter.json.listing.status }));
+  const bListing = await B.call('GET', `/api/listings/${LA}`);
+  const bl = bListing.json && bListing.json.listing || {};
+  record('listings', 'listing detail hides address, client name and views from B', !('address' in bl) && !('client_name' in bl) && !('views' in bl), JSON.stringify(Object.keys(bl)).slice(0, 150));
+  const aOwn = await A.call('GET', `/api/listings/${LA}`);
+  record('listings', 'owner still sees address and client name', aOwn.json.listing.address === MARK.address && aOwn.json.listing.client_name === MARK.clientName, '');
+
+  await chk('posts', 'cannot delete another user\'s post', 'DELETE', `/api/posts/${P}`);
+  await chk('posts', 'cannot delete another user\'s comment', 'DELETE', `/api/comments/${CM}`);
+  const pStill = await A.call('GET', `/api/posts/${P}/comments`);
+  record('posts', 'comment still there', pStill.text.includes(MARK.comment), '');
+
+  await chk('messages', 'cannot read a conversation B isn\'t in', 'GET', `/api/conversations/${K}/messages`);
+  await chk('messages', 'cannot post into a conversation B isn\'t in', 'POST', `/api/conversations/${K}/messages`, { body: 'intrusion' });
+  const bConvos = await B.call('GET', '/api/conversations');
+  record('messages', 'conversation list does not include A↔C thread', !JSON.stringify(bConvos.json).includes(MARK.message) && (bConvos.json.conversations || []).length === 0, bConvos.text.slice(0, 100));
+
+  await B.call('DELETE', `/api/saved-searches/${SS}`);
+  const ssStill = await A.call('GET', '/api/saved-searches');
+  record('saved-searches', 'B cannot delete A\'s saved search', (ssStill.json.searches || []).some(s => s.id === SS), '');
+  await B.call('DELETE', `/api/agent-search-alerts/${AL}`);
+  const alStill = await A.call('GET', '/api/agent-search-alerts');
+  record('saved-searches', 'B cannot delete A\'s agent alert', (alStill.json.alerts || []).some(a => a.id === AL), '');
+
+  const bPl = await B.call('GET', `/api/pre-listings/${PL}`);
+  const bp = bPl.json && bPl.json.preListing || {};
+  record('pre-listing', 'B can browse a pre-listing but not its address or lockbox notes', bPl.status === 200 && !('address' in bp) && bp.specialInstructions === undefined && !bPl.text.includes(MARK.preAddress) && !bPl.text.includes(MARK.lockbox), `status ${bPl.status} keys=${Object.keys(bp).join(',').slice(0, 120)}`);
+  record('pre-listing', 'B sees no proposals', bPl.json && bPl.json.bids === null, JSON.stringify(bPl.json && bPl.json.bids).slice(0, 80));
+  await chk('pre-listing', 'cannot edit', 'PUT', `/api/pre-listings/${PL}`, { action: 'close' });
+  await chk('pre-listing', 'cannot delete', 'DELETE', `/api/pre-listings/${PL}`);
+  await chk('pre-listing', 'cannot accept a proposal', 'PUT', `/api/pre-listings/${PL}/bids/${HBID}`, { action: 'accept' });
+  await chk('pre-listing', 'cannot withdraw someone else\'s proposal', 'PUT', `/api/pre-listings/${PL}/bids/${GBID}`, { action: 'withdraw' });
+  await chk('pre-listing', 'non-agent cannot submit a proposal', 'POST', `/api/pre-listings/${PL}/bids`, bidBody);
+  await chk('pre-listing', 'non-agent cannot vote', 'POST', `/api/pre-listings/${PL}/votes`, { vote: 'too_high' });
+  await chk('pre-listing', 'cannot invite agents', 'POST', `/api/pre-listings/${PL}/invites`, { agentUserId: H.id });
+  { const f = new FormData(); f.append('photo', new Blob([PNG], { type: 'image/png' }), 'x.png'); const r = await B.call('POST', `/api/pre-listings/${PL}/photos`, undefined, { form: f }); record('pre-listing', 'cannot add photos', denied(r), `status ${r.status}`); }
+  await chk('pre-listing', 'cannot read the milestone checklist', 'GET', `/api/pre-listings/${PL}/milestones`);
+  await chk('pre-listing', 'cannot add a milestone', 'POST', `/api/pre-listings/${PL}/milestones`, { label: 'x' });
+  await chk('pre-listing', 'cannot raise a dispute', 'POST', `/api/pre-listings/${PL}/disputes`, { reason: 'x', description: 'x' });
+  await chk('pre-listing', 'cannot leave a review', 'POST', `/api/pre-listings/${PL}/review`, { rating: 1, comment: 'x' });
+  await chk('pre-listing', 'cannot review the homeowner', 'POST', `/api/pre-listings/${PL}/review-homeowner`, { rating: 1, comment: 'x' });
+  const bPhoto = await B.call('GET', `/api/pre-listing-photos/${PLPHOTO}`);
+  record('pre-listing', 'signed-in user can load a pre-listing photo (in-app use)', bPhoto.status === 200, `status ${bPhoto.status}`);
+
+  if (T) {
+    const bTx = await B.call('GET', `/api/transactions/${T}`);
+    record('transaction', 'B sees no proposals on someone else\'s trade', bTx.json && bTx.json.bids === null && bTx.json.isParty === false, JSON.stringify(bTx.json && { bids: bTx.json.bids, isParty: bTx.json.isParty }));
+    await chk('transaction', 'cannot accept a proposal', 'PUT', `/api/transactions/${T}/bids/${THBID}`, { action: 'accept' });
+    await chk('transaction', 'cannot withdraw another agent\'s proposal', 'PUT', `/api/transactions/${T}/bids/${TGBID}`, { action: 'withdraw' });
+    await chk('transaction', 'non-agent cannot bid', 'POST', `/api/transactions/${T}/bids`, bidBody);
+    await chk('transaction', 'cannot read milestones', 'GET', `/api/transactions/${T}/milestones`);
+    await chk('transaction', 'cannot add a milestone', 'POST', `/api/transactions/${T}/milestones`, { label: 'x' });
+    await chk('transaction', 'cannot raise a dispute', 'POST', `/api/transactions/${T}/disputes`, { reason: 'x', description: 'x' });
+    await chk('transaction', 'cannot invite agents', 'POST', `/api/transactions/${T}/invites`, { agentUserId: H.id });
+    await chk('transaction', 'cannot read invites', 'GET', `/api/transactions/${T}/invites`);
+    await chk('transaction', 'cannot leave a review', 'POST', `/api/transactions/${T}/review`, { rating: 1, comment: 'x' });
+  }
+
+  // ---------- 3. a different approved agent (H) ----------
+  console.log('\n== other approved agent (H) ==');
+  const hPl = await H.call('GET', `/api/pre-listings/${PL}`);
+  const hp = hPl.json && hPl.json.preListing || {};
+  record('agent', 'agent sees lockbox notes but never the street address', hp.specialInstructions === MARK.lockbox && !('address' in hp) && !hPl.text.includes(MARK.preAddress), `keys=${Object.keys(hp).join(',').slice(0, 100)}`);
+  record('agent', 'agent sees only their own proposal, not competitors\'', hPl.json.bids === null && hPl.json.myBid && hPl.json.myBid.id === HBID && !hPl.text.includes('"AUTHZ bid"'), JSON.stringify(hPl.json.myBid).slice(0, 100));
+  const hchk = async (label, method, url, body) => { const r = await H.call(method, url, body); record('agent', label, denied(r), `status ${r.status} ${r.text.slice(0, 90)}`); };
+  await hchk('cannot accept a proposal on a pre-listing they don\'t own', 'PUT', `/api/pre-listings/${PL}/bids/${HBID}`, { action: 'accept' });
+  await hchk('cannot withdraw a competitor\'s proposal', 'PUT', `/api/pre-listings/${PL}/bids/${GBID}`, { action: 'withdraw' });
+  await hchk('non-awarded agent cannot read milestones', 'GET', `/api/pre-listings/${PL}/milestones`);
+  await hchk('non-awarded agent cannot add a milestone', 'POST', `/api/pre-listings/${PL}/milestones`, { label: 'x' });
+  await hchk('non-awarded agent cannot raise a dispute', 'POST', `/api/pre-listings/${PL}/disputes`, { reason: 'x', description: 'x' });
+  await hchk('non-awarded agent cannot review the homeowner', 'POST', `/api/pre-listings/${PL}/review-homeowner`, { rating: 1, comment: 'x' });
+  await hchk('cannot edit the pre-listing', 'PUT', `/api/pre-listings/${PL}`, { action: 'close' });
+  // "Local agent experts": the tally says how many votes came from agents whose service area covers the home (92104).
+  const hVote = await H.call('POST', `/api/pre-listings/${PL2}/votes`, { vote: 'too_high' });
+  const hTally = (await H.call('GET', `/api/pre-listings/${PL2}/votes`)).json.votes || {};
+  record('agent', 'approved agent can vote; an agent with no service area is not counted as local', hVote.status === 200 && hTally.total === 1 && hTally.nearby === 0, JSON.stringify(hTally));
+  sql(`UPDATE agent_profiles SET service_zips_json = '["91910"]' WHERE user_id = ${G.id}`); // Chula Vista, ~8 miles from 92104
+  await G.call('POST', `/api/pre-listings/${PL2}/votes`, { vote: 'just_right' });
+  const gTally = (await G.call('GET', `/api/pre-listings/${PL2}/votes`)).json.votes || {};
+  record('agent', 'a vote from an agent serving a zip within 20 miles counts as local', gTally.total === 2 && gTally.nearby === 1 && gTally.too_high === 1 && gTally.just_right === 1, JSON.stringify(gTally));
+  sql(`UPDATE agent_profiles SET service_zips_json = '["90210"]' WHERE user_id = ${G.id}`); // Beverly Hills, ~110 miles away
+  const gFar = (await G.call('GET', `/api/pre-listings/${PL2}/votes`)).json.votes || {};
+  record('agent', 'an agent serving only a far-away zip is not counted as local', gFar.total === 2 && gFar.nearby === 0, JSON.stringify(gFar));
+  sql(`UPDATE agent_profiles SET service_zips_json = '[]' WHERE user_id = ${G.id}`);
+  const gPl = await G.call('GET', `/api/pre-listings/${PL}`);
+  record('agent', 'awarded agent still cannot see the street address', !('address' in (gPl.json.preListing || {})) && !gPl.text.includes(MARK.preAddress), '');
+  const gAccept = await G.call('PUT', `/api/pre-listings/${PL}/bids/${HBID}`, { action: 'accept' });
+  record('agent', 'an agent cannot accept proposals on the homeowner\'s behalf', denied(gAccept) || gAccept.status === 400, `status ${gAccept.status}`);
+  const gMs = await G.call('GET', `/api/pre-listings/${PL}/milestones`);
+  record('agent', 'awarded agent CAN read the checklist', gMs.status === 200, `status ${gMs.status}`);
+  const aMs = await A.call('GET', `/api/pre-listings/${PL}/milestones`);
+  record('agent', 'homeowner CAN read the checklist', aMs.status === 200, `status ${aMs.status}`);
+  if (T) {
+    const hTx = await H.call('GET', `/api/transactions/${T}`);
+    record('transaction', 'agent sees only their own proposal on a trade', hTx.json.bids === null && hTx.json.myBid && hTx.json.myBid.id === THBID && !hTx.text.includes('"AUTHZ bid"'), JSON.stringify(hTx.json.myBid).slice(0, 100));
+    await hchk('cannot accept a trade proposal (not a party)', 'PUT', `/api/transactions/${T}/bids/${THBID}`, { action: 'accept' });
+    await hchk('cannot accept the competitor\'s trade proposal', 'PUT', `/api/transactions/${T}/bids/${TGBID}`, { action: 'accept' });
+    const cTx = await C.call('PUT', `/api/transactions/${T}/bids/${TGBID}`, { action: 'accept' });
+    record('transaction', 'the OTHER trade partner (C) can accept a proposal', cTx.status === 200, `status ${cTx.status} ${cTx.text.slice(0, 80)}`);
+    const bTxMs = await B.call('GET', `/api/transactions/${T}/milestones`);
+    record('transaction', 'stranger still cannot read the trade checklist after award', denied(bTxMs), `status ${bTxMs.status}`);
+    const gTxMs = await G.call('GET', `/api/transactions/${T}/milestones`);
+    record('transaction', 'awarded agent can read the trade checklist', gTxMs.status === 200, `status ${gTxMs.status}`);
+    const hTxMs = await H.call('GET', `/api/transactions/${T}/milestones`);
+    record('transaction', 'the losing agent cannot read the trade checklist', denied(hTxMs), `status ${hTxMs.status}`);
+  }
+
+  // ---------- 4. admin + escalation ----------
+  console.log('\n== admin / escalation ==');
+  for (const [label, method, url, body] of [
+    ['approve an agent application', 'PUT', `/api/admin/agent-applications/${B.id}`, { approve: true }],
+    ['verify a license', 'PUT', `/api/admin/agent-applications/${G.id}/verify-license`, { verified: true }],
+    ['verify a user', 'POST', `/api/admin/users/${A.id}`, { action: 'verify' }],
+    ['resolve a report', 'POST', `/api/admin/reports/1`, { action: 'dismiss' }],
+    ['resolve a dispute', 'PUT', `/api/admin/disputes/1`, { action: 'resolve' }],
+    ['run the seed tool', 'POST', `/api/admin/seed`, { count: 1 }],
+    ['read the audit log', 'GET', `/api/admin/audit-log`], ['read the admin overview', 'GET', `/api/admin/overview`],
+    ['list agent applications', 'GET', `/api/admin/agent-applications`], ['list reports', 'GET', `/api/admin/reports`], ['list disputes', 'GET', `/api/admin/disputes`],
+  ]) { const r = await B.call(method, url, body); record('admin', `ordinary user cannot ${label}`, r.status === 403, `status ${r.status}`); }
+  await B.call('PUT', '/api/me', { role: 'admin', isVerified: true, is_verified: 1, email: 'x@example.com', displayName: 'Authz attacker' });
+  const bNow = sql(`SELECT role, is_verified, email FROM users WHERE id = ${B.id}`)[0];
+  record('privilege', 'PUT /api/me cannot change role, verification or email', bNow.role === 'user' && !bNow.is_verified && bNow.email === B.email, JSON.stringify(bNow));
+  const apply = await B.call('POST', '/api/agents/apply', { brokerageName: 'Attacker Realty', licenseNumber: 'FAKE-1', yearsExperience: 3, bio: 'x', defaultCommissionPct: 2,
+    services: [{ type: 'photography' }], serviceZips: ['92104'], status: 'approved', licenseVerified: true, license_verified: 1, isApproved: true });
+  const bAgent = sql(`SELECT status, license_verified FROM agent_profiles WHERE user_id = ${B.id}`)[0] || {};
+  record('privilege', 'applying as an agent cannot self-approve or self-verify', apply.status === 201 && bAgent.status === 'pending' && !bAgent.license_verified, JSON.stringify(bAgent) + ` apply=${apply.status} ${apply.status !== 201 ? apply.text.slice(0, 100) : ''}`);
+  const bTryBid = await B.call('POST', `/api/pre-listings/${PL}/bids`, bidBody);
+  record('privilege', 'a pending (unapproved) agent cannot submit proposals', denied(bTryBid), `status ${bTryBid.status}`);
+
+  // An approved agent changing their license number must lose the admin's "verified" badge.
+  sql(`UPDATE agent_profiles SET license_verified = 1, license_verified_by = ${H.id} WHERE user_id = ${G.id}`);
+  const editBody = (lic) => ({ brokerageName: 'Authz Realty One', licenseNumber: lic, yearsExperience: 5, bio: 'bio', defaultCommissionPct: 2, services: [{ type: 'photography' }], serviceZips: ['92104'] });
+  await G.call('POST', '/api/agents/apply', editBody('TESTLIC-1'));
+  const same = sql(`SELECT status, license_verified FROM agent_profiles WHERE user_id = ${G.id}`)[0];
+  record('agent', 'editing a profile without touching the license number keeps "verified"', same.status === 'approved' && same.license_verified === 1, JSON.stringify(same));
+  await G.call('POST', '/api/agents/apply', editBody('CHANGED-LICENSE-9'));
+  const changed = sql(`SELECT status, license_verified, license_verified_by FROM agent_profiles WHERE user_id = ${G.id}`)[0];
+  record('agent', 'changing the license number voids "verified" (approval itself is kept)', changed.status === 'approved' && changed.license_verified === 0 && changed.license_verified_by === null, JSON.stringify(changed));
+
+  // Cross-resource: B owns a listing, then targets A's photo through B's own listing id.
+  const lb = await B.call('POST', '/api/listings', listingBody({ title: 'Attacker Home', address: '', clientName: '' }));
+  const LB = lb.json && lb.json.id;
+  const xdel = await B.call('DELETE', `/api/listings/${LB}/photos/${LA_PHOTO}`);
+  const aPhotos = await A.call('GET', `/api/listings/${LA}/photos`);
+  record('listings', 'deleting A\'s photo through B\'s own listing id is refused and the photo survives', denied(xdel) && (aPhotos.json.photos || []).some(p => p.id === LA_PHOTO), `del=${xdel.status} photos=${aPhotos.text.slice(0, 80)}`);
+  const pfull = await B.call('PUT', `/api/pre-listings/${PL}`, { title: 'HACKED', askingPrice: 1, city: 'x', state: 'CA', zip: '92104', propertyType: 'Condo', beds: 1, baths: 1 });
+  const plNow = sql(`SELECT title, status FROM pre_listings WHERE id = ${PL}`)[0];
+  record('pre-listing', 'a full edit of A\'s pre-listing by B is refused and nothing changes', denied(pfull) && plNow.title === 'AUTHZ Pre', `status ${pfull.status} row=${JSON.stringify(plNow)}`);
+  const pf = await B.call('POST', '/api/portfolios', { title: 'steal', memberListingIds: [LA, LB], locations: 'San Diego, CA', desiredType: 'Any', priceMin: 1, priceMax: 2, minBeds: 0, minBaths: 0 });
+  const stolen = sql(`SELECT COUNT(*) AS n FROM portfolio_members WHERE member_listing_id = ${LA}`)[0];
+  record('listings', 'B cannot bundle A\'s listing into B\'s portfolio', denied(pf) && stolen.n === 0, `status ${pf.status} members=${stolen.n} ${pf.text.slice(0, 80)}`);
+
+  // Blocks: a signed-in viewer who blocked someone no longer sees their comments; anonymous readers still do.
+  await A.call('POST', '/api/blocks', { userId: C.id });
+  const aSeesC = await A.call('GET', `/api/posts/${P}/comments`);
+  const anonSeesC = await anon.call('GET', `/api/posts/${P}/comments`);
+  record('blocks', 'a blocked user\'s comments are hidden from the blocker but not from anonymous readers', !aSeesC.text.includes(MARK.comment) && anonSeesC.text.includes(MARK.comment), `blocker sees=${aSeesC.text.includes(MARK.comment)} anon sees=${anonSeesC.text.includes(MARK.comment)}`);
+  const bProp = await B.call('POST', '/api/pre-listings', { title: 'x', askingPrice: 1, city: 'x', state: 'CA', zip: '92104', propertyType: 'Condo', beds: 1, baths: 1, userId: A.id, user_id: A.id });
+  const owner = bProp.json && bProp.json.id ? sql(`SELECT user_id FROM pre_listings WHERE id = ${bProp.json.id}`)[0] : null;
+  record('privilege', 'creating a pre-listing with someone else\'s user id in the body is ignored', !owner || owner.user_id === B.id, JSON.stringify(owner));
+  const lp = await B.call('GET', `/api/license-photos/${G.id}`);
+  record('privilege', 'another agent\'s license photo endpoint is forbidden', lp.status === 403, `status ${lp.status}`);
+
+  // Notifications: B marking read must not touch A.
+  const aBefore = await A.call('GET', '/api/notifications');
+  await B.call('POST', '/api/notifications/read-all');
+  const aAfterN = await A.call('GET', '/api/notifications');
+  record('notifications', 'B\'s "mark all read" does not affect A\'s unread count', aBefore.json.unreadCount === aAfterN.json.unreadCount, `${aBefore.json.unreadCount} -> ${aAfterN.json.unreadCount}`);
+
+  // ---------- 4b. the owner's own Edit / Close buttons ----------
+  console.log('\n== owner edit and close ==');
+  const ownerView = (await A.call('GET', `/api/pre-listings/${PL2}`)).json || {};
+  const ov = ownerView.preListing || {};
+  record('owner', 'the owner gets back everything the edit form needs, including the private address', ownerView.isOwner === true && ov.address === MARK.preAddress && ov.specialInstructions === MARK.lockbox && ov.askingPrice === 750000, JSON.stringify(Object.keys(ov)).slice(0, 120));
+  const p2Photo = new FormData(); p2Photo.append('photo', new Blob([PNG], { type: 'image/png' }), 'y.png');
+  const PL2PHOTO = ((await A.call('POST', `/api/pre-listings/${PL2}/photos`, undefined, { form: p2Photo })).json || {}).id;
+  const tally = async () => ((await A.call('GET', `/api/pre-listings/${PL2}/votes`)).json || {}).votes || {};
+  const t0 = await tally();
+
+  const e1 = await A.call('PUT', `/api/pre-listings/${PL2}`, { ...PL2_BODY, title: 'AUTHZ Pre 2 edited', beds: 4 });
+  const row1 = sql(`SELECT title, beds, asking_price FROM pre_listings WHERE id = ${PL2}`)[0];
+  record('owner', 'the owner can edit their open pre-listing', e1.status === 200 && row1.title === 'AUTHZ Pre 2 edited' && row1.beds === 4, `status ${e1.status} row=${JSON.stringify(row1)}`);
+  record('owner', 'editing without touching the price keeps the price votes', e1.json && e1.json.votesCleared === 0 && (await tally()).total === t0.total && t0.total === 2, `votes ${JSON.stringify(await tally())}`);
+  const eBad = await A.call('PUT', `/api/pre-listings/${PL2}`, { ...PL2_BODY, zip: 'abc' });
+  record('owner', 'an edit with invalid details is refused and changes nothing', eBad.status === 400 && sql(`SELECT zip FROM pre_listings WHERE id = ${PL2}`)[0].zip === '92104', `status ${eBad.status}`);
+
+  const bDelPhoto = await B.call('DELETE', `/api/pre-listings/${PL2}/photos/${PL2PHOTO}`);
+  const hDelPhoto = await H.call('DELETE', `/api/pre-listings/${PL2}/photos/${PL2PHOTO}`);
+  const anonDelPhoto = await anon.call('DELETE', `/api/pre-listings/${PL2}/photos/${PL2PHOTO}`);
+  record('owner', "neither another user, another agent nor an anonymous visitor can remove the owner's photo", denied(bDelPhoto) && denied(hDelPhoto) && denied(anonDelPhoto) && sql(`SELECT COUNT(*) AS n FROM pre_listing_photos WHERE id = ${PL2PHOTO}`)[0].n === 1, `b=${bDelPhoto.status} h=${hDelPhoto.status} anon=${anonDelPhoto.status}`);
+  const bOwn = bProp.json && bProp.json.id;
+  if (bOwn) {
+    const viaOwn = await B.call('DELETE', `/api/pre-listings/${bOwn}/photos/${PL2PHOTO}`);
+    record('owner', "B's own pre-listing id can't be used to remove A's photo", denied(viaOwn) && sql(`SELECT COUNT(*) AS n FROM pre_listing_photos WHERE id = ${PL2PHOTO}`)[0].n === 1, `status ${viaOwn.status}`);
+  }
+
+  const e2 = await A.call('PUT', `/api/pre-listings/${PL2}`, { ...PL2_BODY, askingPrice: 700000 });
+  const t2 = await tally();
+  record('owner', 'changing the asking price clears the price votes (they were about the old price)', e2.status === 200 && e2.json.votesCleared === 2 && t2.total === 0 && t2.nearby === 0, `status ${e2.status} ${JSON.stringify(e2.json)} tally ${JSON.stringify(t2)}`);
+
+  const delOwn = await A.call('DELETE', `/api/pre-listings/${PL2}/photos/${PL2PHOTO}`);
+  const gone = await A.call('GET', `/api/pre-listing-photos/${PL2PHOTO}`);
+  record('owner', 'the owner can remove their own photo (and the file is gone)', delOwn.status === 200 && gone.status === 404 && sql(`SELECT COUNT(*) AS n FROM pre_listing_photos WHERE id = ${PL2PHOTO}`)[0].n === 0, `delete ${delOwn.status}, fetch ${gone.status}`);
+
+  const awardedClose = await A.call('PUT', `/api/pre-listings/${PL}`, { action: 'close' });
+  record('owner', 'an awarded pre-listing cannot be closed out from under its agent', awardedClose.status === 400 && sql(`SELECT status FROM pre_listings WHERE id = ${PL}`)[0].status === 'awarded', `status ${awardedClose.status}`);
+  const awardedEdit = await A.call('PUT', `/api/pre-listings/${PL}`, { ...PL2_BODY, title: 'AUTHZ Pre' });
+  record('owner', 'an awarded pre-listing cannot be edited', awardedEdit.status === 400, `status ${awardedEdit.status}`);
+
+  const hBrowseBefore = ((await H.call('GET', '/api/pre-listings')).json || {}).preListings || [];
+  const close1 = await A.call('PUT', `/api/pre-listings/${PL2}`, { action: 'close' });
+  record('owner', 'the owner can close their open pre-listing', close1.status === 200 && sql(`SELECT status FROM pre_listings WHERE id = ${PL2}`)[0].status === 'closed', `status ${close1.status}`);
+  const hBrowseAfter = ((await H.call('GET', '/api/pre-listings')).json || {}).preListings || [];
+  record('owner', 'a closed pre-listing drops out of the agents\' browse list', hBrowseBefore.some(x => x.id === PL2) && !hBrowseAfter.some(x => x.id === PL2), `before=${hBrowseBefore.length} after=${hBrowseAfter.length}`);
+  const hVoteClosed = await H.call('POST', `/api/pre-listings/${PL2}/votes`, { vote: 'just_right' });
+  const hBidClosed = await H.call('POST', `/api/pre-listings/${PL2}/bids`, bidBody);
+  record('owner', 'a closed pre-listing takes no more votes or proposals', hVoteClosed.status === 400 && hBidClosed.status === 400 && (await tally()).total === 0, `vote ${hVoteClosed.status} bid ${hBidClosed.status}`);
+  const close2 = await A.call('PUT', `/api/pre-listings/${PL2}`, { action: 'close' });
+  const editClosed = await A.call('PUT', `/api/pre-listings/${PL2}`, { ...PL2_BODY, title: 'reopened?' });
+  record('owner', 'a closed pre-listing cannot be closed again or edited', close2.status === 400 && editClosed.status === 400 && sql(`SELECT title FROM pre_listings WHERE id = ${PL2}`)[0].title === 'AUTHZ Pre 2', `close ${close2.status} edit ${editClosed.status}`);
+
+  // ---------- 5. leak scan: everything B, H and anonymous can GET, grepped for planted secrets ----------
+  console.log('\n== leak scan ==');
+  const urls = ['/api/me', '/api/directory', '/api/matches', '/api/listings', `/api/listings/${LA}`, `/api/users/${A.id}`, `/api/users/${C.id}`, '/api/pre-listings', `/api/pre-listings/${PL}`,
+    `/api/pre-listings/${PL}/photos`, `/api/pre-listings/${PL}/votes`, '/api/transactions', `/api/transactions/${T}`, '/api/agents/directory', `/api/agents/${G.id}`, '/api/agents/service-estimates',
+    '/api/groups', '/api/groups/1', '/api/groups/2', '/api/posts', `/api/posts/${P}/comments`, '/api/conversations', '/api/notifications', '/api/favorites', '/api/hidden-listings',
+    '/api/saved-searches', '/api/agent-search-alerts', '/api/referrals', '/api/demo-overview', '/api/broker/stats', '/api/agents/my-bids', '/api/agents/my-invites', '/api/agents/favorites', `/sitemap.xml`];
+  const secrets = [['client name', MARK.clientName], ['listing address', MARK.address], ['pre-listing address', MARK.preAddress], ['lockbox note (non-agent)', MARK.lockbox], ['private message', MARK.message],
+    ['A email', A.email], ['C email', C.email], ['password hash', 'password_hash'], ['verify token', 'verify_token'], ['reset token', 'reset_token'], ['R2 key', 'r2_key'], ['session', 'ah_session']];
+  for (const who of [B, anon]) {
+    for (const url of urls) {
+      const r = await who.call('GET', url);
+      for (const [name, needle] of secrets) {
+        if (name === 'lockbox note (non-agent)' && who === H) continue;
+        if (r.text.includes(needle)) record('leak', `${who.role} response to GET ${url} contains ${name}`, false, needle);
+      }
+    }
+  }
+  record('leak', `scanned ${urls.length} endpoints as attacker and anonymous for ${secrets.length} kinds of secret`, !findings.some(f => f.startsWith('[leak]')), '');
+
+  // ---------- collect ids for cleanup ----------
+  writeCleanupFile();
+
+  console.log(`\n${results.length} checks, ${findings.length} failed`);
+  if (findings.length) { console.log('\nFAILURES:'); findings.forEach(f => console.log('  - ' + f)); }
+  console.log('\ncleanup file written: authz_cleanup.json');
+})().catch(e => {
+  console.error('HARNESS ERROR', e);
+  try { console.error(`cleanup file written for ${writeCleanupFile()} test account(s): run authz-cleanup.js`); } catch (e2) { console.error('could not write the cleanup file:', e2.message); }
+  process.exit(2);
+});

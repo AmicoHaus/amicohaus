@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300">
+  <defs>
+    <linearGradient id="sky7" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e9f0ea"/>
+      <stop offset="1" stop-color="#f7f4ee"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="300" fill="url(#sky7)"/>
+  <rect x="0" y="230" width="400" height="70" fill="#dfe6d8"/>
+  <path d="M80 230 L80 155 L170 100 L260 155 L260 230 Z" fill="#6f8f6a"/>
+  <path d="M65 160 L170 90 L275 160 L255 160 L170 108 L85 160 Z" fill="#182430"/>
+  <rect x="110" y="180" width="35" height="50" fill="#22303d"/>
+  <rect x="195" y="175" width="30" height="30" fill="#f7f4ee" stroke="#182430" stroke-width="3"/>
+  <!-- for-lease sign -->
+  <rect x="300" y="190" width="6" height="45" fill="#8a6a44"/>
+  <rect x="270" y="170" width="70" height="35" fill="#f7f4ee" stroke="#182430" stroke-width="3"/>
+  <text x="305" y="192" font-family="Georgia, serif" font-size="13" font-weight="bold" fill="#182430" text-anchor="middle">FOR</text>
+  <text x="305" y="203" font-family="Georgia, serif" font-size="11" fill="#a9793f" text-anchor="middle">LEASE</text>
+</svg>

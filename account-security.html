@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Account Security — Amico Haus</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <a class="agent-strip" href="/about">Presented by <strong>Rudy Flores</strong> &middot; Coldwell Banker West &middot; DRE #02257808</a>
+  <header class="topbar">
+    <a class="brand" href="/app">
+      <svg viewBox="0 0 48 48" class="logo" aria-hidden="true">
+        <path d="M24 4 L44 20 V42 H30 V28 H18 V42 H4 V20 Z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+      </svg>
+      <span class="brand-text">AMICO <span class="accent">HAUS</span></span>
+    </a>
+  </header>
+  <main class="prose">
+    <h1>Account Security</h1>
+    <p class="section-sub" id="statusLine">Loading…</p>
+
+    <div id="twoFactorOff" class="hidden">
+      <h2>Two-factor authentication</h2>
+      <p>Not enabled. Add an extra step at login using any authenticator app (Google Authenticator, Authy, 1Password, etc.) on your phone.</p>
+      <button class="btn btn-primary" id="startSetupBtn">Set Up Two-Factor</button>
+
+      <div id="setupPanel" class="hidden">
+        <p class="form-note trust">Add a new account in your authenticator app and enter this key manually (no QR scanning needed):</p>
+        <p><code id="secretDisplay" class="secret-code"></code></p>
+        <div class="field">
+          <label for="setupCode">Enter the 6-digit code it shows</label>
+          <input type="text" id="setupCode" maxlength="6" pattern="[0-9]{6}" inputmode="numeric" placeholder="123456">
+        </div>
+        <button class="btn btn-primary" id="confirmSetupBtn">Confirm</button>
+      </div>
+    </div>
+
+    <div id="twoFactorOn" class="hidden">
+      <h2>Two-factor authentication</h2>
+      <p>✅ Enabled — you'll be asked for a code from your authenticator app when logging in.</p>
+      <div class="field">
+        <label for="disablePassword">Enter your password to disable</label>
+        <input type="password" id="disablePassword" maxlength="200">
+      </div>
+      <button class="btn btn-danger" id="disableBtn">Disable Two-Factor</button>
+    </div>
+
+    <h2>Notifications</h2>
+    <label class="checkbox-row"><input type="checkbox" id="notifyMatchesCheckbox"><span>Email me when I get a new match</span></label>
+    <p class="tiny">You'll still see new matches in the app's notification bell either way — this only controls the email.</p>
+    <div class="field" id="emailFrequencyField">
+      <label for="emailFrequencySelect">Email frequency</label>
+      <select id="emailFrequencySelect">
+        <option value="capped">Limit to a few a day (recommended)</option>
+        <option value="every">Email me every single match</option>
+      </select>
+      <p class="tiny">On a busy day, "a few a day" skips extra match emails after the first several — you'll still see everything in the bell icon. Doesn't apply to messages.</p>
+    </div>
+    <label class="checkbox-row"><input type="checkbox" id="pushNotifCheckbox"><span>Enable push notifications on this device</span></label>
+    <p class="tiny">Get an alert on this device for new matches and messages, even when Amico Haus isn't open.</p>
+    <button type="button" class="btn btn-ghost btn-sm hidden" id="sendTestPushBtn">Send Test Notification</button>
+
+    <h2>Invite Friends</h2>
+    <p class="section-sub">Share your link — anyone who signs up through it counts toward your referrals.</p>
+    <div class="field"><label for="referralLink">Your referral link</label><input type="text" id="referralLink" readonly></div>
+    <div class="form-actions"><button type="button" class="btn btn-ghost btn-sm" id="copyReferralBtn">Copy Link</button></div>
+    <p class="tiny" id="referralCount"></p>
+
+    <h2>Blocked Users</h2>
+    <div class="stack" id="blockedList"><span class="tiny">Loading…</span></div>
+
+    <h2>Your Data</h2>
+    <p>Download everything Amico Haus has stored for your account — your listings, posts, comments, sent messages, saved searches, and notifications.</p>
+    <a class="btn btn-ghost" href="/api/account/export" download="amicohaus-data-export.json">Export My Data</a>
+
+    <h2>Delete Account</h2>
+    <p>This permanently deletes your account, listings, posts, comments, and messages. This cannot be undone.</p>
+    <div class="field">
+      <label for="deletePassword">Enter your password to confirm</label>
+      <input type="password" id="deletePassword" maxlength="200">
+    </div>
+    <button class="btn btn-danger" id="deleteAccountBtn">Delete My Account</button>
+  </main>
+</div>
+<script src="client.js"></script>
+<script src="page-account-security.js"></script>
+<!-- Cloudflare Web Analytics -->
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "91a193988b2d45e58aa1c27d5abf6bdb"}'></script>
+<!-- End Cloudflare Web Analytics -->
+</body>
+</html>

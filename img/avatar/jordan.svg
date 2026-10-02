@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="240" height="240" role="img" aria-label="Illustrated portrait of Jordan">
+  <defs>
+    <radialGradient id="bg" cx="0.5" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#dfe9d3"/><stop offset="1" stop-color="#a9c28f"/>
+    </radialGradient>
+  </defs>
+  <rect width="120" height="120" fill="url(#bg)"/>
+  <circle cx="43" cy="37" r="9" fill="#8b4a2c"/><circle cx="52" cy="29" r="10" fill="#8b4a2c"/><circle cx="64" cy="28" r="10" fill="#8b4a2c"/><circle cx="75" cy="35" r="10" fill="#8b4a2c"/><circle cx="39" cy="48" r="7.5" fill="#8b4a2c"/><circle cx="81" cy="48" r="7.5" fill="#8b4a2c"/><circle cx="60" cy="24" r="9" fill="#8b4a2c"/>
+  <path d="M38 84 L82 84 L82 120 L38 120 Z" fill="#f4f1ea"/>
+  <path d="M50 64 L50 86 Q60 93 70 86 L70 64 Z" fill="#dba47d"/>
+  <path d="M5 120 C7 98 28 88 48 85 L60 107 L57 120 Z" fill="#4b5d70"/>
+  <path d="M115 120 C113 98 92 88 72 85 L60 107 L63 120 Z" fill="#4b5d70"/>
+  <path d="M48 85 L60 107 L51 100 Z" fill="#000" opacity="0.18"/>
+  <path d="M72 85 L60 107 L69 100 Z" fill="#000" opacity="0.18"/>
+  
+  <ellipse cx="39.5" cy="54" rx="3.6" ry="5.2" fill="#f0c6a2"/>
+  <ellipse cx="80.5" cy="54" rx="3.6" ry="5.2" fill="#f0c6a2"/>
+  <ellipse cx="60" cy="52" rx="20.5" ry="24.5" fill="#f0c6a2"/>
+  
+  <path d="M47 45.5 Q52 42.8 57 45.2" fill="none" stroke="#8b4a2c" stroke-width="2.1" stroke-linecap="round"/>
+  <path d="M63 45.2 Q68 42.8 73 45.5" fill="none" stroke="#8b4a2c" stroke-width="2.1" stroke-linecap="round"/>
+  <ellipse cx="52" cy="52" rx="2.1" ry="2.5" fill="#251c1a"/>
+  <ellipse cx="68" cy="52" rx="2.1" ry="2.5" fill="#251c1a"/>
+  <path d="M60 54.5 Q63 60.5 59.2 61.8" fill="none" stroke="#dba47d" stroke-width="1.6" stroke-linecap="round"/>
+  <circle cx="46.5" cy="60.5" r="4.2" fill="#d9584c" opacity="0.13"/>
+  <circle cx="73.5" cy="60.5" r="4.2" fill="#d9584c" opacity="0.13"/>
+  <path d="M52 65 Q60 74 68 65" fill="none" stroke="#7d3a33" stroke-width="2" stroke-linecap="round"/>
+  <path d="M41 45 C43 34 52 31 60 31 C68 31 77 34 79 45 C73 39 67 37 60 37 C53 37 47 39 41 45 Z" fill="#8b4a2c"/>
+  
+</svg>

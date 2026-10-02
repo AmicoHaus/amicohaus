@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Amico Haus — Local Agent Experts Weigh In on Your Home's Price</title>
+<meta name="description" content="Post a pre-listing showcase, let local agent experts evaluate your price and share their strategy, then choose. Or trade your home instead of listing it.">
+<link rel="canonical" href="https://amicohaus.com/">
+<meta property="og:image" content="https://amicohaus.com/og-image.png">
+<meta name="twitter:image" content="https://amicohaus.com/og-image.png">
+<meta name="theme-color" content="#182430">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Amico Haus">
+<meta property="og:title" content="Amico Haus — Local Agent Experts Weigh In on Your Home's Price">
+<meta property="og:description" content="A pre-listing showcase: local agent experts evaluate your price and share their strategy, and you choose. Or trade your home instead of listing it.">
+<meta property="og:url" content="https://amicohaus.com/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Amico Haus — Local Agent Experts Weigh In on Your Home's Price">
+<meta name="twitter:description" content="Post a pre-listing showcase, hear what local agent experts think of your price, and compare their strategies.">
+
+<link rel="stylesheet" href="styles.css">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "Amico Haus",
+  "url": "https://amicohaus.com/",
+  "description": "A pre-listing showcase where local real estate agent experts evaluate a home's asking price and present their strategy for selling it — fee, included services and turnaround — and the homeowner compares and chooses. The evaluation is mutual: agents assess the home, the homeowner assesses each agent, and both review each other. Homeowners can also match for home trades, including multi-party daisy-chain trades.",
+  "applicationCategory": "BusinessApplication",
+  "operatingSystem": "Any web browser",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"Amico Haus","url":"https://amicohaus.com/","logo":"https://amicohaus.com/icon-512.png","founder":{"@type":"Person","name":"Rudy Flores"}}</script>
+</head>
+<body>
+<noscript>
+  <p style="max-width:640px;margin:40px auto;padding:0 20px;font-family:Georgia,serif;color:#1c2128;">
+    Amico Haus is a pre-listing showcase: post your home and local real estate agent experts evaluate your
+    asking price and share their strategy for selling it — fee, included services and turnaround — so you can
+    compare and choose. Homeowners can also trade homes instead of listing them. Enable JavaScript to use the live app.
+  </p>
+</noscript>
+
+<div id="app">
+  <a class="agent-strip" href="/about">Presented by <strong>Rudy Flores</strong> &middot; Coldwell Banker West &middot; DRE #02257808</a>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 48 48" class="logo" aria-hidden="true">
+        <path d="M24 4 L44 20 V42 H30 V28 H18 V42 H4 V20 Z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+      </svg>
+      <span class="brand-text">AMICO <span class="accent">HAUS</span></span>
+    </div>
+    <nav class="tabs" id="mainNav">
+      <a class="tab tab-demo" href="/demo">Demo - Start Here!</a>
+      <a class="tab" href="/#how">How it works</a>
+      <a class="tab" href="/#directory">Live listings</a>
+      <a class="tab" href="/calculator">Calculator</a>
+      <a class="tab" href="/about">About</a>
+    </nav>
+    <div class="auth-cta" id="authCta">
+      <a class="btn btn-ghost btn-sm" href="/login">Log In</a>
+      <a class="btn btn-primary btn-sm" href="/signup">Sign Up</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <p class="eyebrow">Agent Strategy &middot; a pre-listing showcase</p>
+      <h1>Local agent experts weigh in on your home's price — before you list.</h1>
+      <p class="lede">Post a pre-listing showcase of your home. Local agents evaluate your asking price — too high, about right, or too low — and lay out their strategy for selling it: their fee, what's included, and how fast they can start. It's a mutual evaluation: you weigh each strategy and track record, and they earn the listing on the strength of theirs.</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="/signup?as=homeowner">Post a Pre-Listing</a>
+        <a class="btn btn-ghost" href="/signup?as=agent">I'm an Agent</a>
+        <a class="btn btn-ghost" href="/demo">See a walkthrough</a>
+      </div>
+      <p class="trust-line">Price feedback is an opinion, not an appraisal &middot; No payments run through Amico Haus &middot; Presented by Rudy Flores, Coldwell Banker West</p>
+      <div class="live-strip hidden" id="liveNumbers" role="status" aria-live="polite">
+        <span class="live-label">Live right now</span>
+        <span class="live-item" id="liveAgents"></span>
+        <span class="live-item" id="liveRequests"></span>
+        <span class="live-item" id="liveListings"></span>
+        <a class="live-note" href="/demo">Sample data lives in the demo</a>
+      </div>
+    </section>
+
+    <section class="how-it-works" id="how">
+      <h2>How Agent Strategy works</h2>
+      <p class="section-sub">A pre-listing is a showcase of your home before it's on the market. It's how local agent experts evaluate your price and show you their strategy — and how you evaluate them.</p>
+      <ol class="steps">
+        <li><span class="step-num">1</span><div><strong>Post a pre-listing showcase</strong><p>Basic details, photos, your asking price and any preferences — a local specialist, a language, a minimum experience level. Your street address stays private.</p></div></li>
+        <li><span class="step-num">2</span><div><strong>Local agent experts evaluate the price</strong><p>Approved agents weigh in on whether your asking price looks too high, too low, or about right — so you hear it from people who know the market before you list.</p></div></li>
+        <li><span class="step-num">3</span><div><strong>Agents share their strategy</strong><p>Each proposes a fee, what's included and how fast they can start. Compare ratings, response times, win rates and packages side by side — or invite an agent you already know.</p></div></li>
+        <li><span class="step-num">4</span><div><strong>Choose, then review each other</strong><p>Accept the strategy that fits. A shared checklist tracks the work, and afterward both sides review each other, so the evaluation goes both ways.</p></div></li>
+      </ol>
+    </section>
+
+    <section class="home-section" id="audiences">
+      <div class="audience-grid">
+        <div class="card audience-card">
+          <h2>For homeowners</h2>
+          <ul class="feature-list">
+            <li>Hear it before you list: agents weigh in on whether your asking price looks too high, too low, or about right.</li>
+            <li>Compare each agent's strategy — fee, included services and turnaround — side by side.</li>
+            <li>Ask for what matters: a local specialist, a language, years of experience.</li>
+            <li>Already know an agent? Invite them straight to your pre-listing.</li>
+          </ul>
+          <a class="btn btn-primary btn-sm" href="/signup?as=homeowner">Post a Pre-Listing</a>
+        </div>
+        <div class="card audience-card">
+          <h2>For agents</h2>
+          <ul class="feature-list">
+            <li>Apply to be vetted — an admin reviews what you report about your license and brokerage.</li>
+            <li>See homes before they hit the market, and say what you'd do differently.</li>
+            <li>Build a profile with service packages, case studies, a video introduction and your service area.</li>
+            <li>Win listings on your strategy and track record, and earn reviews from every client.</li>
+          </ul>
+          <a class="btn btn-primary btn-sm" href="/signup?as=agent">Apply as an Agent</a>
+        </div>
+      </div>
+      <p class="tiny">Agents are reviewed by an admin based on what they report about themselves. Amico Haus does not independently verify license numbers with any state licensing board — always confirm an agent's license yourself before engaging them. An agent's view of your price is an opinion, not an appraisal.</p>
+    </section>
+
+    <section class="home-section" id="meet-agents">
+      <div class="panel-header">
+        <h2>Meet the agents</h2>
+        <a class="btn btn-ghost btn-sm" href="/demo">See sample profiles in the demo</a>
+      </div>
+      <p class="section-sub">Real agents appear here as an admin approves them. Want to see how a profile reads? The demo has fictional samples.</p>
+      <div class="grid" id="realAgents"><div class="empty-state">Loading…</div></div>
+    </section>
+
+    <section class="home-section trade-callout" id="trade">
+      <h2>Prefer to trade than sell?</h2>
+      <p>Amico Haus also lets homeowners trade homes instead of listing them. Post what you have and what would make you move, and we'll find mutual matches — including daisy chains where three or more homeowners each get what they want. Either partner in a match can bring agents in to help coordinate the closing.</p>
+      <a class="btn btn-ghost btn-sm" href="#directory">Browse live listings</a>
+    </section>
+
+    <section id="directory">
+      <div class="panel-header">
+        <h2>Live listings</h2>
+        <div class="view-toggle">
+          <button type="button" class="btn btn-ghost btn-sm active" id="viewListBtn">List</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="viewMapBtn">Map</button>
+        </div>
+      </div>
+      <p class="section-sub">A public look at active listings — no account needed to browse.</p>
+      <form id="directoryFilters" class="form-row three-col">
+        <div class="field"><label for="filterCity">City</label><input type="text" id="filterCity" placeholder="e.g. San Diego"></div>
+        <div class="field"><label for="filterState">State</label><input type="text" id="filterState" placeholder="e.g. CA"></div>
+        <div class="field"><label for="filterType">Property type</label><select id="filterType"><option value="">Any type</option></select></div>
+      </form>
+      <form id="directoryFilters2" class="form-row three-col">
+        <div class="field"><label for="filterPriceMin">Min price ($)</label><input type="number" id="filterPriceMin" min="0" max="500000000" step="1000"></div>
+        <div class="field"><label for="filterPriceMax">Max price ($)</label><input type="number" id="filterPriceMax" min="0" max="500000000" step="1000"></div>
+        <div class="field"><label for="filterSort">Sort by</label>
+          <select id="filterSort">
+            <option value="newest">Newest first</option>
+            <option value="price_asc">Price: low to high</option>
+            <option value="price_desc">Price: high to low</option>
+          </select>
+        </div>
+      </form>
+      <form id="directoryFilters3" class="form-row three-col">
+        <div class="field"><label for="filterKind">Listing type</label>
+          <select id="filterKind">
+            <option value="">Trades, rentals &amp; portfolios</option>
+            <option value="trade">For trade only</option>
+            <option value="rental">Ultra-luxury rentals only</option>
+            <option value="portfolio">Property portfolios only</option>
+          </select>
+        </div>
+      </form>
+      <div class="grid" id="directoryGrid"><div class="empty-state">Loading…</div></div>
+      <div id="directoryMap" class="hidden"></div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    Amico Haus — where homeowners and vetted agents find each other. <a href="/about">About</a> · <a href="/contact">Contact</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="https://www.tiktok.com/@amicohaus" target="_blank" rel="noopener noreferrer">TikTok</a> · <a href="https://www.youtube.com/@amicohaus" target="_blank" rel="noopener noreferrer">YouTube</a>
+  </footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="client.js"></script>
+<script src="agent-cards.js"></script>
+<script src="page-home.js"></script>
+<!-- Cloudflare Web Analytics -->
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "91a193988b2d45e58aa1c27d5abf6bdb"}'></script>
+<!-- End Cloudflare Web Analytics -->
+</body>
+</html>

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — Amico Haus</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <a class="agent-strip" href="/about">Presented by <strong>Rudy Flores</strong> &middot; Coldwell Banker West &middot; DRE #02257808</a>
+  <header class="topbar">
+    <a class="brand" href="/">
+      <svg viewBox="0 0 48 48" class="logo" aria-hidden="true">
+        <path d="M24 4 L44 20 V42 H30 V28 H18 V42 H4 V20 Z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+      </svg>
+      <span class="brand-text">AMICO <span class="accent">HAUS</span></span>
+    </a>
+  </header>
+  <main>
+    <h1>Admin Tools</h1>
+    <p class="section-sub" id="statusLine">Checking admin access…</p>
+
+    <div id="controls" class="hidden">
+      <h2>Moderation Queue</h2>
+      <p class="section-sub">User-submitted reports on posts, comments, and listings.</p>
+      <div class="form-actions">
+        <button class="btn btn-ghost" id="refreshReportsBtn">Refresh Reports</button>
+      </div>
+      <div class="stack" id="reportsList"></div>
+
+      <h2>Pending Agent Applications</h2>
+      <p class="section-sub">Vetting review for the Pre-Listings Marketplace — approving an application only confirms you reviewed what they self-reported (license number, brokerage). Amico Haus does not independently verify license numbers with any state board.</p>
+      <div class="form-actions">
+        <button class="btn btn-ghost" id="refreshAgentAppsBtn">Refresh Applications</button>
+      </div>
+      <div class="stack" id="agentApplicationsList"></div>
+
+      <h2>Open Disputes</h2>
+      <p class="section-sub">Homeowner/agent disputes raised on an awarded Pre-Listings Marketplace engagement — record-keeping only, there's no payment held on the platform to refund.</p>
+      <div class="form-actions">
+        <button class="btn btn-ghost" id="refreshDisputesBtn">Refresh Disputes</button>
+      </div>
+      <div class="stack" id="disputesList"></div>
+
+      <h2>Admin Activity Log</h2>
+      <p class="section-sub">A record of moderation and account actions taken by admins.</p>
+      <div class="stack" id="auditLogList"></div>
+
+      <h2>Generate Demo Data</h2>
+      <div class="field">
+        <label for="targetCount">How many demo users to create</label>
+        <input type="number" id="targetCount" value="400" min="1" max="20000" step="50">
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" id="startBtn">Generate</button>
+      </div>
+      <p class="form-note trust">Seeded accounts use @demo.amicohaus.local emails and no password — they're for demo purposes only and can be removed later without touching real accounts. Listings are concentrated in California, Florida, New York, and Washington so a smaller batch still produces plenty of overlap.</p>
+      <div class="stack" id="progressLog"></div>
+
+      <h2>Platform Activity</h2>
+      <p class="section-sub">See matches and daisy chains happening between seeded users right now — this is the platform-wide view, not just your own account's matches.</p>
+      <div class="form-actions">
+        <button class="btn btn-ghost" id="refreshOverviewBtn">Refresh Platform Matches</button>
+      </div>
+      <div class="stat-grid" id="overviewStats"></div>
+      <h3>Sample Mutual Matches</h3>
+      <div class="stack" id="overviewMatches"></div>
+      <h3>Sample Daisy Chains</h3>
+      <div class="stack" id="overviewChains"></div>
+
+      <h2>Overall Feed</h2>
+      <p class="section-sub">Every post across the whole platform — the global feed and every group's feed combined, newest first.</p>
+      <div class="stack" id="overviewFeed"></div>
+    </div>
+  </main>
+</div>
+<script src="client.js"></script>
+<script src="page-admin-seed.js"></script>
+<!-- Cloudflare Web Analytics -->
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "91a193988b2d45e58aa1c27d5abf6bdb"}'></script>
+<!-- End Cloudflare Web Analytics -->
+</body>
+</html>

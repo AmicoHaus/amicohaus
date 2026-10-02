@@ -1,0 +1,8 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "com.amicohaus.app",
+    "sha256_cert_fingerprints": ["2C:53:11:7E:D3:47:C7:ED:B2:16:EE:27:03:00:2B:0B:72:7A:2E:CA:4D:AC:AB:63:03:A8:B1:56:AC:CA:8D:20"]
+  }
+}]

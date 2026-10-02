@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Amico Haus — App</title>
+<meta name="theme-color" content="#182430">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <a class="agent-strip" href="/about">Presented by <strong>Rudy Flores</strong> &middot; Coldwell Banker West &middot; DRE #02257808</a>
+  <header class="topbar">
+    <a class="brand" href="/">
+      <svg viewBox="0 0 48 48" class="logo" aria-hidden="true">
+        <path d="M24 4 L44 20 V42 H30 V28 H18 V42 H4 V20 Z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+      </svg>
+      <span class="brand-text">AMICO <span class="accent">HAUS</span></span>
+    </a>
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-tab="marketplace">Agent Strategy</button>
+      <button class="tab" data-tab="feed">Feed</button>
+      <button class="tab" data-tab="listing">My Listing</button>
+      <button class="tab" data-tab="groups">Groups</button>
+      <button class="tab" data-tab="matches">Matches</button>
+      <button class="tab" data-tab="saved">Saved</button>
+      <button class="tab" data-tab="messages">Messages</button>
+    </nav>
+    <div class="auth-cta">
+      <button class="btn btn-ghost btn-sm" id="notifBtn">🔔 <span id="notifBadge" class="hidden"></span></button>
+      <span class="tiny" id="whoami"></span>
+      <a class="btn btn-ghost btn-sm" href="/calculator">Calculator</a>
+      <a class="btn btn-ghost btn-sm" href="/account-security">Security</a>
+      <button class="btn btn-ghost btn-sm" id="logoutBtn">Log Out</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- FEED -->
+    <section id="tab-feed" class="tab-panel">
+      <h1>Feed</h1>
+      <div id="onboardingBanner" class="card onboarding-banner hidden">
+        <h3>👋 Welcome to Amico Haus!</h3>
+        <p>Post what your home has and what would make you move — that's what gets you matched with other homeowners. It only takes a minute.</p>
+        <button type="button" class="btn btn-primary btn-sm" id="onboardingCreateBtn">Create Your Listing</button>
+      </div>
+      <form id="postForm" class="post-form">
+        <textarea id="postBody" maxlength="2000" placeholder="Talk about a trade you're looking for…" required></textarea>
+        <button type="submit" class="btn btn-primary btn-sm">Post</button>
+      </form>
+      <div class="stack" id="feedList"><div class="empty-state">Loading…</div></div>
+    </section>
+
+    <!-- MY LISTING -->
+    <section id="tab-listing" class="tab-panel">
+      <h1>My Listings</h1>
+      <p class="section-sub">List your own home, or add properties on behalf of clients — just fill in their name below so it's clear who each listing represents.</p>
+      <div id="brokerStats" class="stats-bar hidden"></div>
+      <div id="myListingSummary"></div>
+      <div class="form-actions hidden" id="addAnotherWrap">
+        <button type="button" class="btn btn-ghost btn-sm" id="addAnotherBtn">+ Add Another Listing</button>
+      </div>
+
+      <details id="bulkUploadWrap" class="panel bulk-upload">
+        <summary>Broker tools: bulk-upload multiple client listings from a spreadsheet</summary>
+        <p class="section-sub">Upload a CSV of properties instead of entering them one at a time — trade listings and rentals can be mixed in the same file. <a href="/api/listings/bulk-template" download>Download the CSV template</a> to see the exact columns expected.</p>
+        <div class="field"><label>CSV file</label><input type="file" id="bulkCsvInput" accept=".csv,text/csv"></div>
+        <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="bulkUploadBtn">Upload</button></div>
+        <div id="bulkUploadResults"></div>
+      </details>
+
+      <details id="portfolioWrap" class="panel bulk-upload hidden">
+        <summary>Bundle multiple properties into one portfolio trade</summary>
+        <p class="section-sub">Own (or list on behalf of one client) more than one property? Bundle 2 or more of your active listings into a single portfolio — trade the whole group for one larger home, or for someone else's portfolio.</p>
+        <div class="field" id="portfolioMembersField">
+          <label>Properties to include <span class="required-mark">*</span></label>
+          <select id="portfolioMembers" multiple size="6"></select>
+          <p class="tiny">Hold Ctrl (or Cmd) to select more than one. Only your own active, unbundled trade listings appear here.</p>
+        </div>
+        <div class="field"><label>Portfolio title (optional)</label><input type="text" id="portfolioTitle" maxlength="120" placeholder="e.g. Jane Smith's 3-Property Portfolio"></div>
+        <div class="field"><label>Target locations <span class="required-mark">*</span></label><input type="text" id="portfolioLocations" maxlength="200" placeholder="e.g. Aspen, CO; Anywhere"></div>
+        <div class="form-row two-col">
+          <div class="field"><label>Property type wanted</label><select id="portfolioDesiredType"></select></div>
+          <div class="field"><label>Min price ($) <span class="required-mark">*</span></label><input type="number" id="portfolioPriceMin" min="0" max="500000000" step="1000"></div>
+        </div>
+        <div class="form-row two-col">
+          <div class="field"><label>Max price ($) <span class="required-mark">*</span></label><input type="number" id="portfolioPriceMax" min="0" max="500000000" step="1000"></div>
+          <div class="field"><label>Min beds <span class="required-mark">*</span></label><input type="number" id="portfolioMinBeds" min="0" max="50"></div>
+        </div>
+        <div class="form-row two-col">
+          <div class="field"><label>Min baths <span class="required-mark">*</span></label><input type="number" id="portfolioMinBaths" min="0" max="50" step="0.5"></div>
+          <div class="field"><label>Must-haves</label><input type="text" id="portfolioMustHaves" maxlength="200"></div>
+        </div>
+        <div class="field">
+          <label>Cash flexibility</label>
+          <select id="portfolioCashMode">
+            <option value="none">No cash adjustment expected</option>
+            <option value="pay">Willing to add cash to close the gap</option>
+            <option value="receive">Wants to walk away with extra cash</option>
+          </select>
+        </div>
+        <div class="field hidden" id="portfolioCashAmountField"><label>Cash amount ($)</label><input type="number" id="portfolioCashAmount" min="0" max="500000000" step="1000"></div>
+        <p class="form-note">All bundled properties must belong to the same owner (or the same client) — a portfolio trade means exchanging everything in it at once. The combined value shown is just the sum of what you entered for each property; it isn't an appraisal. Once created, a portfolio can be dissolved (releasing every property back to its own independent listing) but not edited — dissolve and re-create it to change what's included.</p>
+        <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="createPortfolioBtn">Create Portfolio</button></div>
+      </details>
+
+      <div class="panel hidden" id="listingDraftBanner">
+        <p class="section-sub">You have an unfinished listing draft saved on this device.</p>
+        <div class="form-actions">
+          <button type="button" class="btn btn-primary btn-sm" data-action="restore-draft">Restore Draft</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-action="discard-draft">Discard</button>
+        </div>
+      </div>
+
+      <div id="listingFormWrap">
+        <h2>Create a Listing</h2>
+        <p class="section-sub">What you have, and what would make you move. Only city/neighborhood is shown publicly.</p>
+        <label class="checkbox-row"><input type="checkbox" id="isBuyerOnly"><span>I'm a first-time / primary buyer — I don't have a home to trade yet</span></label>
+        <label class="checkbox-row"><input type="checkbox" id="isRental"><span>This is an ultra-luxury rental — I want to lease this home instead of trading it</span></label>
+        <form id="listingForm" class="profile-form">
+          <div class="mirror-columns">
+            <fieldset class="panel" id="whatYouHaveFieldset">
+              <legend>🏠 What you have</legend>
+              <div class="field"><label>Title (optional)</label><input type="text" id="title" maxlength="120" placeholder="e.g. 3bd Condo near the Marina"></div>
+              <div class="field"><label>Client name (optional — leave blank if this is your own home)</label><input type="text" id="clientName" maxlength="100" placeholder="e.g. Jane Smith"></div>
+              <div class="form-row two-col">
+                <div class="field"><label>City <span class="required-mark">*</span></label><input type="text" id="city" required maxlength="80"></div>
+                <div class="field"><label>State <span class="required-mark">*</span></label><input type="text" id="state" required maxlength="20"></div>
+              </div>
+              <div class="field"><label>Neighborhood (public)</label><input type="text" id="neighborhood" maxlength="80"></div>
+              <div class="field"><label>Street address (private)</label><input type="text" id="address" maxlength="150"></div>
+              <div class="form-row two-col">
+                <div class="field"><label>Property type <span class="required-mark">*</span></label><select id="propertyType"></select></div>
+                <div class="field"><label>Estimated value ($) <span class="required-mark">*</span></label><input type="number" id="estimatedValue" required min="0" max="500000000" step="1000"></div>
+              </div>
+              <div class="form-row three-col">
+                <div class="field"><label>Beds <span class="required-mark">*</span></label><input type="number" id="beds" required min="0" max="50"></div>
+                <div class="field"><label>Baths <span class="required-mark">*</span></label><input type="number" id="baths" required min="0" max="50" step="0.5"></div>
+                <div class="field"><label>Sq ft</label><input type="number" id="sqft" min="0" max="200000" step="50"></div>
+              </div>
+              <div class="field"><label>External links (Airbnb, Zillow, etc — one per line)</label><textarea id="externalLinks" maxlength="800" placeholder="https://airbnb.com/rooms/..."></textarea></div>
+              <div class="field"><label>Photos (up to 8, added after you create the listing)</label><input type="file" id="listingPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple></div>
+              <label class="checkbox-row"><input type="checkbox" id="showExactAddress"><span>Reveal exact address once matched</span></label>
+            </fieldset>
+
+            <fieldset class="panel" id="whatYouWantFieldset">
+              <legend>🎯 What would make you move</legend>
+              <div class="field"><label>Target locations <span class="required-mark">*</span></label><input type="text" id="locations" required maxlength="200" placeholder="e.g. Boston, MA; Anywhere"></div>
+              <div class="form-row two-col">
+                <div class="field"><label>Property type wanted</label><select id="desiredType"></select></div>
+                <div class="field"><label>Min price ($) <span class="required-mark">*</span></label><input type="number" id="priceMin" required min="0" max="500000000" step="1000"></div>
+              </div>
+              <div class="form-row two-col">
+                <div class="field"><label>Max price ($) <span class="required-mark">*</span></label><input type="number" id="priceMax" required min="0" max="500000000" step="1000"></div>
+                <div class="field"><label>Min beds <span class="required-mark">*</span></label><input type="number" id="minBeds" required min="0" max="50"></div>
+              </div>
+              <div class="form-row two-col">
+                <div class="field"><label>Min baths <span class="required-mark">*</span></label><input type="number" id="minBaths" required min="0" max="50" step="0.5"></div>
+                <div class="field"><label>Must-haves</label><input type="text" id="mustHaves" maxlength="200"></div>
+              </div>
+              <div class="field">
+                <label>Cash flexibility</label>
+                <select id="cashMode">
+                  <option value="none">No cash adjustment expected</option>
+                  <option value="pay">Willing to add cash to close the gap</option>
+                  <option value="receive">Wants to walk away with extra cash</option>
+                </select>
+              </div>
+              <div class="field hidden" id="cashAmountField"><label>Cash amount ($)</label><input type="number" id="cashAmount" min="0" max="500000000" step="1000"></div>
+            </fieldset>
+
+            <fieldset class="panel hidden" id="rentalFieldset">
+              <legend>🔑 Rental terms</legend>
+              <div class="form-row two-col">
+                <div class="field"><label>Monthly rent ($) <span class="required-mark">*</span></label><input type="number" id="rentAmount" min="1" max="2000000" step="100"></div>
+                <div class="field"><label>Minimum lease term (months)</label><input type="number" id="minLeaseMonths" min="1" max="360" value="12"></div>
+              </div>
+              <p class="form-note">Some tenants may offer to prepay a lump sum covering multiple years of rent instead of paying monthly. Because that removes vacancy and collection risk for you, the platform's calculator suggests a lease-term range up to 15% longer than the exact rent-equivalent for lump-sum offers — the actual term, price, and lease are always negotiated directly between you and the tenant, not set by the platform.</p>
+            </fieldset>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary" id="listingSubmitBtn">Create Listing</button>
+            <button type="button" class="btn btn-ghost hidden" id="cancelListingBtn">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- GROUPS -->
+    <section id="tab-groups" class="tab-panel">
+      <h1>Groups</h1>
+      <p class="section-sub">You're placed automatically by area and by home-value tier once you create a listing.</p>
+      <div class="grid" id="groupsGrid"><div class="empty-state">Loading…</div></div>
+      <div id="groupDetail" class="hidden">
+        <button class="link-btn" id="backToGroups">← All groups</button>
+        <h2 id="groupDetailTitle"></h2>
+        <div class="stack" id="groupMembers"></div>
+        <h3>Posts in this group</h3>
+        <form id="groupPostForm" class="post-form">
+          <textarea id="groupPostBody" maxlength="2000" placeholder="Post to this group…" required></textarea>
+          <button type="submit" class="btn btn-primary btn-sm">Post</button>
+        </form>
+        <div class="stack" id="groupPosts"></div>
+      </div>
+    </section>
+
+    <!-- MATCHES -->
+    <section id="tab-matches" class="tab-panel">
+      <h1>Matches</h1>
+      <h2>Mutual Matches</h2>
+      <div class="stack" id="matchesList"><div class="empty-state">Loading…</div></div>
+      <h2>Daisy Chains</h2>
+      <div class="stack" id="chainsList"></div>
+
+      <h2>Archived</h2>
+      <p class="section-sub">Matches you've thumbed up or down are moved here, out of your main feed.</p>
+      <div class="stack" id="archivedMatchesList"></div>
+
+      <h2>Saved Searches</h2>
+      <p class="section-sub">Get notified the moment a new listing matches these criteria.</p>
+      <form id="savedSearchForm" class="form-row three-col">
+        <div class="field"><label for="savedLocations">Locations</label><input type="text" id="savedLocations" required maxlength="200" placeholder="e.g. Denver, CO"></div>
+        <div class="field"><label for="savedType">Type</label><select id="savedType"><option value="Any">Any type</option></select></div>
+        <div class="field"><label for="savedPriceMax">Max price ($)</label><input type="number" id="savedPriceMax" min="0" max="500000000" step="1000"></div>
+      </form>
+      <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="addSavedSearchBtn">Add Saved Search</button></div>
+      <div class="stack" id="savedSearchList"></div>
+    </section>
+
+    <!-- MARKETPLACE -->
+    <section id="tab-marketplace" class="tab-panel active">
+      <h1>Agent Strategy</h1>
+      <p class="section-sub">A pre-listing showcase for a mutual evaluation of your home's price. Post your home before you list it and local agent experts weigh in on the asking price — too high, about right, or too low — and share their strategy for selling it: fee, included services and timeline. You compare their strategies, portfolios and reviews; they assess your home; and you review each other afterward. Already have an agent you trust? Skip all this — it's entirely optional.</p>
+      <p class="form-note">Amico Haus vets agents by reviewing what they self-report (license number, brokerage) — it does not independently confirm license numbers with any state licensing board. Always verify a license yourself before engaging anyone. Nothing here is a guarantee of a sale, a fee quote, or legal/financial advice, and Amico Haus is not a party to any resulting engagement.</p>
+
+      <div id="marketplaceListView">
+        <div class="audience-grid path-cards">
+          <div class="card audience-card">
+            <h2>I'm a homeowner</h2>
+            <p class="tiny">Post a pre-listing showcase and let local agent experts evaluate your price and share their strategy.</p>
+            <div class="card-actions">
+              <button type="button" class="btn btn-primary btn-sm" data-action="goto-post-home">Post a pre-listing</button>
+              <button type="button" class="btn btn-ghost btn-sm" data-action="goto-agent-directory">Find an agent</button>
+            </div>
+          </div>
+          <div class="card audience-card">
+            <h2>I'm an agent</h2>
+            <p class="tiny">Get vetted, build your profile, weigh in on homes' prices and share your strategy.</p>
+            <div class="card-actions">
+              <button type="button" class="btn btn-primary btn-sm" data-action="goto-become-agent">Agent profile &amp; application</button>
+              <button type="button" class="btn btn-ghost btn-sm" data-action="goto-open-requests">Browse open requests</button>
+            </div>
+          </div>
+        </div>
+
+        <details class="panel bulk-upload" id="postHomeWrap">
+          <summary>Post a pre-listing showcase</summary>
+          <p class="section-sub">Basic details, a few photos, and your asking price — agents will propose their fee and included prep services, and can weigh in on whether your price is on target.</p>
+          <div class="form-row two-col">
+            <div class="field"><label>Title (optional)</label><input type="text" id="plTitle" maxlength="120" placeholder="e.g. Charming 3bd near downtown"></div>
+            <div class="field"><label>Asking price ($) <span class="required-mark">*</span></label><input type="number" id="plAskingPrice" min="1" max="500000000" step="1000"></div>
+          </div>
+          <div class="form-row three-col">
+            <div class="field"><label>City <span class="required-mark">*</span></label><input type="text" id="plCity" maxlength="80"></div>
+            <div class="field"><label>State <span class="required-mark">*</span></label><input type="text" id="plState" maxlength="20"></div>
+            <div class="field"><label>Zip <span class="required-mark">*</span></label><input type="text" id="plZip" maxlength="10" placeholder="5-digit zip" inputmode="numeric"></div>
+          </div>
+          <div class="field"><label>Neighborhood (public)</label><input type="text" id="plNeighborhood" maxlength="80"></div>
+          <div class="field"><label>Street address (private — only you can see it)</label><input type="text" id="plAddress" maxlength="150"></div>
+          <div class="form-row three-col">
+            <div class="field"><label>Property type <span class="required-mark">*</span></label><select id="plPropertyType"></select></div>
+            <div class="field"><label>Beds <span class="required-mark">*</span></label><input type="number" id="plBeds" min="0" max="50"></div>
+            <div class="field"><label>Baths <span class="required-mark">*</span></label><input type="number" id="plBaths" min="0" max="50" step="0.5"></div>
+          </div>
+          <div class="field"><label>Sq ft</label><input type="number" id="plSqft" min="0" max="200000" step="50"></div>
+          <div class="field"><label>Description</label><textarea id="plDescription" maxlength="2000" placeholder="Anything agents should know before proposing"></textarea></div>
+          <div class="form-row two-col">
+            <div class="field"><label>Will the home be occupied or vacant during the sale?</label>
+              <select id="plOccupancyStatus"><option value="occupied">Occupied</option><option value="vacant">Vacant</option></select>
+            </div>
+            <div class="field"><label>Showing notice required (hours)</label><input type="number" id="plShowingNoticeHours" min="0" max="336" placeholder="0 = no notice needed"></div>
+          </div>
+          <div class="field"><label>Special instructions for agents (lockbox, sign preference, pets, etc.)</label><textarea id="plSpecialInstructions" maxlength="500"></textarea></div>
+
+          <p class="tiny"><strong>Optional preferences for agents (informational only — not a contract term or a hard requirement):</strong></p>
+          <div class="form-row three-col">
+            <div class="field"><label>Min. years of experience</label><input type="number" id="plMinYearsExperience" min="0" max="80"></div>
+            <div class="field"><label>Preferred language</label><input type="text" id="plPreferredLanguage" maxlength="40" placeholder="e.g. Spanish"></div>
+            <div class="field"><label>Preferred agreement length (months)</label><input type="number" id="plPreferredAgreementMonths" min="1" max="60"></div>
+          </div>
+          <div class="form-row two-col">
+            <label class="checkbox-row"><input type="checkbox" id="plRequireDedicatedContact"><span>I want a single dedicated point of contact, no team hand-offs</span></label>
+            <label class="checkbox-row"><input type="checkbox" id="plPrefersExclusive"><span>I'd prefer an exclusive listing agreement</span></label>
+          </div>
+          <label class="checkbox-row"><input type="checkbox" id="plPrefersLocalSpecialist"><span>I'd prefer an agent who specializes in my specific area, not one covering a huge territory</span></label>
+
+          <div class="field"><label>Photos (up to 8, added after posting)</label><input type="file" id="plPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple></div>
+          <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="createPreListingBtn">Post for Proposals</button></div>
+        </details>
+
+        <details class="panel bulk-upload" id="costEstimatorWrap">
+          <summary>Ballpark Cost Estimator</summary>
+          <p class="section-sub">Check off what you think you'll need — this shows the typical fee range agents on Amico Haus are currently listing for each, so you know roughly what to expect before proposals come in. Not a quote; actual proposals may differ.</p>
+          <div id="costEstimatorServices"></div>
+          <div class="mini-block" id="costEstimatorTotal"><span class="label">Estimated total</span>Check a service above to see a range.</div>
+        </details>
+
+        <h2>My Pre-Listings</h2>
+        <div class="stack" id="myPreListingsList"><div class="empty-state">Loading…</div></div>
+
+        <h2>My Trade Transaction Requests</h2>
+        <p class="section-sub">Opened from an existing mutual trade match to bring in agent help finalizing a swap — start one from a match card on the Matches tab.</p>
+        <div class="stack" id="myTransactionsList"><div class="empty-state">Loading…</div></div>
+
+        <details class="panel bulk-upload" id="becomeAgentWrap">
+          <summary id="becomeAgentSummary">Become a vetted agent</summary>
+          <p class="section-sub">Apply to bid on pre-listings and transaction requests. Reviewed by an Amico Haus admin based on what you enter here — <strong>your license number is not independently verified with any state board.</strong></p>
+          <div id="agentApplicationStatus"></div>
+          <div class="form-row two-col">
+            <div class="field"><label>Brokerage name <span class="required-mark">*</span></label><input type="text" id="agentBrokerage" maxlength="150"></div>
+            <div class="field"><label>License number <span class="required-mark">*</span></label><input type="text" id="agentLicense" maxlength="60"></div>
+          </div>
+          <div class="form-row two-col">
+            <div class="field"><label>Years of experience</label><input type="number" id="agentYears" min="0" max="80"></div>
+            <div class="field"><label>Homes sold last 12 months (self-reported)</label><input type="number" id="agentHomesSold" min="0" max="10000"></div>
+          </div>
+          <div class="form-row two-col">
+            <div class="field"><label>Average days on market (self-reported)</label><input type="number" id="agentAvgDom" min="0" max="3650"></div>
+            <div class="field"><label>Sale-to-list price ratio (self-reported, e.g. 0.98 = 98%)</label><input type="number" id="agentSaleToList" min="0" max="2" step="0.01"></div>
+          </div>
+          <div class="field"><label>Bio / pitch</label><textarea id="agentBio" maxlength="2000" placeholder="Tell homeowners about your track record…"></textarea></div>
+          <div class="field"><label>Certifications (self-reported, e.g. CRS, ABR, Luxury Home Marketing Specialist)</label><input type="text" id="agentCertifications" maxlength="300"></div>
+          <div class="field">
+            <label>Specialties</label>
+            <div id="agentSpecialtyTags"></div>
+          </div>
+          <div class="field">
+            <label>Languages spoken</label>
+            <div id="agentLanguages"></div>
+          </div>
+          <label class="checkbox-row"><input type="checkbox" id="agentSoloAgent" checked><span>I'm the sole point of contact — no team hand-offs</span></label>
+          <label class="checkbox-row"><input type="checkbox" id="agentAcceptingClients" checked><span>Currently accepting new clients</span></label>
+          <label class="checkbox-row"><input type="checkbox" id="agentEoInsurance"><span>I carry E&amp;O (errors &amp; omissions) insurance (self-reported)</span></label>
+          <div class="form-row two-col">
+            <div class="field"><label>Default commission (%)</label><input type="number" id="agentCommissionPct" min="0" max="100" step="0.1"></div>
+            <div class="field"><label>…or default flat fee ($)</label><input type="number" id="agentFlatFee" min="0" max="500000" step="100"></div>
+          </div>
+          <div class="field">
+            <label>Service area — up to 4 zip codes <span class="required-mark">*</span></label>
+            <div class="form-row two-col">
+              <input type="text" id="agentZip1" maxlength="10" placeholder="Zip 1" inputmode="numeric">
+              <input type="text" id="agentZip2" maxlength="10" placeholder="Zip 2 (optional)" inputmode="numeric">
+            </div>
+            <div class="form-row two-col">
+              <input type="text" id="agentZip3" maxlength="10" placeholder="Zip 3 (optional)" inputmode="numeric">
+              <input type="text" id="agentZip4" maxlength="10" placeholder="Zip 4 (optional)" inputmode="numeric">
+            </div>
+            <p class="tiny">You'll be shown pre-listings within 20 miles of any of these.</p>
+          </div>
+          <div class="field">
+            <label>Which days do you typically hold open houses?</label>
+            <div id="agentOpenHouseDays"></div>
+          </div>
+          <div class="field">
+            <label>Services you typically offer</label>
+            <div id="agentServicesEditor"></div>
+          </div>
+          <label class="checkbox-row"><input type="checkbox" id="agentNotifyNewRequests" checked><span>Notify me when a new pre-listing or transaction request opens near me</span></label>
+          <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="submitAgentApplicationBtn">Submit Application</button></div>
+        </details>
+
+        <div id="agentToolsSection" class="hidden">
+          <h2>My Agent Profile</h2>
+          <div class="mini-two" id="agentStatsPanel"></div>
+          <p class="section-sub">Portfolio photos other homeowners see when reviewing your proposals.</p>
+          <div class="photo-gallery" id="agentPortfolioGallery"></div>
+          <div class="field"><label>Add a portfolio photo (up to 12)</label><input type="file" id="agentPortfolioPhotoInput" accept="image/jpeg,image/png,image/webp,image/gif"></div>
+
+          <h3>Intro Video</h3>
+          <p class="section-sub">Up to 4 minutes — a quick intro or interview homeowners can watch alongside your proposal.</p>
+          <div id="agentVideoPreviewWrap"></div>
+          <div class="field"><label>Upload / replace video (MP4, WebM, or MOV — under 150MB)</label><input type="file" id="agentVideoInput" accept="video/mp4,video/webm,video/quicktime"></div>
+          <p class="tiny" id="agentVideoStatus"></p>
+
+          <h3>License Photo (for admin verification)</h3>
+          <p class="section-sub">Only visible to you and Amico Haus admins — never shown to homeowners. An admin compares it to your state's public license lookup and marks your license number "Verified" when it checks out.</p>
+          <div id="agentLicensePhotoWrap"></div>
+          <div class="field"><label>Upload / replace license photo (JPEG, PNG, or WEBP — under 5MB)</label><input type="file" id="agentLicensePhotoInput" accept="image/jpeg,image/png,image/webp"></div>
+
+          <h2>My Service Packages</h2>
+          <p class="section-sub">Optional fixed bundles homeowners can compare in the agent directory before they've even posted anything — same as a Fiverr gig menu. You can still submit any custom proposal regardless of what's set up here; these are just a quick-fill shortcut. Self-reported pricing for comparison only — no payment runs through Amico Haus.</p>
+          <div id="agentPackagesEditor"></div>
+
+          <h2>Case Studies</h2>
+          <p class="section-sub">Before/after photo pairs tied to a specific past sale — up to 6, e.g. "Sold in 12 days, 5% over asking."</p>
+          <div class="grid" id="agentCaseStudiesGallery"></div>
+          <div class="form-row two-col">
+            <div class="field"><label>Title</label><input type="text" id="caseStudyTitle" maxlength="120" placeholder="e.g. 3bd Craftsman in Uptown"></div>
+            <div class="field"><label>Result</label><input type="text" id="caseStudyResultNote" maxlength="200" placeholder="e.g. Sold in 12 days, 5% over asking"></div>
+          </div>
+          <div class="form-row two-col">
+            <div class="field"><label>Before photo</label><input type="file" id="caseStudyBeforeInput" accept="image/jpeg,image/png,image/webp,image/gif"></div>
+            <div class="field"><label>After photo</label><input type="file" id="caseStudyAfterInput" accept="image/jpeg,image/png,image/webp,image/gif"></div>
+          </div>
+          <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="addCaseStudyBtn">Add Case Study</button></div>
+
+          <h2>Invitations to Bid</h2>
+          <p class="section-sub">Homeowners who invited you directly — you can still submit a normal proposal on any of these.</p>
+          <div class="stack" id="myInvitesList"><div class="empty-state">Loading…</div></div>
+
+          <h2>My Proposals</h2>
+          <div class="stack" id="myBidsList"><div class="empty-state">Loading…</div></div>
+        </div>
+
+        <details class="panel bulk-upload" id="agentDirectoryWrap">
+          <summary>Browse Agents</summary>
+          <p class="section-sub">Search vetted agents to favorite for next time, or to invite directly to one of your open requests.</p>
+          <div class="field"><label>Search by name or brokerage</label><input type="text" id="agentDirectorySearch" placeholder="Start typing…"></div>
+          <div class="form-row three-col">
+            <div class="field"><label>Min price ($)</label><input type="number" id="agentDirPriceMin" min="0" step="50"></div>
+            <div class="field"><label>Max price ($)</label><input type="number" id="agentDirPriceMax" min="0" step="50"></div>
+            <div class="field"><label>Service offered</label><select id="agentDirService"><option value="">Any</option></select></div>
+          </div>
+          <div class="form-row three-col">
+            <div class="field"><label>Min rating</label><select id="agentDirMinRating"><option value="">Any</option><option value="3">3+ ⭐</option><option value="4">4+ ⭐</option><option value="4.5">4.5+ ⭐</option></select></div>
+            <div class="field"><label>Near zip (within 20mi)</label><input type="text" id="agentDirZip" maxlength="10" inputmode="numeric" placeholder="5-digit zip"></div>
+            <div class="field field-end">
+              <label class="checkbox-row"><input type="checkbox" id="agentDirTopRated"><span>Top Rated only</span></label>
+            </div>
+          </div>
+          <div class="form-row three-col">
+            <div class="field"><label>Specialty</label><select id="agentDirSpecialty"><option value="">Any</option></select></div>
+            <div class="field"><label>Language spoken</label><select id="agentDirLanguage"><option value="">Any</option></select></div>
+            <div class="field field-end">
+              <label class="checkbox-row"><input type="checkbox" id="agentDirSoloAgent"><span>Solo agent only</span></label>
+            </div>
+          </div>
+          <div class="form-row two-col">
+            <label class="checkbox-row"><input type="checkbox" id="agentDirLicenseVerified"><span>License Verified only</span></label>
+            <label class="checkbox-row"><input type="checkbox" id="agentDirHasVideo"><span>Has intro video</span></label>
+          </div>
+
+          <p class="tiny"><strong>More filters</strong></p>
+          <div class="form-row three-col">
+            <div class="field"><label>Min. years of experience</label><input type="number" id="agentDirMinYears" min="0" max="80"></div>
+            <div class="field"><label>Max avg. days on market</label><input type="number" id="agentDirMaxDom" min="0" max="3650"></div>
+            <div class="field"><label>Min. homes sold last year</label><input type="number" id="agentDirMinHomesSold" min="0" max="10000"></div>
+          </div>
+          <div class="form-row three-col">
+            <div class="field"><label>Min. sale-to-list ratio</label><input type="number" id="agentDirMinSaleToList" min="0" max="2" step="0.01" placeholder="e.g. 0.98"></div>
+            <div class="field"><label>Max commission (%)</label><input type="number" id="agentDirMaxCommission" min="0" max="100" step="0.1"></div>
+            <div class="field"><label>Can start within (days)</label><input type="number" id="agentDirMaxTurnaround" min="1" max="365"></div>
+          </div>
+          <div class="form-row three-col">
+            <div class="field"><label>Min. review count</label><input type="number" id="agentDirMinReviews" min="0" max="10000"></div>
+            <div class="field"><label>Open house available</label><select id="agentDirOpenHouseDay"><option value="">Any day</option></select></div>
+            <div class="field field-end">
+              <label class="checkbox-row"><input type="checkbox" id="agentDirLocalSpecialist"><span>Local specialist only</span></label>
+            </div>
+          </div>
+          <div class="form-row three-col">
+            <label class="checkbox-row"><input type="checkbox" id="agentDirHasCaseStudies"><span>Has case studies</span></label>
+            <label class="checkbox-row"><input type="checkbox" id="agentDirAcceptingClients"><span>Accepting new clients</span></label>
+            <label class="checkbox-row"><input type="checkbox" id="agentDirEoInsurance"><span>Carries E&amp;O insurance</span></label>
+          </div>
+
+          <div class="form-row two-col">
+            <input type="text" id="agentAlertLabel" maxlength="80" placeholder="Name this search (optional)">
+            <button type="button" class="btn btn-ghost btn-sm" id="saveAgentAlertBtn">Save as Alert</button>
+          </div>
+          <div class="grid" id="agentDirectoryList"><div class="empty-state">Loading…</div></div>
+        </details>
+
+        <h2>My Saved Agent Searches</h2>
+        <p class="section-sub">Get notified the moment a newly approved (or updated) agent matches criteria you've saved.</p>
+        <div class="stack" id="agentAlertsList"><div class="empty-state">Loading…</div></div>
+
+        <h2>My Favorite Agents</h2>
+        <div class="stack" id="favoriteAgentsList"><div class="empty-state">Loading…</div></div>
+
+        <h2>My Disputes</h2>
+        <div class="stack" id="myDisputesList"><div class="empty-state">Loading…</div></div>
+
+        <h2 id="browseOpenRequests">Browse Open Requests</h2>
+        <form id="marketplaceFilters" class="form-row two-col">
+          <div class="field"><label>City</label><input type="text" id="marketCity"></div>
+          <div class="field"><label>State</label><input type="text" id="marketState"></div>
+        </form>
+        <label class="checkbox-row"><input type="checkbox" id="marketOnlyInArea"><span>Only show pre-listings within 20 miles of my service zips</span></label>
+        <div class="grid" id="marketplaceBrowseList"><div class="empty-state">Loading…</div></div>
+      </div>
+
+      <div id="marketplaceDetailView" class="hidden">
+        <button class="link-btn" id="backToMarketplace">← Back to Agent Strategy</button>
+        <div id="marketplaceDetailContent"></div>
+      </div>
+    </section>
+
+    <!-- SAVED -->
+    <section id="tab-saved" class="tab-panel">
+      <h1>Saved</h1>
+      <h2>Favorites</h2>
+      <div class="grid" id="favoritesList"><div class="empty-state">Loading…</div></div>
+      <h2>Hidden Listings</h2>
+      <p class="section-sub">Listings you thumbed down out of the directory. Unhide one to bring it back.</p>
+      <div class="stack" id="hiddenList"></div>
+      <h2>Recently Deleted</h2>
+      <p class="section-sub">Deleted listings stay here for 7 days before they're gone for good — restore one if you deleted it by mistake.</p>
+      <div class="stack" id="trashList"></div>
+    </section>
+
+    <!-- MESSAGES -->
+    <section id="tab-messages" class="tab-panel">
+      <h1>Messages</h1>
+      <div id="conversationList" class="stack"><div class="empty-state">Loading…</div></div>
+      <div id="messageThread" class="hidden">
+        <button class="link-btn" id="backToConversations">← All conversations</button>
+        <h2 id="threadTitle"></h2>
+        <div id="threadOpenToBidsWrap" class="hidden"><button type="button" class="btn btn-ghost btn-sm" id="threadOpenToBidsBtn">Open Trade to Agent Bids</button></div>
+        <div class="stack" id="messageList"></div>
+        <form id="messageForm" class="post-form">
+          <input type="text" id="messageBody" maxlength="2000" placeholder="Write a message…" required>
+          <button type="submit" class="btn btn-primary btn-sm">Send</button>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <div id="notifPanel" class="hidden">
+    <div class="panel-header">
+      <h3>Notifications</h3>
+      <button class="link-btn" id="markAllReadBtn">Mark all read</button>
+    </div>
+    <div class="stack" id="notifList"></div>
+  </div>
+</div>
+<script src="client.js"></script>
+<script src="agent-cards.js"></script>
+<script src="main.js"></script>
+<!-- Cloudflare Web Analytics -->
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "91a193988b2d45e58aa1c27d5abf6bdb"}'></script>
+<!-- End Cloudflare Web Analytics -->
+</body>
+</html>

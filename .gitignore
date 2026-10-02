@@ -22,6 +22,9 @@
 *.pem
 *.key
 
+# Press/outreach drafts — business material, not part of the public site's source
+/Press/
+
 # OS/editor noise
 .DS_Store
 Thumbs.db

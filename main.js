@@ -1126,6 +1126,7 @@ async function loadAgentStatus() {
 
       document.getElementById('agentStatsPanel').innerHTML = renderAgentStatsPanel(stats);
       loadAgentReferral();
+      loadMyTeam();
 
       const licenseWrap = document.getElementById('agentLicensePhotoWrap');
       licenseWrap.innerHTML = profile.hasLicensePhoto
@@ -1711,6 +1712,76 @@ async function loadAgentReferral() {
     document.getElementById('agentReferralLink').value = `${window.location.origin}/signup?as=homeowner&ref=${referralCode}`;
     document.getElementById('agentReferralCount').textContent = `${referredCount} client${referredCount === 1 ? '' : 's'} signed up through your link so far.`;
   } catch { /* non-critical */ }
+}
+
+// An agent belongs to at most one team at a time — this panel covers all four states: no team, a still-pending
+// invite waiting on this agent's answer, an active member, or the owner (who also gets the invite-search box
+// and can remove anyone else).
+function renderTeamPanel({ team, myStatus, myRole }, myUserId) {
+  if (!team) {
+    return `
+      <div class="form-row two-col">
+        <input type="text" id="newTeamName" maxlength="80" placeholder="Team name, e.g. McKelvey Team">
+        <button type="button" class="btn btn-ghost btn-sm" data-action="create-team">Create Team</button>
+      </div>`;
+  }
+  if (myStatus === 'invited') {
+    return `
+      <div class="card">
+        <p>You've been invited to join <strong>${escapeHtml(team.name)}</strong>.</p>
+        <div class="card-actions">
+          <button type="button" class="btn btn-primary btn-sm" data-action="respond-team-invite" data-decision="accept">Accept</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-action="respond-team-invite" data-decision="decline">Decline</button>
+        </div>
+      </div>`;
+  }
+  const isOwner = myRole === 'owner';
+  const winRatePct = team.teamStats.winRate !== null ? Math.round(team.teamStats.winRate * 100) : null;
+  const memberRows = team.members.map(m => `
+    <div class="mini-block">
+      ${escapeHtml(m.name)}${m.userId === myUserId ? ' (you)' : ''} — ${m.role}${m.status === 'invited' ? ', invited' : ''}
+      ${m.stats ? ` · ${m.stats.totalBids} proposal${m.stats.totalBids === 1 ? '' : 's'}` : ''}
+      ${isOwner && m.userId !== myUserId ? `<button type="button" class="link-btn" data-action="remove-team-member" data-user-id="${m.userId}">Remove</button>` : ''}
+    </div>`).join('');
+  return `
+    <div class="card">
+      <h4>${escapeHtml(team.name)}</h4>
+      <p class="tiny">Team proposals: ${team.teamStats.totalBids} submitted, ${team.teamStats.acceptedBids} accepted${winRatePct !== null ? ` (${winRatePct}% win rate)` : ''}</p>
+      ${memberRows}
+      ${isOwner ? `
+        <div class="form-row two-col">
+          <input type="text" id="teamInviteSearch" placeholder="Search agent name or brokerage…">
+          <button type="button" class="btn btn-ghost btn-sm" data-action="search-team-invite-agents">Search</button>
+        </div>
+        <div id="teamInviteResults"></div>
+      ` : ''}
+      <div class="card-actions"><button type="button" class="btn btn-ghost btn-sm" data-action="leave-team">Leave Team</button></div>
+    </div>`;
+}
+
+async function loadMyTeam() {
+  const el = document.getElementById('myTeamPanel');
+  if (!el) return;
+  try {
+    const data = await apiGet('/api/agent-teams/me');
+    el.innerHTML = renderTeamPanel(data, currentUser ? currentUser.id : null);
+  } catch { /* non-critical */ }
+}
+
+async function searchTeamInviteAgents() {
+  const resultsEl = document.getElementById('teamInviteResults');
+  const q = document.getElementById('teamInviteSearch').value.trim();
+  if (!q) { resultsEl.innerHTML = ''; return; }
+  try {
+    const { agents } = await apiGet(`/api/agents/directory?q=${encodeURIComponent(q)}`);
+    resultsEl.innerHTML = agents.length ? agents.map(a => `
+      <div class="side">
+        <strong>${escapeHtml(a.displayName)}</strong>
+        <span class="tiny">${escapeHtml(a.brokerageName || '')}${a.teamName ? ` · already on a team` : ''}</span>
+        <button class="link-btn" data-action="invite-to-team" data-agent-id="${a.userId}">Invite</button>
+      </div>
+    `).join('') : '<span class="tiny">No agents found.</span>';
+  } catch (e) { resultsEl.innerHTML = `<span class="tiny">${escapeHtml(e.message)}</span>`; }
 }
 
 /* ---- Ballpark cost estimator ---- */
@@ -2722,6 +2793,51 @@ document.addEventListener('DOMContentLoaded', async () => {
     const input = document.getElementById('agentReferralLink');
     try { await navigator.clipboard.writeText(input.value); toast('Invite link copied.'); }
     catch { input.select(); toast('Select and copy the link above.'); }
+  });
+
+  // myTeamPanel's own contents get replaced wholesale on every loadMyTeam(), so this listens on the section
+  // that wraps it (never itself replaced) rather than on the panel directly — same delegation pattern as
+  // marketplaceDetailContent elsewhere in this file.
+  document.getElementById('agentToolsSection').addEventListener('click', async (e) => {
+    const createBtn = e.target.closest('[data-action="create-team"]');
+    const respondBtn = e.target.closest('[data-action="respond-team-invite"]');
+    const removeBtn = e.target.closest('[data-action="remove-team-member"]');
+    const searchBtn = e.target.closest('[data-action="search-team-invite-agents"]');
+    const inviteBtn = e.target.closest('[data-action="invite-to-team"]');
+    const leaveBtn = e.target.closest('[data-action="leave-team"]');
+    if (!createBtn && !respondBtn && !removeBtn && !searchBtn && !inviteBtn && !leaveBtn) return;
+
+    try {
+      if (createBtn) {
+        const name = document.getElementById('newTeamName').value.trim();
+        if (!name) { toast('Give your team a name.'); return; }
+        await apiPost('/api/agent-teams', { name });
+        toast('Team created!');
+        loadMyTeam();
+      } else if (respondBtn) {
+        const data = await apiGet('/api/agent-teams/me');
+        await apiPut(`/api/agent-teams/${data.team.id}/members/${currentUser.id}`, { action: respondBtn.dataset.decision });
+        toast(respondBtn.dataset.decision === 'accept' ? "You're on the team!" : 'Invite declined.');
+        loadMyTeam();
+      } else if (removeBtn) {
+        const data = await apiGet('/api/agent-teams/me');
+        if (!confirm('Remove this person from the team?')) return;
+        await apiPut(`/api/agent-teams/${data.team.id}/members/${removeBtn.dataset.userId}`, { action: 'remove' });
+        loadMyTeam();
+      } else if (searchBtn) {
+        searchTeamInviteAgents();
+      } else if (inviteBtn) {
+        const data = await apiGet('/api/agent-teams/me');
+        await apiPost(`/api/agent-teams/${data.team.id}/invite`, { agentUserId: Number(inviteBtn.dataset.agentId) });
+        toast('Invitation sent!');
+        loadMyTeam();
+      } else if (leaveBtn) {
+        if (!confirm('Leave this team?')) return;
+        const data = await apiGet('/api/agent-teams/me');
+        await apiPut(`/api/agent-teams/${data.team.id}/members/${currentUser.id}`, { action: 'leave' });
+        loadMyTeam();
+      }
+    } catch (err) { toast(err.message); }
   });
 
   document.getElementById('saveAgentAlertBtn').addEventListener('click', async () => {

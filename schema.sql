@@ -473,6 +473,25 @@ CREATE TABLE IF NOT EXISTS pre_listing_showings (
 CREATE INDEX IF NOT EXISTS idx_pre_listing_showings_listing ON pre_listing_showings(pre_listing_id);
 CREATE INDEX IF NOT EXISTS idx_pre_listing_showings_agent ON pre_listing_showings(agent_user_id);
 
+-- Agent teams/brokerages — an agent belongs to at most one team at a time.
+CREATE TABLE IF NOT EXISTS agent_teams (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  created_by_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS agent_team_members (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  team_id INTEGER NOT NULL REFERENCES agent_teams(id) ON DELETE CASCADE,
+  agent_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL DEFAULT 'member' CHECK(role IN ('owner','member')),
+  status TEXT NOT NULL DEFAULT 'invited' CHECK(status IN ('invited','active')),
+  invited_by_user_id INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(agent_user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_team_members_team ON agent_team_members(team_id);
+
 -- Reviews/ratings — the third pillar of a real gig marketplace alongside
 -- proposals and portfolios. Gated to only the user who was on the awarded
 -- side of a completed request, one review per request.

@@ -5,6 +5,7 @@ import { fetchAgentReviews, fetchAgentRatingSummary, fetchAgentStats } from '../
 import { fetchFavoriteAgentIds } from '../../_lib/favoriteAgents.js';
 import { fetchAgentPackages } from '../../_lib/agentPackages.js';
 import { fetchCaseStudies } from '../../_lib/caseStudies.js';
+import { fetchActiveTeamName } from '../../_lib/agentTeams.js';
 
 // Public, no-login-required — same reasoning as /api/users/[id].js: a
 // homeowner reviewing proposals needs to see an agent's profile before
@@ -27,6 +28,7 @@ export async function onRequestGet(context) {
   const stats = await fetchAgentStats(db, id);
   const packages = await fetchAgentPackages(db, id);
   const caseStudies = await fetchCaseStudies(db, id);
+  const teamName = await fetchActiveTeamName(db, id);
 
   const viewer = await getSessionUser(context);
   const isFavorited = viewer ? (await fetchFavoriteAgentIds(db, viewer.id)).includes(id) : false;
@@ -35,7 +37,7 @@ export async function onRequestGet(context) {
   const { notifyNewRequests, rejectionReason, appliedAt, reviewedAt, ...publicProfile } = profile;
 
   return json({
-    profile: { ...publicProfile, displayName: user.display_name, isVerified: !!user.is_verified },
+    profile: { ...publicProfile, displayName: user.display_name, isVerified: !!user.is_verified, teamName },
     photos, reviews, ratingSummary, stats, packages, caseStudies, isFavorited,
   });
 }

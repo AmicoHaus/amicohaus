@@ -299,5 +299,5 @@ export async function fetchAgentStats(db, agentUserId) {
   const rating = await fetchAgentRatingSummary(db, agentUserId);
   const topRated = rating.avgRating !== null && rating.avgRating >= 4.5 && rating.reviewCount >= 3 && winRate !== null && winRate >= 0.3;
 
-  return { totalBids, acceptedBids, winRate, avgResponseHours, topRated };
+  return { totalBids, acceptedBids, decidedBids, winRate, avgResponseHours, topRated };
 }

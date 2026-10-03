@@ -94,6 +94,10 @@ export async function notifyShowingDecision(context, preListingId, agentUserId, 
   await notify(db, agentUserId, accepted ? `Your showing request for ${when} was accepted!` : `Your showing request for ${when} wasn't accepted.`, `/app#pre-listing-${preListingId}`);
 }
 
+export async function notifyTeamInvite(context, targetUserId) {
+  await notify(context.env.DB, targetUserId, "You've been invited to join a team.", '/app#become-agent');
+}
+
 export async function notifyAgentInvited(context, requestType, requestId, agentUserId, invitedByUserId) {
   const db = context.env.DB;
   const inviter = await db.prepare('SELECT display_name FROM users WHERE id = ?').bind(invitedByUserId).first();

@@ -446,6 +446,36 @@ const denied = r => r.status >= 400 && r.status < 500;
   const reAccept = await A.call('PUT', `/api/pre-listings/${PL2}/showings/${SHOWING}`, { action: 'decline' });
   record('owner', "a decided showing can't be decided again", denied(reAccept), `status ${reAccept.status}`);
 
+  // ---------- agent teams (G and H, the two approved agents already set up above) ----------
+  console.log('\n== agent teams ==');
+  const teamCreate = await G.call('POST', '/api/agent-teams', { name: 'AUTHZ Team' });
+  record('team', 'an approved agent can create a team', teamCreate.status === 201, `status ${teamCreate.status} ${teamCreate.text.slice(0, 100)}`);
+  const TEAMID = teamCreate.json && (teamCreate.json.id ?? teamCreate.json.teamId);
+  const bCreate = await B.call('POST', '/api/agent-teams', { name: 'Should fail' });
+  record('team', "a non-agent can't create a team", denied(bCreate), `status ${bCreate.status}`);
+  const bInvite = await B.call('POST', `/api/agent-teams/${TEAMID}/invite`, { agentUserId: H.id });
+  record('team', "someone who isn't on the team can't invite into it", denied(bInvite), `status ${bInvite.status}`);
+  const teamInvite = await G.call('POST', `/api/agent-teams/${TEAMID}/invite`, { agentUserId: H.id });
+  record('team', 'the owner can invite another approved agent', teamInvite.status === 200, `status ${teamInvite.status} ${teamInvite.text.slice(0, 100)}`);
+  const bAcceptForH = await B.call('PUT', `/api/agent-teams/${TEAMID}/members/${H.id}`, { action: 'accept' });
+  record('team', "nobody but the invitee can accept H's invite", denied(bAcceptForH), `status ${bAcceptForH.status}`);
+  const hBeforeAccept = await H.call('GET', '/api/agent-teams/me');
+  record('team', 'the invited agent sees the pending invite with the team name', hBeforeAccept.json.myStatus === 'invited' && hBeforeAccept.json.team.name === 'AUTHZ Team', JSON.stringify(hBeforeAccept.json));
+  const hAccept = await H.call('PUT', `/api/agent-teams/${TEAMID}/members/${H.id}`, { action: 'accept' });
+  record('team', 'the invited agent can accept', hAccept.status === 200, `status ${hAccept.status}`);
+  const dirAfterJoin = await A.call('GET', '/api/agents/directory');
+  const gEntry = dirAfterJoin.json.agents.find(a => a.userId === G.id);
+  const hEntry = dirAfterJoin.json.agents.find(a => a.userId === H.id);
+  record('team', "both members' directory entries show the team name", gEntry && gEntry.teamName === 'AUTHZ Team' && hEntry && hEntry.teamName === 'AUTHZ Team', JSON.stringify({ g: gEntry && gEntry.teamName, h: hEntry && hEntry.teamName }));
+  const hRemovesG = await H.call('PUT', `/api/agent-teams/${TEAMID}/members/${G.id}`, { action: 'remove' });
+  record('team', "a regular member (not the owner) can't remove anyone", denied(hRemovesG), `status ${hRemovesG.status}`);
+  const gRemovesH = await G.call('PUT', `/api/agent-teams/${TEAMID}/members/${H.id}`, { action: 'remove' });
+  const dirAfterRemove = ((await A.call('GET', '/api/agents/directory')).json.agents).find(a => a.userId === H.id);
+  record('team', 'the owner can remove a member, who immediately drops the team name', gRemovesH.status === 200 && dirAfterRemove && dirAfterRemove.teamName === null, `status ${gRemovesH.status} teamName=${dirAfterRemove && dirAfterRemove.teamName}`);
+  const gLeaves = await G.call('PUT', `/api/agent-teams/${TEAMID}/members/${G.id}`, { action: 'leave' });
+  const teamRow = sql(`SELECT COUNT(*) AS n FROM agent_teams WHERE id = ${TEAMID}`)[0];
+  record('team', 'the last member leaving deletes the team entirely (nobody left stuck owning an empty team)', gLeaves.status === 200 && teamRow.n === 0, `status ${gLeaves.status} rows=${teamRow.n}`);
+
   const e1 = await A.call('PUT', `/api/pre-listings/${PL2}`, { ...PL2_BODY, title: 'AUTHZ Pre 2 edited', beds: 4 });
   const row1 = sql(`SELECT title, beds, asking_price FROM pre_listings WHERE id = ${PL2}`)[0];
   record('owner', 'the owner can edit their open pre-listing', e1.status === 200 && row1.title === 'AUTHZ Pre 2 edited' && row1.beds === 4, `status ${e1.status} row=${JSON.stringify(row1)}`);

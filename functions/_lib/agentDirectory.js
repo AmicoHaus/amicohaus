@@ -5,6 +5,7 @@
 import { fetchAgentRatingSummary, fetchAgentStats } from './marketplace.js';
 import { fetchAgentPackages, packagePriceRange } from './agentPackages.js';
 import { fetchCaseStudies } from './caseStudies.js';
+import { fetchActiveTeamName } from './agentTeams.js';
 import { lookupZipCoords, nearestServiceDistance, serviceAreaSpread, SERVICE_RADIUS_MILES, LOCAL_SPECIALIST_SPREAD_MILES } from './geo.js';
 
 // A commission range across every commission-based offering an agent has
@@ -29,6 +30,7 @@ export async function buildAgentDirectoryEntry(db, agentUserId) {
   const stats = await fetchAgentStats(db, agentUserId);
   const packages = await fetchAgentPackages(db, agentUserId);
   const caseStudies = await fetchCaseStudies(db, agentUserId);
+  const teamName = await fetchActiveTeamName(db, agentUserId);
   const priceRange = packagePriceRange(packages);
   const generalServices = JSON.parse(row.services_json || '[]').map(s => s.type);
   const packageServices = packages.flatMap(p => p.services.map(s => s.type));
@@ -39,7 +41,7 @@ export async function buildAgentDirectoryEntry(db, agentUserId) {
   const fastestTurnaroundDays = turnaroundValues.length ? Math.min(...turnaroundValues) : null;
 
   return {
-    userId: row.user_id, displayName: row.display_name, brokerageName: row.brokerage_name,
+    userId: row.user_id, displayName: row.display_name, brokerageName: row.brokerage_name, teamName,
     yearsExperience: row.years_experience, hasVideo: !!row.video_r2_key,
     isVerified: !!row.is_verified, licenseVerified: !!row.license_verified,
     rating: rating.avgRating, reviewCount: rating.reviewCount, topRated: stats.topRated,

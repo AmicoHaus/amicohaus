@@ -1111,6 +1111,7 @@ async function loadAgentStatus() {
         : '<p class="tiny">No intro video yet.</p>';
 
       document.getElementById('agentStatsPanel').innerHTML = renderAgentStatsPanel(stats);
+      loadAgentReferral();
 
       const licenseWrap = document.getElementById('agentLicensePhotoWrap');
       licenseWrap.innerHTML = profile.hasLicensePhoto
@@ -1658,6 +1659,17 @@ function renderAgentStatsPanel(stats) {
     <div class="mini-block"><span class="label">Proposals</span>${stats.totalBids} submitted, ${stats.acceptedBids} accepted${winRatePct !== null ? ` (${winRatePct}% win rate)` : ''}</div>
     <div class="mini-block"><span class="label">Avg response time</span>${respLabel || 'Not enough data yet'}${stats.topRated ? ' · <span class="badge badge-gold">🏆 Top Rated</span>' : ''}</div>
   `;
+}
+
+// Reuses the same account-wide referral code every user gets (see account-security.html) but points it at the
+// homeowner signup flow specifically, since an agent sharing this is pitching their own clients, not a generic
+// friend invite. Counts toward the same referredCount either way — there's only one referral program.
+async function loadAgentReferral() {
+  try {
+    const { referralCode, referredCount } = await apiGet('/api/referrals');
+    document.getElementById('agentReferralLink').value = `${window.location.origin}/signup?as=homeowner&ref=${referralCode}`;
+    document.getElementById('agentReferralCount').textContent = `${referredCount} client${referredCount === 1 ? '' : 's'} signed up through your link so far.`;
+  } catch { /* non-critical */ }
 }
 
 /* ---- Ballpark cost estimator ---- */
@@ -2620,6 +2632,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     el.addEventListener(el.tagName === 'INPUT' && el.type !== 'checkbox' ? 'input' : 'change', () => loadAgentDirectory());
   });
   document.getElementById('agentDirectorySearch').addEventListener('input', () => loadAgentDirectory());
+
+  document.getElementById('copyAgentReferralBtn').addEventListener('click', async () => {
+    const input = document.getElementById('agentReferralLink');
+    try { await navigator.clipboard.writeText(input.value); toast('Invite link copied.'); }
+    catch { input.select(); toast('Select and copy the link above.'); }
+  });
 
   document.getElementById('saveAgentAlertBtn').addEventListener('click', async () => {
     try {

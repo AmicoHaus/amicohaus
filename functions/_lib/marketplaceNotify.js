@@ -74,6 +74,26 @@ export async function notifyNewVote(context, preListingId, ownerUserId, agentUse
     `/app#pre-listing-${preListingId}`, 'New price feedback on Amico Haus', 'see what they said');
 }
 
+// A new showing request is the same kind of "homeowner should come back and look" event a vote or proposal is,
+// so it gets the same email treatment. The decision on it (accept/decline) stays in-app only, matching
+// notifyBidDecision below — the agent who asked is already watching for an answer, same reasoning as there.
+export async function notifyNewShowingRequest(context, preListingId, ownerUserId, agentUserId, proposedAt) {
+  const db = context.env.DB;
+  const agent = await db.prepare('SELECT display_name FROM users WHERE id = ?').bind(agentUserId).first();
+  const owner = await db.prepare('SELECT id, email, email_frequency FROM users WHERE id = ?').bind(ownerUserId).first();
+  if (!owner) return;
+  const when = new Date(proposedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+  const body = `${agent ? agent.display_name : 'An agent'} requested a showing for ${when}.`;
+  await notifyAndMaybeEmail(context, { userId: owner.id, email: owner.email, emailFrequency: owner.email_frequency }, body,
+    `/app#pre-listing-${preListingId}`, 'Showing request on Amico Haus', 'accept or decline the request');
+}
+
+export async function notifyShowingDecision(context, preListingId, agentUserId, accepted, proposedAt) {
+  const db = context.env.DB;
+  const when = new Date(proposedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+  await notify(db, agentUserId, accepted ? `Your showing request for ${when} was accepted!` : `Your showing request for ${when} wasn't accepted.`, `/app#pre-listing-${preListingId}`);
+}
+
 export async function notifyAgentInvited(context, requestType, requestId, agentUserId, invitedByUserId) {
   const db = context.env.DB;
   const inviter = await db.prepare('SELECT display_name FROM users WHERE id = ?').bind(invitedByUserId).first();

@@ -460,6 +460,19 @@ CREATE TABLE IF NOT EXISTS pre_listing_price_votes (
 );
 CREATE INDEX IF NOT EXISTS idx_pre_listing_votes_listing ON pre_listing_price_votes(pre_listing_id);
 
+CREATE TABLE IF NOT EXISTS pre_listing_showings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pre_listing_id INTEGER NOT NULL REFERENCES pre_listings(id) ON DELETE CASCADE,
+  agent_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  proposed_at TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','accepted','declined','canceled')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_pre_listing_showings_listing ON pre_listing_showings(pre_listing_id);
+CREATE INDEX IF NOT EXISTS idx_pre_listing_showings_agent ON pre_listing_showings(agent_user_id);
+
 -- Reviews/ratings — the third pillar of a real gig marketplace alongside
 -- proposals and portfolios. Gated to only the user who was on the awarded
 -- side of a completed request, one review per request.

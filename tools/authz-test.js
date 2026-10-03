@@ -426,6 +426,26 @@ const denied = r => r.status >= 400 && r.status < 500;
   const hViewDisc = (await H.call('GET', `/api/pre-listings/${PL2}`)).json.preListing;
   record('owner', "nobody else's GET ever includes another owner's checklist", hViewDisc.disclosureChecklist === undefined, JSON.stringify(hViewDisc.disclosureChecklist));
 
+  // Showing requests — PL2 has showingNoticeHours: 24.
+  const tooSoon = await G.call('POST', `/api/pre-listings/${PL2}/showings`, { proposedAt: new Date(Date.now() + 2 * 3600000).toISOString() });
+  record('owner', "a showing proposed sooner than the pre-listing's own notice requirement is refused", denied(tooSoon), `status ${tooSoon.status} ${tooSoon.text.slice(0, 80)}`);
+  const pastShowing = await G.call('POST', `/api/pre-listings/${PL2}/showings`, { proposedAt: new Date(Date.now() - 3600000).toISOString() });
+  record('owner', 'a showing proposed in the past is refused', denied(pastShowing), `status ${pastShowing.status}`);
+  const showingOk = await G.call('POST', `/api/pre-listings/${PL2}/showings`, { proposedAt: new Date(Date.now() + 48 * 3600000).toISOString(), note: 'AUTHZ showing' });
+  record('owner', 'a showing proposed with enough notice succeeds', showingOk.status === 201, `status ${showingOk.status} ${showingOk.text.slice(0, 80)}`);
+  const SHOWING = showingOk.json && showingOk.json.id;
+  const hShowingList = (await H.call('GET', `/api/pre-listings/${PL2}/showings`)).json.showings;
+  record('owner', "another agent's showing list never includes a competitor's request", !hShowingList.some(s => s.id === SHOWING), JSON.stringify(hShowingList));
+  const hDecide = await H.call('PUT', `/api/pre-listings/${PL2}/showings/${SHOWING}`, { action: 'accept' });
+  record('owner', "an agent who didn't own the pre-listing can't accept a showing on it", denied(hDecide), `status ${hDecide.status}`);
+  const hCancel = await H.call('PUT', `/api/pre-listings/${PL2}/showings/${SHOWING}`, { action: 'cancel' });
+  record('owner', "an agent can't cancel another agent's showing request", denied(hCancel), `status ${hCancel.status}`);
+  const ownerAccept = await A.call('PUT', `/api/pre-listings/${PL2}/showings/${SHOWING}`, { action: 'accept' });
+  const showingRow = sql(`SELECT status FROM pre_listing_showings WHERE id = ${SHOWING}`)[0];
+  record('owner', 'the owner can accept a showing request on their own pre-listing', ownerAccept.status === 200 && showingRow.status === 'accepted', `status ${ownerAccept.status} row=${JSON.stringify(showingRow)}`);
+  const reAccept = await A.call('PUT', `/api/pre-listings/${PL2}/showings/${SHOWING}`, { action: 'decline' });
+  record('owner', "a decided showing can't be decided again", denied(reAccept), `status ${reAccept.status}`);
+
   const e1 = await A.call('PUT', `/api/pre-listings/${PL2}`, { ...PL2_BODY, title: 'AUTHZ Pre 2 edited', beds: 4 });
   const row1 = sql(`SELECT title, beds, asking_price FROM pre_listings WHERE id = ${PL2}`)[0];
   record('owner', 'the owner can edit their open pre-listing', e1.status === 200 && row1.title === 'AUTHZ Pre 2 edited' && row1.beds === 4, `status ${e1.status} row=${JSON.stringify(row1)}`);

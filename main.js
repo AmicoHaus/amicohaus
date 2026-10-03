@@ -1581,6 +1581,7 @@ async function openPreListingDetail(id, opts = {}) {
       </div>
       ${isOwner && p.status === 'open' ? renderPreListingEditForm(p) : ''}
       ${isOwner ? renderDisclosuresChecklist(p) : ''}
+      ${isOwner ? '<div id="showingsPanel"></div>' : ''}
       ${isOwner
         ? `<h3>Proposals (${bids.length})</h3>${bids.length ? `${renderBidComparisonTable(bids, true)}${bids.map(b => renderBidCard(b, true)).join('')}` : '<div class="empty-state">No proposals yet.</div>'}
            ${p.status === 'open' ? renderInviteAgentPanel() : ''}
@@ -1588,7 +1589,7 @@ async function openPreListingDetail(id, opts = {}) {
         : (currentAgentProfile && currentAgentProfile.status === 'approved'
           ? (isAwardedAgent
             ? `<div id="milestonesPanel"></div>${renderDisputePanel()}${renderHomeownerReviewForm()}`
-            : renderBidFormAndVote(myBid, myVote, true))
+            : `${renderBidFormAndVote(myBid, myVote, true)}${p.status === 'open' ? renderRequestShowingForm() : ''}`)
           : '<p class="tiny">Only approved agents can submit proposals or vote on pricing.</p>')}
     `;
     if (!isOwner && currentAgentProfile && currentAgentProfile.status === 'approved' && !isAwardedAgent) {
@@ -1597,6 +1598,8 @@ async function openPreListingDetail(id, opts = {}) {
     if (opts.edit && isOwner && p.status === 'open') showPreListingEditor(true);
     if (p.status === 'awarded' && (isOwner || isAwardedAgent)) loadMilestonesInto('pre_listing', id);
     if (isOwner && p.status === 'open') loadInvitedAgentsInto('pre_listing', id);
+    if (isOwner) loadShowingsInto(id, true);
+    if (!isOwner && currentAgentProfile && currentAgentProfile.status === 'approved' && !isAwardedAgent && p.status === 'open') loadShowingsInto(id, false);
   } catch (e) { contentEl.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
 }
 
@@ -1994,6 +1997,50 @@ function renderStipulations(p) {
   if (p.prefersLocalSpecialist) parts.push('prefers an agent who specializes in this area, not one covering a huge territory');
   if (parts.length === 0) return '';
   return `<p class="tiny"><span class="label">Seller preferences</span> ${parts.join(' · ')}</p>`;
+}
+
+// The agent-facing half: a small form to propose a time, plus their own past requests (never a competitor's —
+// the API itself only ever returns the caller's own rows here, same privacy model as proposals).
+function renderRequestShowingForm() {
+  return `
+    <div class="panel">
+      <h3>Request a Showing</h3>
+      <div class="form-row two-col">
+        <div class="field"><label for="showingProposedAt">Proposed time</label><input type="datetime-local" id="showingProposedAt"></div>
+        <div class="field"><label for="showingNote">Note (optional)</label><input type="text" id="showingNote" maxlength="300"></div>
+      </div>
+      <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="request-showing">Request Showing</button></div>
+      <div id="showingsPanel"></div>
+    </div>
+  `;
+}
+
+function renderShowingRow(s, isOwner) {
+  const when = new Date(s.proposedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+  const statusBadge = `<span class="badge ${s.status === 'accepted' ? 'badge-active' : s.status === 'pending' ? 'badge-gold' : 'badge-paused'}">${s.status}</span>`;
+  return `
+    <div class="mini-block">
+      <span class="label">${isOwner ? escapeHtml(s.agentName) : when}</span>
+      ${isOwner ? when : ''}${s.note ? ` — ${escapeHtml(s.note)}` : ''} ${statusBadge}
+      ${isOwner && s.status === 'pending' ? `
+        <div class="card-actions">
+          <button type="button" class="btn btn-primary btn-sm" data-action="decide-showing" data-showing-id="${s.id}" data-decision="accept">Accept</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-action="decide-showing" data-showing-id="${s.id}" data-decision="decline">Decline</button>
+        </div>` : ''}
+      ${!isOwner && s.status === 'pending' ? `<div class="card-actions"><button type="button" class="btn btn-ghost btn-sm" data-action="cancel-showing" data-showing-id="${s.id}">Cancel</button></div>` : ''}
+    </div>
+  `;
+}
+
+async function loadShowingsInto(preListingId, isOwner) {
+  const el = document.getElementById('showingsPanel');
+  if (!el) return;
+  try {
+    const { showings } = await apiGet(`/api/pre-listings/${preListingId}/showings`);
+    el.innerHTML = showings.length
+      ? (isOwner ? '<h3>Showing Requests</h3>' : '<p class="tiny">Your requests</p>') + showings.map(s => renderShowingRow(s, isOwner)).join('')
+      : (isOwner ? '' : '<p class="tiny">No requests yet.</p>');
+  } catch { /* non-critical */ }
 }
 
 function renderInviteAgentPanel() {
@@ -2751,8 +2798,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     const savePlBtn = e.target.closest('[data-action="save-pre-listing"]');
     const closePlBtn = e.target.closest('[data-action="close-pre-listing"]');
     const deletePlPhotoBtn = e.target.closest('[data-action="delete-pre-listing-photo"]');
+    const requestShowingBtn = e.target.closest('[data-action="request-showing"]');
+    const decideShowingBtn = e.target.closest('[data-action="decide-showing"]');
+    const cancelShowingBtn = e.target.closest('[data-action="cancel-showing"]');
 
     try {
+      if (requestShowingBtn) {
+        const proposedAt = document.getElementById('showingProposedAt').value;
+        if (!proposedAt) { toast('Pick a date and time first.'); return; }
+        await apiPost(`${basePath}/showings`, { proposedAt: new Date(proposedAt).toISOString(), note: document.getElementById('showingNote').value.trim() });
+        document.getElementById('showingNote').value = '';
+        toast('Showing requested!');
+        loadShowingsInto(id, false);
+        return;
+      }
+      if (decideShowingBtn) {
+        await apiPut(`${basePath}/showings/${decideShowingBtn.dataset.showingId}`, { action: decideShowingBtn.dataset.decision });
+        loadShowingsInto(id, true);
+        return;
+      }
+      if (cancelShowingBtn) {
+        await apiPut(`${basePath}/showings/${cancelShowingBtn.dataset.showingId}`, { action: 'cancel' });
+        loadShowingsInto(id, false);
+        return;
+      }
       if (editPlBtn) { showPreListingEditor(true); return; }
       if (cancelEditBtn) { openPreListingDetail(id); return; } // re-fetch: drops unsaved edits and any removed photo
       if (savePlBtn) { await savePreListingEdit(id); return; }

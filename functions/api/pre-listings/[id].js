@@ -35,6 +35,7 @@ export async function onRequestGet(context) {
     requireDedicatedContact: !!row.require_dedicated_contact, prefersExclusive: !!row.prefers_exclusive,
     preferredAgreementMonths: row.preferred_agreement_months, prefersLocalSpecialist: !!row.prefers_local_specialist,
     address: isOwner ? row.address : undefined,
+    disclosureChecklist: isOwner ? JSON.parse(row.disclosure_checklist_json || '[]') : undefined,
     propertyType: row.property_type, beds: row.beds, baths: row.baths, sqft: row.sqft, askingPrice: row.asking_price,
     status: row.status, awardedBidId: row.awarded_bid_id, createdAt: row.created_at,
     photoIds: photos.map(p => p.id), votes,

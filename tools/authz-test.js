@@ -413,6 +413,19 @@ const denied = r => r.status >= 400 && r.status < 500;
   const tally = async () => ((await A.call('GET', `/api/pre-listings/${PL2}/votes`)).json || {}).votes || {};
   const t0 = await tally();
 
+  // Disclosures checklist — owner-only, regardless of status, and never exposed to anyone else at all.
+  const discSet = await A.call('PUT', `/api/pre-listings/${PL2}/disclosures`, { checked: ['tds', 'nhd', 'not-a-real-key'] });
+  record('owner', 'the owner can check off disclosure items; an unrecognized key is dropped silently, not an error',
+    discSet.status === 200 && JSON.stringify(discSet.json.checked.sort()) === JSON.stringify(['nhd', 'tds']), JSON.stringify(discSet.json));
+  const discRow = sql(`SELECT disclosure_checklist_json FROM pre_listings WHERE id = ${PL2}`)[0];
+  record('owner', 'the checked set is actually persisted', JSON.parse(discRow.disclosure_checklist_json).sort().join(',') === 'nhd,tds', discRow.disclosure_checklist_json);
+  const hDisc = await H.call('PUT', `/api/pre-listings/${PL2}/disclosures`, { checked: ['tds'] });
+  record('owner', "another agent can't touch the owner's disclosure checklist", denied(hDisc) && sql(`SELECT disclosure_checklist_json FROM pre_listings WHERE id = ${PL2}`)[0].disclosure_checklist_json === discRow.disclosure_checklist_json, `status ${hDisc.status}`);
+  const ownerViewDisc = (await A.call('GET', `/api/pre-listings/${PL2}`)).json.preListing;
+  record('owner', "the owner's own GET includes the checklist", JSON.stringify((ownerViewDisc.disclosureChecklist || []).sort()) === JSON.stringify(['nhd', 'tds']), JSON.stringify(ownerViewDisc.disclosureChecklist));
+  const hViewDisc = (await H.call('GET', `/api/pre-listings/${PL2}`)).json.preListing;
+  record('owner', "nobody else's GET ever includes another owner's checklist", hViewDisc.disclosureChecklist === undefined, JSON.stringify(hViewDisc.disclosureChecklist));
+
   const e1 = await A.call('PUT', `/api/pre-listings/${PL2}`, { ...PL2_BODY, title: 'AUTHZ Pre 2 edited', beds: 4 });
   const row1 = sql(`SELECT title, beds, asking_price FROM pre_listings WHERE id = ${PL2}`)[0];
   record('owner', 'the owner can edit their open pre-listing', e1.status === 200 && row1.title === 'AUTHZ Pre 2 edited' && row1.beds === 4, `status ${e1.status} row=${JSON.stringify(row1)}`);

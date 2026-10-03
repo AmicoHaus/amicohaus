@@ -384,6 +384,7 @@ CREATE TABLE IF NOT EXISTS pre_listings (
   prefers_local_specialist INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','awarded','closed')),
   awarded_bid_id INTEGER,
+  disclosure_checklist_json TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

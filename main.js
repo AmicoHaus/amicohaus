@@ -2,6 +2,20 @@
 
 const PROPERTY_TYPES = ['Single Family Home', 'Condo', 'Townhouse', 'Penthouse', 'Ranch / Land', 'Multi-Family', 'Investment Property'];
 
+// Kept in sync by hand with functions/_lib/disclosures.js, the same way PROPERTY_TYPES and the service/specialty
+// lists elsewhere in this file mirror their server-side counterparts — only which keys are checked is per
+// pre-listing data from the API; the labels/notes themselves are static enough not to need a round trip.
+const DISCLOSURE_ITEMS = [
+  { key: 'tds', label: 'Transfer Disclosure Statement (TDS)', note: "The seller's own statement of the property's condition and known defects — required on almost every residential sale in California." },
+  { key: 'nhd', label: 'Natural Hazard Disclosure (NHD) report', note: 'Whether the property sits in a flood, fire, earthquake fault, or other state-mapped hazard zone. Usually ordered through a disclosure company, not filled out by hand.' },
+  { key: 'spq', label: 'Seller Property Questionnaire (SPQ)', note: "A more detailed companion to the TDS — permits, neighborhood issues, past repairs." },
+  { key: 'lead_paint', label: 'Lead-based paint disclosure', note: 'Federally required for any home built before 1978, regardless of state.' },
+  { key: 'smoke_co', label: 'Smoke & carbon monoxide detector compliance', note: 'California requires working detectors in the right locations before a sale closes.' },
+  { key: 'water_heater', label: 'Water heater bracing statement', note: 'A signed statement that the water heater is braced/strapped against earthquake movement, as state law requires.' },
+  { key: 'hoa_docs', label: 'HOA documents (if applicable)', note: 'CC&Rs, bylaws, financials, and any pending special assessments, if the property belongs to a homeowners association.' },
+  { key: 'megan_law', label: "Megan's Law database disclosure", note: 'A standard notice directing buyers to the state database — required language, not something to look up yourself.' },
+];
+
 function fillTypeSelect(select, includeAny) {
   select.innerHTML = '';
   if (includeAny) {
@@ -1368,6 +1382,29 @@ function renderBidFormAndVote(myBid, myVote, showVote) {
 }
 
 // ---- Owner tools for their own pre-listing: edit the details, or close it ----
+// A homeowner's private checklist of common CA pre-listing disclosures — informational, not legal advice (the
+// list itself is defined server-side in functions/_lib/disclosures.js; the client only knows the labels/notes
+// the API sends back, so a wording change there never needs a client deploy to match). Visible to the owner
+// regardless of status, unlike votes/proposals, since it stays useful even after the pre-listing is awarded.
+function renderDisclosuresChecklist(p) {
+  const checked = new Set(p.disclosureChecklist || []);
+  const done = checked.size, total = DISCLOSURE_ITEMS.length;
+  return `
+    <details class="panel">
+      <summary>Seller disclosures checklist (${done}/${total})</summary>
+      <p class="tiny">Common California pre-listing disclosures — not a complete list for every property, and not legal advice. Check with a real estate attorney or your agent for what your specific sale needs.</p>
+      <div id="disclosuresChecklist" data-pre-listing-id="${p.id}">
+        ${DISCLOSURE_ITEMS.map(item => `
+          <label class="checkbox-row">
+            <input type="checkbox" class="disclosure-check" value="${item.key}" ${checked.has(item.key) ? 'checked' : ''}>
+            <span>${escapeHtml(item.label)}<br><span class="tiny">${escapeHtml(item.note)}</span></span>
+          </label>
+        `).join('')}
+      </div>
+    </details>
+  `;
+}
+
 function renderPreListingOwnerBar(p) {
   if (p.status === 'open') {
     return `<div class="card-actions">
@@ -1543,6 +1580,7 @@ async function openPreListingDetail(id, opts = {}) {
         ${isOwner ? renderPreListingOwnerBar(p) : ''}
       </div>
       ${isOwner && p.status === 'open' ? renderPreListingEditForm(p) : ''}
+      ${isOwner ? renderDisclosuresChecklist(p) : ''}
       ${isOwner
         ? `<h3>Proposals (${bids.length})</h3>${bids.length ? `${renderBidComparisonTable(bids, true)}${bids.map(b => renderBidCard(b, true)).join('')}` : '<div class="empty-state">No proposals yet.</div>'}
            ${p.status === 'open' ? renderInviteAgentPanel() : ''}
@@ -2801,13 +2839,26 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   document.getElementById('marketplaceDetailContent').addEventListener('change', async (e) => {
     const milestoneCheck = e.target.closest('.milestone-check');
-    if (!milestoneCheck || !marketplaceDetail) return;
-    const { kind, id } = marketplaceDetail;
-    const basePath = kind === 'pre_listing' ? `/api/pre-listings/${id}` : `/api/transactions/${id}`;
-    try {
-      await apiPut(`${basePath}/milestones/${milestoneCheck.dataset.milestoneId}`, { isDone: milestoneCheck.checked });
-      loadMilestonesInto(kind, id);
-    } catch (err) { toast(err.message); }
+    const disclosureCheck = e.target.closest('.disclosure-check');
+    if (milestoneCheck && marketplaceDetail) {
+      const { kind, id } = marketplaceDetail;
+      const basePath = kind === 'pre_listing' ? `/api/pre-listings/${id}` : `/api/transactions/${id}`;
+      try {
+        await apiPut(`${basePath}/milestones/${milestoneCheck.dataset.milestoneId}`, { isDone: milestoneCheck.checked });
+        loadMilestonesInto(kind, id);
+      } catch (err) { toast(err.message); }
+    } else if (disclosureCheck) {
+      const wrap = disclosureCheck.closest('#disclosuresChecklist');
+      const preListingId = wrap.dataset.preListingId;
+      const checkedKeys = [...wrap.querySelectorAll('.disclosure-check:checked')].map(c => c.value);
+      try {
+        await apiPut(`/api/pre-listings/${preListingId}/disclosures`, { checked: checkedKeys });
+        wrap.closest('details').querySelector('summary').textContent = `Seller disclosures checklist (${checkedKeys.length}/${DISCLOSURE_ITEMS.length})`;
+      } catch (err) {
+        disclosureCheck.checked = !disclosureCheck.checked; // the PUT failed, so undo the optimistic UI change
+        toast(err.message);
+      }
+    }
   });
 
   function wireFavoriteToggle(containerId) {

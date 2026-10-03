@@ -8,33 +8,34 @@ async function notify(db, userId, body, link) {
   await db.prepare("INSERT INTO notifications (user_id, type, body, link) VALUES (?, 'marketplace', ?, ?)").bind(userId, body, link).run();
 }
 
-// New requests are the one marketplace ping worth emailing: an agent who
-// only sees the in-app bell could lose a lead to someone faster. A homeowner
-// reacting to a proposal, an award, or an invite is already in the app when
-// it happens, so those stay in-app only. Capped at a generous number per
-// day (not the 3/day matches use) since these are time-sensitive leads an
-// agent plausibly wants more of, not a nurture digest — this project has no
-// cron-triggered worker for a real batched digest, so "stop after N" is the
-// spam guard, the same workaround matchNotify.js uses.
-const CAPPED_NEW_REQUEST_EMAILS_PER_DAY = 8;
+// Events time-sensitive or encouraging enough to be worth an email, not just the in-app bell: a new request an
+// agent could lose to someone faster, and a new vote/proposal on a homeowner's own pre-listing (the thing most
+// likely to pull someone back into the app who posted once and never came back to check). A homeowner reacting
+// to something already has the app open when it happens, so acceptances/declines/invites stay in-app only.
+// Capped at a generous number per day — these are real activity, not a nurture digest — but this project has no
+// cron-triggered worker for a real batched digest, so "stop after N" is the spam guard, the same workaround
+// matchNotify.js uses for match emails.
+const CAPPED_MARKETPLACE_EMAILS_PER_DAY = 8;
 
-async function notifyAndMaybeEmail(context, agent, body, link, subject) {
+// recipient: { userId, email, emailFrequency }. cta is the call-to-action clause, e.g. "see the details and
+// send a proposal" vs. "see what they said" — kept as a parameter since the right next action differs by event.
+async function notifyAndMaybeEmail(context, recipient, body, link, subject, cta) {
   const db = context.env.DB;
   // Checked before inserting this event's own row, not after — counting it against its own cap would make the
   // Nth email of the day look like the (N+1)th and get skipped one send too early.
   let underCap = true;
-  if (agent.email_frequency === 'capped') {
+  if (recipient.emailFrequency === 'capped') {
     const sent = await db.prepare(
       `SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND type = 'marketplace' AND body = ? AND created_at >= datetime('now', '-1 day')`
-    ).bind(agent.user_id, body).first();
-    underCap = sent.n < CAPPED_NEW_REQUEST_EMAILS_PER_DAY;
+    ).bind(recipient.userId, body).first();
+    underCap = sent.n < CAPPED_MARKETPLACE_EMAILS_PER_DAY;
   }
-  await notify(db, agent.user_id, body, link);
-  if (!agent.email || !underCap) return; // demo accounts and any row missing an email never get one
+  await notify(db, recipient.userId, body, link);
+  if (!recipient.email || !underCap) return; // demo accounts and any row missing an email never get one
   return sendEmail(context, {
-    to: agent.email,
+    to: recipient.email,
     subject,
-    text: `${body} Log in to see the details and send a proposal: ${new URL(context.request.url).origin}${link}`,
+    text: `${body} Log in to ${cta}: ${new URL(context.request.url).origin}${link}`,
   });
 }
 
@@ -47,9 +48,30 @@ export async function notifyNewBid(context, requestType, requestId, ownerUserIds
   const agent = await db.prepare('SELECT display_name FROM users WHERE id = ?').bind(agentUserId).first();
   const owners = Array.isArray(ownerUserIds) ? ownerUserIds : [ownerUserIds];
   const link = requestLink(requestType, requestId);
-  for (const ownerId of owners) {
-    await notify(db, ownerId, `${agent ? agent.display_name : 'An agent'} submitted a proposal.`, link);
-  }
+  const body = `${agent ? agent.display_name : 'An agent'} submitted a proposal.`;
+  const ownerRows = await db.batch(owners.map(id => db.prepare('SELECT id, email, email_frequency FROM users WHERE id = ?').bind(id)));
+  await Promise.allSettled(ownerRows.map(r => {
+    const owner = r.results[0];
+    if (!owner) return Promise.resolve();
+    return notifyAndMaybeEmail(context, { userId: owner.id, email: owner.email, emailFrequency: owner.email_frequency }, body, link,
+      'New proposal on Amico Haus', 'see the details and compare it with any others');
+  }));
+}
+
+const VOTE_LABELS = { too_high: 'too high', too_low: 'too low', just_right: 'about right' };
+
+// The one marketplace event that previously notified nobody at all: a homeowner posts a pre-listing hoping to
+// hear from "local agent experts" and, until now, had no way to know a vote came in short of re-checking the
+// app. Every vote re-notifies (an agent can change their vote, and each new opinion is itself news), same
+// capped-per-day email guard as everything else here.
+export async function notifyNewVote(context, preListingId, ownerUserId, agentUserId, vote) {
+  const db = context.env.DB;
+  const agent = await db.prepare('SELECT display_name FROM users WHERE id = ?').bind(agentUserId).first();
+  const owner = await db.prepare('SELECT id, email, email_frequency FROM users WHERE id = ?').bind(ownerUserId).first();
+  if (!owner) return;
+  const body = `${agent ? agent.display_name : 'An agent'} says your asking price looks ${VOTE_LABELS[vote] || vote}.`;
+  await notifyAndMaybeEmail(context, { userId: owner.id, email: owner.email, emailFrequency: owner.email_frequency }, body,
+    `/app#pre-listing-${preListingId}`, 'New price feedback on Amico Haus', 'see what they said');
 }
 
 export async function notifyAgentInvited(context, requestType, requestId, agentUserId, invitedByUserId) {
@@ -89,9 +111,11 @@ export async function notifyAgentsNewRequest(context, requestType, requestId, zi
   ).all();
   if (agentsRow.results.length === 0) return;
 
+  const asRecipient = a => ({ userId: a.user_id, email: a.email, emailFrequency: a.email_frequency });
+  const cta = 'see the details and send a proposal';
   const sends = [];
   if (requestType !== 'pre_listing' || !zip) {
-    for (const a of agentsRow.results) sends.push(notifyAndMaybeEmail(context, a, bodyText, link, subject));
+    for (const a of agentsRow.results) sends.push(notifyAndMaybeEmail(context, asRecipient(a), bodyText, link, subject, cta));
   } else {
     const { lookupZipCoords, nearestServiceDistance, SERVICE_RADIUS_MILES } = await import('./geo.js');
     const allZips = new Set([zip]);
@@ -104,7 +128,7 @@ export async function notifyAgentsNewRequest(context, requestType, requestId, zi
       const serviceZips = JSON.parse(a.service_zips_json || '[]');
       if (serviceZips.length === 0) continue;
       const d = nearestServiceDistance(coords.get(zip), serviceZips, coords);
-      if (d !== null && d <= SERVICE_RADIUS_MILES) sends.push(notifyAndMaybeEmail(context, a, bodyText, link, subject));
+      if (d !== null && d <= SERVICE_RADIUS_MILES) sends.push(notifyAndMaybeEmail(context, asRecipient(a), bodyText, link, subject, cta));
     }
   }
   // allSettled, not all — one agent's slow/failing email provider shouldn't stop another's in-app notification

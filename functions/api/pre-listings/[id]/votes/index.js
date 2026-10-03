@@ -2,6 +2,7 @@ import { getSessionUser } from '../../../../_lib/auth.js';
 import { json, badRequest, unauthorized, forbidden, notFound } from '../../../../_lib/util.js';
 import { isApprovedAgent } from '../../../../_lib/agents.js';
 import { castPriceVote, getVoteTally } from '../../../../_lib/preListings.js';
+import { notifyNewVote } from '../../../../_lib/marketplaceNotify.js';
 
 export async function onRequestGet(context) {
   const viewer = await getSessionUser(context);
@@ -28,5 +29,6 @@ export async function onRequestPost(context) {
 
   const result = await castPriceVote(db, id, user.id, body);
   if (result.error) return badRequest(result.error);
+  context.waitUntil(notifyNewVote(context, id, preListing.user_id, user.id, body.vote));
   return json({ ok: true });
 }

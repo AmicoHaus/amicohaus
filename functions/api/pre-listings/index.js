@@ -54,6 +54,7 @@ export async function onRequestGet(context) {
   }
   const listingZipCoords = serviceZips ? await lookupZipCoords(db, rows.results.map(r => r.zip)) : null;
 
+  const mine = url.searchParams.get('mine') === '1';
   const preListings = [];
   for (const r of rows.results) {
     const photos = await fetchPreListingPhotos(db, r.id);
@@ -62,6 +63,13 @@ export async function onRequestGet(context) {
     if (serviceZips) {
       distanceMiles = nearestServiceDistance(listingZipCoords.get(r.zip), serviceZips, agentZipCoords);
     }
+    // Only computed for the owner's own list — these drive the "needs your attention" counts on the summary
+    // card, which nobody browsing someone else's open pre-listing needs to see.
+    let pendingBidCount = null, pendingShowingCount = null;
+    if (mine) {
+      pendingBidCount = (await db.prepare("SELECT COUNT(*) AS n FROM service_bids WHERE request_type = 'pre_listing' AND request_id = ? AND status = 'pending'").bind(r.id).first()).n;
+      pendingShowingCount = (await db.prepare("SELECT COUNT(*) AS n FROM pre_listing_showings WHERE pre_listing_id = ? AND status = 'pending'").bind(r.id).first()).n;
+    }
     preListings.push({
       id: r.id, userId: r.user_id, owner: r.owner_name, title: r.title, city: r.city, state: r.state, zip: r.zip,
       occupancyStatus: r.occupancy_status,
@@ -69,6 +77,7 @@ export async function onRequestGet(context) {
       status: r.status, createdAt: r.created_at, photoIds: photos.map(p => p.id), votes,
       distanceMiles: distanceMiles === null ? null : Math.round(distanceMiles),
       inServiceArea: distanceMiles === null ? null : distanceMiles <= SERVICE_RADIUS_MILES,
+      pendingBidCount, pendingShowingCount,
     });
   }
   return json({ preListings });

@@ -148,10 +148,21 @@ async function loadProfile(userId) {
       `<span class="tiny">Hi, ${escapeHtml(user.displayName)}</span> <a class="btn btn-primary btn-sm" href="/app">Go to App</a>`;
   }
 
-  const id = new URLSearchParams(window.location.search).get('id');
+  const params = new URLSearchParams(window.location.search);
+  const id = params.get('id');
   if (!id) {
     document.getElementById('profileContent').innerHTML = '<div class="empty-state">No profile specified.</div>';
     return;
   }
+
+  // ?back=pre-listing-5 or transaction-3, set by the proposal card this profile was opened from — a direct way
+  // back to that exact proposal, not just whatever the browser's back button happens to land on (a notification
+  // link or a new tab has no history to go back to at all).
+  const back = /^(pre-listing|transaction)-\d+$/.exec(params.get('back') || '');
+  if (back) {
+    const label = back[1] === 'pre-listing' ? 'this pre-listing' : 'this trade';
+    document.getElementById('profileBackLink').innerHTML = `<a href="/app#${escapeHtml(back[0])}">← Back to ${label}</a>`;
+  }
+
   loadProfile(id);
 })();

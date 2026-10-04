@@ -833,3 +833,7 @@ main > .demo-section:first-of-type > [data-pills] { display: none; }
 /* Inline quick-reply box on a message notification. */
 .quick-reply { display: flex; gap: 6px; margin-top: 6px; font-weight: normal; }
 .quick-reply-input { flex: 1; min-width: 0; font-size: 0.85rem; padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--card); color: var(--ink); }
+
+/* "Needs your attention" strip at the top of Agent Strategy. */
+.attention-strip { border-left: 4px solid var(--gold); background: var(--cream); font-size: 0.9rem; padding: 12px 16px; margin-bottom: 16px; }
+.attention-strip a { color: var(--gold); font-weight: 600; text-decoration: underline; }

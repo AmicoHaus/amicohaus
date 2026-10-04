@@ -501,6 +501,21 @@ const denied = r => r.status >= 400 && r.status < 500;
     glBid && glBid.preListing && glBid.preListing.askingPrice === 750000 && glBid.preListing.userId === A.id,
     JSON.stringify(glBid && glBid.preListing));
 
+  // ---------- "needs your attention" counts (owner's own mine=1 list only) ----------
+  console.log('\n== attention counts ==');
+  // PL is awarded and PL2 is closed by this point in the run (both now have 0 pending bids, correctly, since
+  // accepting one proposal auto-declines the rest) — a fresh one with an actual pending bid is needed to check
+  // the count logic for real, and it also doubles as the public-browse check below (PL/PL2 no longer show up
+  // in the open-only browse list at all once awarded/closed).
+  const plOpen = ((await A.call('POST', '/api/pre-listings', PL2_BODY)).json || {}).id;
+  const plOpenBid = await H.call('POST', `/api/pre-listings/${plOpen}/bids`, bidBody);
+  const ownerMine = (await A.call('GET', '/api/pre-listings?mine=1')).json.preListings.find(p => p.id === plOpen);
+  record('attention', "the owner's own pre-listing list shows how many pending proposals/showings need a decision",
+    plOpenBid.status === 201 && ownerMine && ownerMine.pendingBidCount === 1 && ownerMine.pendingShowingCount === 0, JSON.stringify(ownerMine && { pendingBidCount: ownerMine.pendingBidCount, pendingShowingCount: ownerMine.pendingShowingCount }));
+  const publicBrowse = (await H.call('GET', '/api/pre-listings')).json.preListings.find(p => p.id === plOpen);
+  record('attention', "those counts are never computed for anyone browsing the public open list, only the owner's own mine=1 view",
+    publicBrowse && publicBrowse.pendingBidCount === null && publicBrowse.pendingShowingCount === null, JSON.stringify(publicBrowse && { pendingBidCount: publicBrowse.pendingBidCount, pendingShowingCount: publicBrowse.pendingShowingCount }));
+
   const e1 = await A.call('PUT', `/api/pre-listings/${PL2}`, { ...PL2_BODY, title: 'AUTHZ Pre 2 edited', beds: 4 });
   const row1 = sql(`SELECT title, beds, asking_price FROM pre_listings WHERE id = ${PL2}`)[0];
   record('owner', 'the owner can edit their open pre-listing', e1.status === 200 && row1.title === 'AUTHZ Pre 2 edited' && row1.beds === 4, `status ${e1.status} row=${JSON.stringify(row1)}`);

@@ -34,6 +34,10 @@ function goToTab(name) {
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${name}`));
   window.scrollTo({ top: 0, behavior: 'smooth' });
+  // Per-device convenience only (never read back by the server) — so a plain /app visit lands wherever this
+  // browser was last, instead of always defaulting back to Agent Strategy. Wrapped since storage can throw
+  // (private browsing, blocked site data) and losing this is never worth breaking navigation over.
+  try { localStorage.setItem('ah_last_tab', name); } catch {}
   if (name === 'feed') { loadFeed(); checkOnboarding(); }
   if (name === 'listing') { loadMyListing(); if (!editingListingId) checkForListingDraft(); }
   if (name === 'groups') loadGroups();
@@ -972,6 +976,23 @@ async function openNotification(type, link) {
 // / openTransactionDetail, read by every bid/vote/accept/review action so
 // they don't each need the kind+id threaded through as arguments.
 let marketplaceDetail = null; // { kind: 'pre_listing' | 'transaction', id }
+
+// Fed by loadMyPreListings() (proposal/showing counts) and loadMyTeam() (a pending team invite) — whichever
+// loads last renders the strip, so each setter just updates its own slice and re-renders rather than assuming
+// it owns the whole picture.
+const attentionState = { bids: 0, showings: 0, teamInvite: false };
+function renderAttentionStrip() {
+  const el = document.getElementById('attentionStrip');
+  if (!el) return;
+  const parts = [
+    attentionState.bids > 0 && `<a href="#" data-action="goto-my-pre-listings">${attentionState.bids} proposal${attentionState.bids === 1 ? '' : 's'} waiting on you</a>`,
+    attentionState.showings > 0 && `<a href="#" data-action="goto-my-pre-listings">${attentionState.showings} showing request${attentionState.showings === 1 ? '' : 's'} waiting on you</a>`,
+    attentionState.teamInvite && `<a href="#" data-action="goto-team-invite">a team invite waiting on you</a>`,
+  ].filter(Boolean);
+  if (parts.length === 0) { el.classList.add('hidden'); el.innerHTML = ''; return; }
+  el.classList.remove('hidden');
+  el.innerHTML = `<div class="card attention-strip">👋 You have ${parts.join(', ')}.</div>`;
+}
 let currentAgentProfile = null;
 let currentAgentPackages = [];
 
@@ -1169,7 +1190,15 @@ async function loadMyPreListings() {
   const el = document.getElementById('myPreListingsList');
   try {
     const { preListings } = await apiGet('/api/pre-listings?mine=1');
-    el.innerHTML = preListings.length ? preListings.map(p => `
+    attentionState.bids = preListings.reduce((sum, p) => sum + (p.pendingBidCount || 0), 0);
+    attentionState.showings = preListings.reduce((sum, p) => sum + (p.pendingShowingCount || 0), 0);
+    renderAttentionStrip();
+    el.innerHTML = preListings.length ? preListings.map(p => {
+      const needsAttention = [
+        p.pendingBidCount > 0 && `${p.pendingBidCount} proposal${p.pendingBidCount === 1 ? '' : 's'}`,
+        p.pendingShowingCount > 0 && `${p.pendingShowingCount} showing request${p.pendingShowingCount === 1 ? '' : 's'}`,
+      ].filter(Boolean);
+      return `
       <div class="card">
         <div class="card-head">
           <h3>${escapeHtml(p.title || p.propertyType)}</h3>
@@ -1178,13 +1207,15 @@ async function loadMyPreListings() {
         <div class="mini-block">${escapeHtml(p.propertyType)} · ${p.beds}bd/${p.baths}ba in ${escapeHtml(p.city)}, ${escapeHtml(p.state)} ${escapeHtml(p.zip || '')}<br>${money(p.askingPrice)} asking</div>
         <p class="tiny"><span class="badge ${p.occupancyStatus === 'vacant' ? 'badge-gold' : ''}">${p.occupancyStatus === 'vacant' ? 'Vacant' : 'Occupied'}</span></p>
         <p class="tiny">${voteSummary(p.votes, 'Votes')}</p>
+        ${needsAttention.length ? `<p class="tiny"><span class="badge badge-gold">👋 ${needsAttention.join(' · ')} waiting on you</span></p>` : ''}
         <div class="card-actions">
           <button class="btn btn-primary btn-sm" data-action="open-pre-listing" data-id="${p.id}">View Proposals</button>
           ${p.status === 'open' ? `<button class="btn btn-ghost btn-sm" data-action="edit-pre-listing-from-list" data-id="${p.id}">Edit</button>
           <button class="btn btn-ghost btn-sm" data-action="close-pre-listing-from-list" data-id="${p.id}">Close</button>` : ''}
         </div>
       </div>
-    `).join('') : '<div class="empty-state">You haven\'t posted a pre-listing yet.</div>';
+    `;
+    }).join('') : '<div class="empty-state">You haven\'t posted a pre-listing yet.</div>';
   } catch (e) { el.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
 }
 
@@ -1321,7 +1352,7 @@ function renderBidComparisonTable(bids, canAct) {
   `;
 }
 
-function renderBidCard(b, canAct) {
+function renderBidCard(b, canAct, backLink) {
   const winRatePct = b.winRate !== null && b.winRate !== undefined ? Math.round(b.winRate * 100) : null;
   const respLabel = formatResponseHours(b.avgResponseHours);
   const statusBadge = `<span class="badge ${b.status === 'accepted' ? 'badge-active' : b.status === 'declined' ? 'badge-paused' : 'badge-gold'}">${b.status}</span>`;
@@ -1340,7 +1371,7 @@ function renderBidCard(b, canAct) {
     <div class="card">
       ${personHeadHtml({
         avatar: avatarHtml(b.agentName, { seed: b.agentUserId, size: 'lg' }),
-        nameHtml: `<a class="profile-link" href="profile.html?id=${b.agentUserId}">${escapeHtml(b.agentName)}</a>${b.isVerified ? ' <span class="badge badge-verified" title="Verified">✓</span>' : ''}${b.topRated ? ' <span class="badge badge-gold" title="4.5+ rating, 3+ reviews, 30%+ win rate">🏆 Top Rated</span>' : ''}`,
+        nameHtml: `<a class="profile-link" href="profile.html?id=${b.agentUserId}${backLink ? `&back=${encodeURIComponent(backLink)}` : ''}">${escapeHtml(b.agentName)}</a>${b.isVerified ? ' <span class="badge badge-verified" title="Verified">✓</span>' : ''}${b.topRated ? ' <span class="badge badge-gold" title="4.5+ rating, 3+ reviews, 30%+ win rate">🏆 Top Rated</span>' : ''}`,
         sub: b.brokerageName || '',
         chips: [ratingChipHtml(b.rating, b.reviewCount), b.yearsExperience ? chipHtml(`${b.yearsExperience} yrs experience`, 'outline') : ''].filter(Boolean),
         aside: statusBadge,
@@ -1600,7 +1631,7 @@ async function openPreListingDetail(id, opts = {}) {
       ${isOwner ? renderDisclosuresChecklist(p) : ''}
       ${isOwner ? '<div id="showingsPanel"></div>' : ''}
       ${isOwner
-        ? `<h3>Proposals (${bids.length})</h3>${bids.length ? `${renderBidComparisonTable(bids, true)}${bids.map(b => renderBidCard(b, true)).join('')}` : '<div class="empty-state">No proposals yet.</div>'}
+        ? `<h3>Proposals (${bids.length})</h3>${bids.length ? `${renderBidComparisonTable(bids, true)}${bids.map(b => renderBidCard(b, true, `pre-listing-${id}`)).join('')}` : '<div class="empty-state">No proposals yet.</div>'}
            ${p.status === 'open' ? renderInviteAgentPanel() : ''}
            ${p.status === 'awarded' ? `<div id="milestonesPanel"></div>${renderDisputePanel()}${renderReviewForm()}` : ''}`
         : (currentAgentProfile && currentAgentProfile.status === 'approved'
@@ -1640,7 +1671,7 @@ async function openTransactionDetail(id) {
         <p class="tiny">Either trade partner can accept a proposal — coordinate with your trade partner via messages first.</p>
       </div>
       ${isParty
-        ? `<h3>Proposals (${bids.length})</h3>${bids.length ? `${renderBidComparisonTable(bids, true)}${bids.map(b => renderBidCard(b, true)).join('')}` : '<div class="empty-state">No proposals yet.</div>'}
+        ? `<h3>Proposals (${bids.length})</h3>${bids.length ? `${renderBidComparisonTable(bids, true)}${bids.map(b => renderBidCard(b, true, `transaction-${id}`)).join('')}` : '<div class="empty-state">No proposals yet.</div>'}
            ${t.status === 'open' ? renderInviteAgentPanel() : ''}
            ${t.status === 'awarded' ? `<div id="milestonesPanel"></div>${renderDisputePanel()}${renderReviewForm()}` : ''}`
         : (currentAgentProfile && currentAgentProfile.status === 'approved'
@@ -1781,6 +1812,8 @@ async function loadMyTeam() {
   try {
     const data = await apiGet('/api/agent-teams/me');
     el.innerHTML = renderTeamPanel(data, currentUser ? currentUser.id : null);
+    attentionState.teamInvite = data.myStatus === 'invited';
+    renderAttentionStrip();
   } catch { /* non-critical */ }
 }
 
@@ -2583,7 +2616,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   document.getElementById('tab-marketplace').addEventListener('click', e => {
     const btn = e.target.closest('[data-action^="goto-"]');
-    if (btn && AGENT_TAB_SECTIONS[btn.dataset.action]) openAgentTabSection(AGENT_TAB_SECTIONS[btn.dataset.action]);
+    if (!btn) return;
+    if (AGENT_TAB_SECTIONS[btn.dataset.action]) openAgentTabSection(AGENT_TAB_SECTIONS[btn.dataset.action]);
+    // The attention strip's own links — straight to an already-visible section, not a collapsible one, so just
+    // scroll (preventDefault since these render as <a href="#">, which would otherwise jump to the page top).
+    else if (btn.dataset.action === 'goto-my-pre-listings') { e.preventDefault(); document.getElementById('myPreListingsList').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+    else if (btn.dataset.action === 'goto-team-invite') { e.preventDefault(); openAgentTabSection('becomeAgentWrap'); requestAnimationFrame(() => document.getElementById('myTeamPanel').scrollIntoView({ behavior: 'smooth', block: 'start' })); }
   });
 
   async function sendQuickReply(wrap) {
@@ -3124,8 +3162,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // The Agent Strategy tab is where the app opens, unless a deep link
   // (/app#pre-listing-12, #transaction-7, #messages-3, #post-home) from a
-  // bookmark, notification or shared URL says otherwise. Only one of the two
-  // runs, so the tab's data isn't fetched twice. The Feed loads when its tab is opened.
+  // bookmark, notification or shared URL says otherwise — and a deep link always wins over the remembered tab
+  // below, since it's a more specific instruction about where the user wants to be right now. Only one of the
+  // two runs, so the tab's data isn't fetched twice. The Feed loads when its tab is opened.
   const openedByLink = location.hash ? await openAppLink(location.hash) : false;
-  if (!openedByLink) goToTab('marketplace');
+  if (!openedByLink) {
+    const VALID_TABS = ['marketplace', 'feed', 'listing', 'groups', 'matches', 'saved', 'messages'];
+    let lastTab = 'marketplace';
+    try { if (VALID_TABS.includes(localStorage.getItem('ah_last_tab'))) lastTab = localStorage.getItem('ah_last_tab'); } catch {}
+    goToTab(lastTab);
+  }
 });

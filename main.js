@@ -814,6 +814,20 @@ async function loadSavedSearches() {
 }
 
 /* ---------------- Messages ---------------- */
+// A conversation's own unread_count (tracked separately from the general notification bell, which has no idea
+// when you've actually read a conversation vs. just dismissed its notification) is the authoritative source for
+// how many messages are genuinely unread — summed here rather than trusting the bell's mixed-event count.
+function updateMessagesTabBadge(conversations) {
+  const badge = document.getElementById('messagesTabBadge');
+  if (!badge) return;
+  const unread = conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0);
+  badge.textContent = unread;
+  badge.classList.toggle('hidden', unread === 0);
+}
+async function refreshMessagesTabBadge() {
+  try { updateMessagesTabBadge((await apiGet('/api/conversations')).conversations); } catch { /* non-critical */ }
+}
+
 async function loadConversations() {
   document.getElementById('messageThread').classList.add('hidden');
   const list = document.getElementById('conversationList');
@@ -821,6 +835,7 @@ async function loadConversations() {
   list.innerHTML = '<div class="empty-state">Loading…</div>';
   try {
     const { conversations } = await apiGet('/api/conversations');
+    updateMessagesTabBadge(conversations);
     list.innerHTML = conversations.length ? conversations.map(c => `
       <div class="card conversation-item" data-action="open-conversation" data-id="${c.id}" data-name="${escapeHtml(c.other_name)}" data-user-id="${c.other_user_id}">
         <h3><a class="profile-link" href="profile.html?id=${c.other_user_id}">${escapeHtml(c.other_name)}</a>${c.unread_count > 0 ? '<span class="unread-dot"></span>' : ''}</h3>
@@ -838,7 +853,8 @@ async function openConversation(id, name, otherUserId) {
   thread.classList.remove('hidden');
   thread.dataset.conversationId = id;
   document.getElementById('threadTitle').textContent = name;
-  await renderMessages(id);
+  await renderMessages(id); // marks this conversation's messages read server-side
+  refreshMessagesTabBadge();
   if (otherUserId) checkThreadOpenToBids(otherUserId);
 }
 
@@ -1277,11 +1293,21 @@ async function loadMarketplaceBrowse() {
     ]);
     const onlyInArea = document.getElementById('marketOnlyInArea').checked;
     const filteredPreListings = onlyInArea ? preListings.filter(p => p.inServiceArea) : preListings;
+
+    // "New since your last visit" — per-device only (never shared, never read by the server), same spirit as
+    // remembering the last tab. Read before overwriting, so this visit's count reflects the *previous* visit,
+    // not itself; a first-ever visit has nothing to compare against, so nothing is marked new.
+    let lastVisit = null;
+    try { lastVisit = localStorage.getItem('ah_browse_last_visit'); } catch {}
+    const isNew = p => lastVisit && new Date(p.createdAt + 'Z').getTime() > new Date(lastVisit).getTime();
+    const newCount = lastVisit ? filteredPreListings.filter(isNew).length : 0;
+    try { localStorage.setItem('ah_browse_last_visit', new Date().toISOString()); } catch {}
+
     const plCards = filteredPreListings.map(p => `
       <div class="card">
         <div class="card-head">
           <h3>${escapeHtml(p.title || p.propertyType)}</h3>
-          <span class="badge badge-gold">Pre-Listing</span>
+          <span class="badge badge-gold">Pre-Listing</span>${isNew(p) ? ' <span class="badge badge-active">New</span>' : ''}
         </div>
         <div class="mini-block">${escapeHtml(p.propertyType)} · ${p.beds}bd/${p.baths}ba in ${escapeHtml(p.city)}, ${escapeHtml(p.state)} ${escapeHtml(p.zip)}<br>${money(p.askingPrice)} asking</div>
         <p class="tiny">
@@ -1299,7 +1325,8 @@ async function loadMarketplaceBrowse() {
         <div class="card-actions"><button class="btn btn-primary btn-sm" data-action="open-transaction" data-id="${t.id}">View &amp; Propose</button></div>
       </div>
     `);
-    el.innerHTML = (plCards.length + txCards.length) ? [...plCards, ...txCards].join('') : '<div class="empty-state">Nothing open right now.</div>';
+    const newBanner = newCount > 0 ? `<p class="tiny">🆕 ${newCount} new pre-listing${newCount === 1 ? '' : 's'} since your last visit.</p>` : '';
+    el.innerHTML = newBanner + ((plCards.length + txCards.length) ? [...plCards, ...txCards].join('') : '<div class="empty-state">Nothing open right now.</div>');
   } catch (e) { el.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
 }
 
@@ -2655,6 +2682,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activateNotification(e); }
   });
   loadNotifications();
+  refreshMessagesTabBadge();
 
   document.getElementById('onboardingCreateBtn').addEventListener('click', () => goToTab('listing'));
 
@@ -2967,13 +2995,21 @@ document.addEventListener('DOMContentLoaded', async () => {
   wireMarketplaceOpenButtons('marketplaceBrowseList');
   wireMarketplaceOpenButtons('myBidsList');
 
-  document.getElementById('backToMarketplace').addEventListener('click', () => {
+  function backToMarketplaceList() {
     marketplaceDetail = null;
     document.getElementById('marketplaceDetailView').classList.add('hidden');
     document.getElementById('marketplaceListView').classList.remove('hidden');
     loadMyPreListings();
     loadMyTransactions();
     loadMarketplaceBrowse();
+  }
+  document.getElementById('backToMarketplace').addEventListener('click', backToMarketplaceList);
+  // Escape backs out of whatever's currently open — a detail view first (most common), else the full-screen
+  // conversation thread — so the keyboard alone can navigate back out, not just the mouse.
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if (marketplaceDetail && !document.getElementById('marketplaceDetailView').classList.contains('hidden')) backToMarketplaceList();
+    else if (!document.getElementById('messageThread').classList.contains('hidden')) loadConversations();
   });
 
   function refreshDetail(kind, id) {

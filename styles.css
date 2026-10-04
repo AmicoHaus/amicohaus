@@ -829,3 +829,7 @@ main > .demo-section:first-of-type > [data-pills] { display: none; }
 .comparison-table th, .comparison-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
 .comparison-table tbody tr:last-child td { border-bottom: none; }
 .comparison-table th { background: var(--cream); font-weight: 600; color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.02em; }
+
+/* Inline quick-reply box on a message notification. */
+.quick-reply { display: flex; gap: 6px; margin-top: 6px; font-weight: normal; }
+.quick-reply-input { flex: 1; min-width: 0; font-size: 0.85rem; padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--card); color: var(--ink); }

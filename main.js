@@ -884,9 +884,20 @@ async function loadNotifications() {
     if (unreadCount > 0) { badge.textContent = unreadCount; badge.classList.remove('hidden'); }
     else { badge.classList.add('hidden'); }
 
-    document.getElementById('notifList').innerHTML = notifications.length ? notifications.map(n => `
-      <div class="notif-item ${n.read_at ? '' : 'unread'}" role="button" tabindex="0" data-action="open-notification" data-type="${escapeHtml(n.type)}" data-link="${escapeHtml(n.link || '')}">${escapeHtml(n.body)}<br><span class="tiny">${timeAgo(n.created_at)}</span></div>
-    `).join('') : '<div class="empty-state">No notifications yet.</div>';
+    document.getElementById('notifList').innerHTML = notifications.length ? notifications.map(n => {
+      // A message notification's link is always /app#messages-N (see notifyNewMessage in marketplaceNotify.js) —
+      // that's the one case worth a reply box right here, instead of a click-through just to type one line back.
+      const convoMatch = /#messages-(\d+)$/.exec(n.link || '');
+      return `
+      <div class="notif-item ${n.read_at ? '' : 'unread'}" role="button" tabindex="0" data-action="open-notification" data-type="${escapeHtml(n.type)}" data-link="${escapeHtml(n.link || '')}">${escapeHtml(n.body)}<br><span class="tiny">${timeAgo(n.created_at)}</span>
+        ${convoMatch ? `
+          <div class="quick-reply" data-conversation-id="${convoMatch[1]}">
+            <input type="text" class="quick-reply-input" placeholder="Quick reply…" maxlength="2000">
+            <button type="button" class="btn btn-primary btn-sm" data-action="quick-reply-send">Send</button>
+          </div>` : ''}
+      </div>
+    `;
+    }).join('') : '<div class="empty-state">No notifications yet.</div>';
   } catch { /* non-critical, ignore */ }
 }
 
@@ -1205,12 +1216,16 @@ async function loadMyBids() {
       const label = b.requestType === 'pre_listing'
         ? (target ? `${escapeHtml(target.title || target.propertyType)} — ${escapeHtml(target.city)}, ${escapeHtml(target.state)} (${money(target.askingPrice)})` : 'Pre-listing removed')
         : (target ? `Transaction #${target.id}` : 'Transaction removed');
+      // Only pre-listings have one clear homeowner to check in with — a transaction has two trade partners, so
+      // the check-in button is scoped to the case where "who do I message" isn't ambiguous.
+      const checkInTarget = b.isStale && b.requestType === 'pre_listing' && b.preListing ? b.preListing.userId : null;
       return `
         <div class="side">
           <strong>${label}</strong>
           <span class="tiny">Your proposal: ${b.commissionPct ? `${b.commissionPct}% commission` : ''}${b.commissionPct && b.flatFee ? ' + ' : ''}${b.flatFee ? money(b.flatFee) + ' flat' : ''} · <span class="badge ${b.status === 'accepted' ? 'badge-active' : b.status === 'declined' ? 'badge-paused' : ''}">${b.status}</span></span>
           ${b.isStale ? '<span class="tiny gone-quiet-nudge">Still pending after a while — maybe follow up with the homeowner.</span>' : ''}
           <button class="link-btn" data-action="open-${b.requestType === 'pre_listing' ? 'pre-listing' : 'transaction'}" data-id="${b.requestId}">View</button>
+          ${checkInTarget ? `<button class="link-btn" data-action="check-in-bid" data-user-id="${checkInTarget}" data-title="${escapeHtml(target.title || 'your pre-listing')}">Send a check-in</button>` : ''}
         </div>
       `;
     }).join('') : '<span class="tiny">No proposals submitted yet.</span>';
@@ -2571,13 +2586,34 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (btn && AGENT_TAB_SECTIONS[btn.dataset.action]) openAgentTabSection(AGENT_TAB_SECTIONS[btn.dataset.action]);
   });
 
+  async function sendQuickReply(wrap) {
+    const input = wrap.querySelector('.quick-reply-input');
+    const text = input.value.trim();
+    if (!text) return;
+    try {
+      await apiPost(`/api/conversations/${wrap.dataset.conversationId}/messages`, { body: text });
+      input.value = '';
+      toast('Reply sent.');
+      loadNotifications();
+    } catch (err) { toast(err.message); }
+  }
+
   const notifList = document.getElementById('notifList');
   const activateNotification = e => {
+    // Checked first, and returns either way: a click or Enter inside the reply box must never also fall through
+    // to opening the notification (the whole item is itself a role="button" wrapper the reply box sits inside).
+    const replyWrap = e.target.closest('.quick-reply');
+    if (replyWrap) {
+      if (e.type === 'click' && e.target.closest('[data-action="quick-reply-send"]')) sendQuickReply(replyWrap);
+      else if (e.type === 'keydown' && e.key === 'Enter' && e.target.classList.contains('quick-reply-input')) sendQuickReply(replyWrap);
+      return;
+    }
     const item = e.target.closest('[data-action="open-notification"]');
     if (item) openNotification(item.dataset.type, item.dataset.link);
   };
   notifList.addEventListener('click', activateNotification);
   notifList.addEventListener('keydown', e => {
+    if (e.target.closest('.quick-reply')) { activateNotification(e); return; } // let typing (incl. Space) through
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activateNotification(e); }
   });
   loadNotifications();
@@ -2864,15 +2900,28 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('marketOnlyInArea').addEventListener('change', () => loadMarketplaceBrowse());
 
   function wireMarketplaceOpenButtons(containerId) {
-    document.getElementById(containerId).addEventListener('click', e => {
+    document.getElementById(containerId).addEventListener('click', async e => {
       const plBtn = e.target.closest('[data-action="open-pre-listing"]');
       const txBtn = e.target.closest('[data-action="open-transaction"]');
       const editPlBtn = e.target.closest('[data-action="edit-pre-listing-from-list"]');
       const closePlBtn = e.target.closest('[data-action="close-pre-listing-from-list"]');
+      const checkInBtn = e.target.closest('[data-action="check-in-bid"]');
       if (plBtn) openPreListingDetail(plBtn.dataset.id);
       else if (editPlBtn) openPreListingDetail(editPlBtn.dataset.id, { edit: true });
       else if (closePlBtn) closePreListing(closePlBtn.dataset.id, true);
       else if (txBtn) openTransactionDetail(txBtn.dataset.id);
+      else if (checkInBtn) {
+        try {
+          const { id: conversationId } = await apiPost('/api/conversations', { userId: Number(checkInBtn.dataset.userId) });
+          const { conversations } = await apiGet('/api/conversations');
+          const convo = conversations.find(c => c.id === conversationId);
+          goToTab('messages');
+          await openConversation(conversationId, convo ? convo.other_name : 'Homeowner', checkInBtn.dataset.userId);
+          // Drafted, not sent — a template is a starting point, not something that should go out un-reviewed.
+          document.getElementById('messageBody').value = `Hi! Just checking in on my proposal for ${checkInBtn.dataset.title} — happy to answer any questions.`;
+          document.getElementById('messageBody').focus();
+        } catch (err) { toast(err.message); }
+      }
     });
   }
   wireMarketplaceOpenButtons('myPreListingsList');

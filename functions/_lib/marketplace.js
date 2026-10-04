@@ -124,7 +124,7 @@ export async function fetchAgentOwnBids(db, agentUserId) {
   const preListingsById = new Map();
   if (preListingIds.length > 0) {
     const placeholders = preListingIds.map(() => '?').join(',');
-    const pl = await db.prepare(`SELECT id, title, city, state, asking_price, status FROM pre_listings WHERE id IN (${placeholders})`).bind(...preListingIds).all();
+    const pl = await db.prepare(`SELECT id, user_id, title, city, state, asking_price, status FROM pre_listings WHERE id IN (${placeholders})`).bind(...preListingIds).all();
     for (const r of pl.results) preListingsById.set(r.id, r);
   }
   const transactionsById = new Map();
@@ -134,14 +134,21 @@ export async function fetchAgentOwnBids(db, agentUserId) {
     for (const r of tx.results) transactionsById.set(r.id, r);
   }
 
-  return rows.results.map(r => ({
-    id: r.id, requestType: r.request_type, requestId: r.request_id,
-    message: r.message, commissionPct: r.commission_pct, flatFee: r.flat_fee,
-    services: JSON.parse(r.services_json || '[]'), status: r.status, createdAt: r.created_at,
-    preListing: r.request_type === 'pre_listing' ? preListingsById.get(r.request_id) : undefined,
-    transaction: r.request_type === 'transaction' ? transactionsById.get(r.request_id) : undefined,
-    isStale: isStaleProposal(r.status, r.created_at),
-  }));
+  return rows.results.map(r => {
+    const pl = r.request_type === 'pre_listing' ? preListingsById.get(r.request_id) : undefined;
+    const tx = r.request_type === 'transaction' ? transactionsById.get(r.request_id) : undefined;
+    return {
+      id: r.id, requestType: r.request_type, requestId: r.request_id,
+      message: r.message, commissionPct: r.commission_pct, flatFee: r.flat_fee,
+      services: JSON.parse(r.services_json || '[]'), status: r.status, createdAt: r.created_at,
+      // Camelcased here (the raw rows above are snake_case straight from SQL) — askingPrice in particular used to
+      // come through as undefined, which money() silently turns into "$0" rather than erroring, so this was
+      // showing every agent a wrong price on their own proposal list rather than visibly failing.
+      preListing: pl ? { id: pl.id, userId: pl.user_id, title: pl.title, city: pl.city, state: pl.state, askingPrice: pl.asking_price, status: pl.status } : undefined,
+      transaction: tx ? { id: tx.id, listingAId: tx.listing_a_id, listingBId: tx.listing_b_id, status: tx.status } : undefined,
+      isStale: isStaleProposal(r.status, r.created_at),
+    };
+  });
 }
 
 // Accepting one proposal declines every other still-pending one on the same

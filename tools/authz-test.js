@@ -492,6 +492,15 @@ const denied = r => r.status >= 400 && r.status < 500;
   const gNotif = sql(`SELECT body FROM notifications WHERE user_id = ${G.id} AND body = 'New message from Authz homeowner'`);
   record('messaging', 'the recipient gets an in-app notification naming the sender (not the message content)', gNotif.length > 0, JSON.stringify(gNotif));
 
+  // my-bids: askingPrice/userId fix found while building the agent's "check in with the homeowner" button -
+  // the raw snake_case row was being returned as-is, so target.askingPrice was always undefined (silently
+  // rendered as "$0" by money()) and there was no userId at all to message.
+  const myBids = await G.call('GET', '/api/agents/my-bids');
+  const glBid = myBids.json.bids.find(b => b.requestId === Number(PL));
+  record('messaging', "an agent's own proposal list shows the real asking price and the homeowner's user id, not undefined",
+    glBid && glBid.preListing && glBid.preListing.askingPrice === 750000 && glBid.preListing.userId === A.id,
+    JSON.stringify(glBid && glBid.preListing));
+
   const e1 = await A.call('PUT', `/api/pre-listings/${PL2}`, { ...PL2_BODY, title: 'AUTHZ Pre 2 edited', beds: 4 });
   const row1 = sql(`SELECT title, beds, asking_price FROM pre_listings WHERE id = ${PL2}`)[0];
   record('owner', 'the owner can edit their open pre-listing', e1.status === 200 && row1.title === 'AUTHZ Pre 2 edited' && row1.beds === 4, `status ${e1.status} row=${JSON.stringify(row1)}`);

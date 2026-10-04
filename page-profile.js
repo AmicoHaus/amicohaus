@@ -91,6 +91,7 @@ async function loadProfile(userId) {
             ${joined ? `<p class="tiny">Member since ${joined}</p>` : ''}
           </div>
           ${isMine ? '<button type="button" class="btn btn-ghost btn-sm" id="editBioBtn">Edit Profile</button>' : ''}
+          ${me && !isMine ? '<button type="button" class="btn btn-primary btn-sm" id="messageUserBtn">Message</button>' : ''}
           ${isAdmin ? `<button type="button" class="btn btn-ghost btn-sm" id="toggleVerifiedBtn" data-action="${user.isVerified ? 'unverify' : 'verify'}">${user.isVerified ? 'Remove Verification' : 'Mark as Verified'}</button>` : ''}
         </div>
         <div id="bioSection">
@@ -115,6 +116,17 @@ async function loadProfile(userId) {
     if (isMine) {
       document.getElementById('editBioBtn').addEventListener('click', () => saveBio(user.id, user.bio));
       document.getElementById('editPhoneBtn').addEventListener('click', () => savePhone(user.id, user.phone));
+    }
+    if (me && !isMine) {
+      // This standalone page doesn't load main.js (the app shell), so rather than duplicate its conversation UI
+      // here, create/find the conversation via the same API every other Message button uses, then hand off to
+      // the app's own #messages-N deep link, which already knows how to open a specific conversation.
+      document.getElementById('messageUserBtn').addEventListener('click', async () => {
+        try {
+          const { id: conversationId } = await apiPost('/api/conversations', { userId: user.id });
+          window.location.href = `/app#messages-${conversationId}`;
+        } catch (err) { toast(err.message); }
+      });
     }
     if (isAdmin) {
       document.getElementById('toggleVerifiedBtn').addEventListener('click', async (e) => {

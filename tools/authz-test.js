@@ -476,6 +476,22 @@ const denied = r => r.status >= 400 && r.status < 500;
   const teamRow = sql(`SELECT COUNT(*) AS n FROM agent_teams WHERE id = ${TEAMID}`)[0];
   record('team', 'the last member leaving deletes the team entirely (nobody left stuck owning an empty team)', gLeaves.status === 200 && teamRow.n === 0, `status ${gLeaves.status} rows=${teamRow.n}`);
 
+  // ---------- messaging an agent straight from a proposal/directory card ----------
+  console.log('\n== messaging ==');
+  const selfMsg = await A.call('POST', '/api/conversations', { userId: A.id });
+  record('messaging', "can't start a conversation with yourself", denied(selfMsg), `status ${selfMsg.status}`);
+  const startConvo = await A.call('POST', '/api/conversations', { userId: G.id });
+  record('messaging', 'the homeowner can start a conversation with an agent (e.g. from their proposal card)', startConvo.status === 200 || startConvo.status === 201, `status ${startConvo.status} ${startConvo.text.slice(0, 100)}`);
+  const CONVO = startConvo.json && startConvo.json.id;
+  const sendMsg = await A.call('POST', `/api/conversations/${CONVO}/messages`, { body: 'AUTHZ test message' });
+  record('messaging', 'sending a message succeeds', sendMsg.status === 201, `status ${sendMsg.status}`);
+  const bReadConvo = await B.call('GET', `/api/conversations/${CONVO}/messages`);
+  record('messaging', "someone who isn't in the conversation can't read it", denied(bReadConvo), `status ${bReadConvo.status}`);
+  const bPostConvo = await B.call('POST', `/api/conversations/${CONVO}/messages`, { body: 'should not work' });
+  record('messaging', "someone who isn't in the conversation can't post into it", denied(bPostConvo), `status ${bPostConvo.status}`);
+  const gNotif = sql(`SELECT body FROM notifications WHERE user_id = ${G.id} AND body = 'New message from Authz homeowner'`);
+  record('messaging', 'the recipient gets an in-app notification naming the sender (not the message content)', gNotif.length > 0, JSON.stringify(gNotif));
+
   const e1 = await A.call('PUT', `/api/pre-listings/${PL2}`, { ...PL2_BODY, title: 'AUTHZ Pre 2 edited', beds: 4 });
   const row1 = sql(`SELECT title, beds, asking_price FROM pre_listings WHERE id = ${PL2}`)[0];
   record('owner', 'the owner can edit their open pre-listing', e1.status === 200 && row1.title === 'AUTHZ Pre 2 edited' && row1.beds === 4, `status ${e1.status} row=${JSON.stringify(row1)}`);

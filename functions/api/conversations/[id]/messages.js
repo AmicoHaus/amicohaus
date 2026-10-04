@@ -2,6 +2,7 @@ import { getSessionUser } from '../../../_lib/auth.js';
 import { json, badRequest, unauthorized, forbidden, notFound, clampString } from '../../../_lib/util.js';
 import { isEitherBlocked } from '../../../_lib/blocks.js';
 import { sendPushToUser } from '../../../_lib/webpush.js';
+import { notifyNewMessage } from '../../../_lib/marketplaceNotify.js';
 
 async function loadConversationForParticipant(db, conversationId, userId) {
   const convo = await db.prepare('SELECT * FROM conversations WHERE id = ?').bind(conversationId).first();
@@ -54,9 +55,7 @@ export async function onRequestPost(context) {
   ).bind(conversationId, user.id, text).run();
 
   const recipientId = convo.user_a_id === user.id ? convo.user_b_id : convo.user_a_id;
-  await db.prepare(
-    "INSERT INTO notifications (user_id, type, body, link) VALUES (?, 'message', ?, ?)"
-  ).bind(recipientId, `New message from ${user.display_name}`, `/app#messages-${conversationId}`).run();
+  context.waitUntil(notifyNewMessage(context, recipientId, user.display_name, conversationId));
   context.waitUntil(sendPushToUser(context, recipientId));
 
   return json({ id: result.meta.last_row_id }, { status: 201 });

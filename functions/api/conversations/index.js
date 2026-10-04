@@ -31,7 +31,8 @@ export async function onRequestPost(context) {
   let body;
   try { body = await context.request.json(); } catch { return badRequest('Invalid request body.'); }
   const otherUserId = Number(body.userId);
-  if (!Number.isFinite(otherUserId) || otherUserId === user.id) return badRequest('Invalid user.');
+  if (!Number.isFinite(otherUserId)) return badRequest('Invalid user.');
+  if (otherUserId === user.id) return badRequest("You can't message yourself.");
 
   const db = context.env.DB;
   // Seeded demo accounts have no password and can never log in to reply —

@@ -1341,6 +1341,7 @@ function renderBidCard(b, canAct) {
       ${b.openHouseDays && b.openHouseDays.length > 0 ? `<p class="tiny"><span class="label">Typically holds open houses</span> ${b.openHouseDays.map(d => OPEN_HOUSE_DAY_LABELS[d] || d).join(', ')}</p>` : ''}
       <div class="card-actions">
         ${canAct && b.status === 'pending' ? `<button class="btn btn-primary btn-sm" data-action="accept-bid" data-bid-id="${b.id}">Accept This Proposal</button>` : ''}
+        ${canAct ? `<button class="btn btn-ghost btn-sm" data-action="message-user" data-id="${b.agentUserId}" data-name="${escapeHtml(b.agentName)}">Message ${escapeHtml(b.agentName)}</button>` : ''}
         ${canAct ? `<button class="btn btn-ghost btn-sm" data-action="toggle-favorite-agent" data-agent-id="${b.agentUserId}">☆ Favorite</button>` : ''}
       </div>
     </div>
@@ -1895,7 +1896,7 @@ async function loadAgentDirectory() {
 
   try {
     const { agents } = await apiGet(`/api/agents/directory?${params.toString()}`);
-    el.innerHTML = agents.length ? agents.map(a => directoryAgentCardHtml(a, { favorite: true })).join('') : '<div class="empty-state">No agents match these filters.</div>';
+    el.innerHTML = agents.length ? agents.map(a => directoryAgentCardHtml(a, { favorite: true, message: true })).join('') : '<div class="empty-state">No agents match these filters.</div>';
   } catch (e) { el.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
 }
 
@@ -1921,6 +1922,7 @@ async function loadFavoriteAgents() {
         ${avatarHtml(a.displayName, { seed: a.agentUserId, size: 'sm' })}
         <strong><a class="profile-link" href="profile.html?id=${a.agentUserId}">${escapeHtml(a.displayName)}</a></strong>
         <span class="tiny">${escapeHtml(a.brokerageName || '')}${a.rating ? ` · ⭐ ${a.rating} (${a.reviewCount})` : ''}</span>
+        <button class="link-btn" data-action="message-user" data-id="${a.agentUserId}" data-name="${escapeHtml(a.displayName)}">Message</button>
         <button class="link-btn" data-action="toggle-favorite-agent" data-agent-id="${a.agentUserId}">Remove</button>
       </div>
     `).join('') : '<span class="tiny">No favorite agents yet — favorite one from a proposal or the directory above.</span>';
@@ -2902,6 +2904,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const voteBtn = e.target.closest('[data-action="cast-vote"]');
     const reviewBtn = e.target.closest('[data-action="submit-review"]');
     const favoriteBtn = e.target.closest('[data-action="toggle-favorite-agent"]');
+    const msgBtn = e.target.closest('[data-action="message-user"]');
     const addMilestoneBtn = e.target.closest('[data-action="add-milestone"]');
     const deleteMilestoneBtn = e.target.closest('[data-action="delete-milestone"]');
     const disputeBtn = e.target.closest('[data-action="raise-dispute"]');
@@ -2988,6 +2991,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         refreshDetail(kind, id);
       } else if (favoriteBtn) {
         await toggleFavoriteAgent(Number(favoriteBtn.dataset.agentId));
+      } else if (msgBtn) {
+        await startConversationWith(msgBtn.dataset.id, msgBtn.dataset.name); // switches to the Messages tab itself
       } else if (addMilestoneBtn) {
         const label = document.getElementById('newMilestoneLabel').value.trim();
         if (!label) return;
@@ -3049,6 +3054,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   function wireFavoriteToggle(containerId) {
     document.getElementById(containerId).addEventListener('click', async e => {
       const btn = e.target.closest('[data-action="toggle-favorite-agent"]');
+      const msgBtn = e.target.closest('[data-action="message-user"]');
+      if (msgBtn) { try { await startConversationWith(msgBtn.dataset.id, msgBtn.dataset.name); } catch (err) { toast(err.message); } return; }
       if (!btn) return;
       try { await toggleFavoriteAgent(Number(btn.dataset.agentId)); } catch (err) { toast(err.message); }
     });

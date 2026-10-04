@@ -68,7 +68,7 @@ function directoryAgentInfo(a) {
 
 // One agent as a card. Pass { favorite: true } inside the signed-in app to add
 // the ☆ Favorite button; the public home page leaves it off.
-function directoryAgentCardHtml(a, { favorite = false } = {}) {
+function directoryAgentCardHtml(a, { favorite = false, message = false } = {}) {
   return `
     <div class="card">
       ${personHeadHtml({
@@ -78,6 +78,9 @@ function directoryAgentCardHtml(a, { favorite = false } = {}) {
         chips: [ratingChipHtml(a.rating, a.reviewCount), a.yearsExperience ? chipHtml(`${a.yearsExperience} yrs experience`, 'outline') : ''].filter(Boolean),
       })}
       ${agentDetailsHtml(directoryAgentInfo(a))}
-      ${favorite ? `<div class="card-actions"><button class="btn btn-ghost btn-sm" data-action="toggle-favorite-agent" data-agent-id="${a.userId}">☆ Favorite</button></div>` : ''}
+      ${favorite || message ? `<div class="card-actions">
+        ${message ? `<button class="btn btn-ghost btn-sm" data-action="message-user" data-id="${a.userId}" data-name="${escapeHtml(a.displayName)}">Message</button>` : ''}
+        ${favorite ? `<button class="btn btn-ghost btn-sm" data-action="toggle-favorite-agent" data-agent-id="${a.userId}">☆ Favorite</button>` : ''}
+      </div>` : ''}
     </div>`;
 }

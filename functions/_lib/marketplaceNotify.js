@@ -94,6 +94,17 @@ export async function notifyShowingDecision(context, preListingId, agentUserId, 
   await notify(db, agentUserId, accepted ? `Your showing request for ${when} was accepted!` : `Your showing request for ${when} wasn't accepted.`, `/app#pre-listing-${preListingId}`);
 }
 
+// A message is the clearest "someone is waiting on you" event on the whole site, so it gets the same email
+// treatment as a new vote/proposal/showing — same capped-per-day guard, keyed off this exact body text, so a
+// burst of messages from the same person in one conversation doesn't turn into a burst of emails either.
+export async function notifyNewMessage(context, recipientId, senderName, conversationId) {
+  const db = context.env.DB;
+  const recipient = await db.prepare('SELECT id, email, email_frequency FROM users WHERE id = ?').bind(recipientId).first();
+  if (!recipient) return;
+  await notifyAndMaybeEmail(context, { userId: recipient.id, email: recipient.email, emailFrequency: recipient.email_frequency },
+    `New message from ${senderName}`, `/app#messages-${conversationId}`, 'New message on Amico Haus', 'read and reply');
+}
+
 export async function notifyTeamInvite(context, targetUserId) {
   await notify(context.env.DB, targetUserId, "You've been invited to join a team.", '/app#become-agent');
 }

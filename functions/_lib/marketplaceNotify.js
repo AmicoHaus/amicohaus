@@ -109,6 +109,18 @@ export async function notifyTeamInvite(context, targetUserId) {
   await notify(context.env.DB, targetUserId, "You've been invited to join a team.", '/app#become-agent');
 }
 
+// FinderMine: a poster finds out the moment someone expresses interest in
+// their project, same treatment as a new proposal on a pre-listing.
+export async function notifyNewProjectInterest(context, projectId, ownerUserId, investorUserId) {
+  const db = context.env.DB;
+  const investor = await db.prepare('SELECT display_name FROM users WHERE id = ?').bind(investorUserId).first();
+  const owner = await db.prepare('SELECT id, email, email_frequency FROM users WHERE id = ?').bind(ownerUserId).first();
+  if (!owner) return;
+  const body = `${investor ? investor.display_name : 'An investor'} is interested in your FinderMine project.`;
+  await notifyAndMaybeEmail(context, { userId: owner.id, email: owner.email, emailFrequency: owner.email_frequency }, body,
+    `/app#dev-project-${projectId}`, 'New interest on your FinderMine project', 'see who it is and follow up');
+}
+
 export async function notifyAgentInvited(context, requestType, requestId, agentUserId, invitedByUserId) {
   const db = context.env.DB;
   const inviter = await db.prepare('SELECT display_name FROM users WHERE id = ?').bind(invitedByUserId).first();

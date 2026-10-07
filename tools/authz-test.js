@@ -20,6 +20,8 @@ const MARK = {
   lockbox: 'LOCKBOXCODE' + RUN,
   message: 'PRIVATEMSG' + RUN,
   comment: 'AUTHZCOMMENT' + RUN,
+  augAddress: '789 ADAPTADDR' + RUN + ' Way',
+  projAddress: '321 PROJADDR' + RUN + ' Blvd',
 };
 
 const results = [];
@@ -558,13 +560,89 @@ const denied = r => r.status >= 400 && r.status < 500;
   const editClosed = await A.call('PUT', `/api/pre-listings/${PL2}`, { ...PL2_BODY, title: 'reopened?' });
   record('owner', 'a closed pre-listing cannot be closed again or edited', close2.status === 400 && editClosed.status === 400 && sql(`SELECT title FROM pre_listings WHERE id = ${PL2}`)[0].title === 'AUTHZ Pre 2', `close ${close2.status} edit ${editClosed.status}`);
 
+  // ---------- AugmentedHomes ----------
+  console.log('\n== augmented homes ==');
+  const augBody = { title: 'AUTHZ Adapted Home', askingPrice: 625000, city: 'San Diego', state: 'CA', zip: '92104', address: MARK.augAddress,
+    propertyType: 'Single Family Home', beds: 3, baths: 2, adaptations: ['roll_in_shower', 'grab_bars_handrails'], adaptationNotes: 'authz notes' };
+  const augCreate = await A.call('POST', '/api/augmented-homes', augBody);
+  const AUG = augCreate.json && augCreate.json.id;
+  record('augmented', 'owner can create a listing with adaptations', augCreate.status === 201, `status ${augCreate.status} ${augCreate.text.slice(0, 100)}`);
+  const augNoAdapt = await A.call('POST', '/api/augmented-homes', { ...augBody, adaptations: [] });
+  record('augmented', 'creating with no adaptations checked is refused', augNoAdapt.status === 400, `status ${augNoAdapt.status}`);
+  const augAsOwner = (await A.call('GET', `/api/augmented-homes/${AUG}`)).json || {};
+  record('augmented', 'the owner sees the private street address', augAsOwner.isOwner === true && augAsOwner.home && augAsOwner.home.address === MARK.augAddress, JSON.stringify(augAsOwner.home && Object.keys(augAsOwner.home)));
+  const augAsB = await B.call('GET', `/api/augmented-homes/${AUG}`);
+  const augB = (augAsB.json && augAsB.json.home) || {};
+  record('augmented', "a non-owner never sees the address, even in the raw response body", augAsB.status === 200 && augB.address === undefined && !augAsB.text.includes(MARK.augAddress), `keys=${Object.keys(augB).join(',')}`);
+  await chk('augmented', "a non-owner can't change the listing status", 'PUT', `/api/augmented-homes/${AUG}`, { action: 'set-status', status: 'sold' });
+  await chk('augmented', "a non-owner can't delete the listing", 'DELETE', `/api/augmented-homes/${AUG}`);
+  { const f = new FormData(); f.append('photo', new Blob([PNG], { type: 'image/png' }), 'x.png'); const r = await B.call('POST', `/api/augmented-homes/${AUG}/photos`, undefined, { form: f }); record('augmented', "a non-owner can't add photos", denied(r), `status ${r.status}`); }
+  const augFilterHit = (await B.call('GET', '/api/augmented-homes?adaptation=roll_in_shower')).json.homes;
+  record('augmented', 'the adaptation filter includes a matching home', augFilterHit.some(h => h.id === AUG), JSON.stringify(augFilterHit.map(h => h.id)));
+  const augFilterMiss = (await B.call('GET', '/api/augmented-homes?adaptation=hearing_impairment_features')).json.homes;
+  record('augmented', 'the adaptation filter excludes a non-matching home', !augFilterMiss.some(h => h.id === AUG), JSON.stringify(augFilterMiss.map(h => h.id)));
+  const augStatus = await A.call('PUT', `/api/augmented-homes/${AUG}`, { action: 'set-status', status: 'under_contract' });
+  record('augmented', 'the owner can change their own listing status', augStatus.status === 200 && sql(`SELECT status FROM augmented_homes WHERE id = ${AUG}`)[0].status === 'under_contract', `status ${augStatus.status}`);
+  const augBrowseAfter = (await B.call('GET', '/api/augmented-homes')).json.homes;
+  record('augmented', 'a listing no longer active drops out of the public browse list', !augBrowseAfter.some(h => h.id === AUG), JSON.stringify(augBrowseAfter.map(h => h.id)));
+
+  const alertCreate = await B.call('POST', '/api/accessibility-needs-alerts', { label: 'AUTHZ alert', adaptations: ['roll_in_shower'], city: 'San Diego', state: 'CA' });
+  const ALERT = alertCreate.json && alertCreate.json.id;
+  record('augmented', 'another user can save a needs alert', alertCreate.status === 201, `status ${alertCreate.status}`);
+  const augMatch = await A.call('POST', '/api/augmented-homes', { ...augBody, title: 'AUTHZ Adapted Home 2', address: '' });
+  const AUG2 = augMatch.json && augMatch.json.id;
+  const bNotifAfterMatch = sql(`SELECT body FROM notifications WHERE user_id = ${B.id} AND body LIKE 'A new AugmentedHomes listing%AUTHZ alert%'`);
+  record('augmented', 'posting a newly-matching home notifies the saved alert\'s owner', bNotifAfterMatch.length > 0, JSON.stringify(bNotifAfterMatch));
+  await A.call('DELETE', `/api/accessibility-needs-alerts/${ALERT}`);
+  const alertsAfterAttempt = (await B.call('GET', '/api/accessibility-needs-alerts')).json.alerts;
+  record('augmented', "another user cannot delete someone else's needs alert", alertsAfterAttempt.some(a => a.id === ALERT), JSON.stringify(alertsAfterAttempt.map(a => a.id)));
+  await B.call('DELETE', `/api/accessibility-needs-alerts/${ALERT}`);
+  const alertsAfterOwn = (await B.call('GET', '/api/accessibility-needs-alerts')).json.alerts;
+  record('augmented', 'the alert\'s own owner can delete it', !alertsAfterOwn.some(a => a.id === ALERT), JSON.stringify(alertsAfterOwn.map(a => a.id)));
+
+  // ---------- FinderMine ----------
+  console.log('\n== findermine ==');
+  const projBody = { title: 'AUTHZ Dev Project', city: 'San Diego', state: 'CA', address: MARK.projAddress, projectType: 'multifamily', stage: 'permitting',
+    fundingGoal: 900000, minInvestment: 25000, targetReturn: '14% IRR', timelineMonths: 14, description: 'authz project' };
+  const projCreate = await C.call('POST', '/api/dev-projects', projBody);
+  const PROJ = projCreate.json && projCreate.json.id;
+  record('findermine', 'a developer can post a project', projCreate.status === 201, `status ${projCreate.status} ${projCreate.text.slice(0, 100)}`);
+  const projBadType = await C.call('POST', '/api/dev-projects', { ...projBody, projectType: 'not-a-real-type' });
+  record('findermine', 'an invalid project type is refused', projBadType.status === 400, `status ${projBadType.status}`);
+  const projAsOwner = (await C.call('GET', `/api/dev-projects/${PROJ}`)).json || {};
+  record('findermine', 'the owner sees the private address and the (empty) interested-investor list', projAsOwner.isOwner === true && projAsOwner.project.address === MARK.projAddress && Array.isArray(projAsOwner.interestedInvestors), JSON.stringify(projAsOwner.project && Object.keys(projAsOwner.project)));
+  const projAsB = await B.call('GET', `/api/dev-projects/${PROJ}`);
+  const projB = projAsB.json || {};
+  record('findermine', 'a non-owner never sees the address or the interested-investor list', projAsB.status === 200 && projB.project.address === undefined && projB.interestedInvestors === null && !projAsB.text.includes(MARK.projAddress), `keys=${Object.keys(projB.project || {}).join(',')}`);
+  record('findermine', "a non-owner's own interest state starts false", projB.amInterested === false, JSON.stringify(projB.amInterested));
+  await chk('findermine', "a non-owner can't change the project status", 'PUT', `/api/dev-projects/${PROJ}`, { action: 'set-status', status: 'funded' });
+  await chk('findermine', "a non-owner can't delete the project", 'DELETE', `/api/dev-projects/${PROJ}`);
+  const interestOn = await B.call('POST', `/api/dev-projects/${PROJ}/interest`, { note: 'AUTHZ interested' });
+  record('findermine', 'expressing interest succeeds and is reflected back', interestOn.json && interestOn.json.interested === true, JSON.stringify(interestOn.json));
+  const cNotifInterest = sql(`SELECT body FROM notifications WHERE user_id = ${C.id} AND body LIKE '%interested in your FinderMine project%'`);
+  record('findermine', 'the project owner is notified of the new interest', cNotifInterest.length > 0, JSON.stringify(cNotifInterest));
+  const projAfterInterest = (await C.call('GET', `/api/dev-projects/${PROJ}`)).json;
+  record('findermine', "the owner's investor list shows the interested user, by name", projAfterInterest.interestedInvestors.length === 1 && projAfterInterest.interestedInvestors[0].user_id === B.id, JSON.stringify(projAfterInterest.interestedInvestors));
+  const projAsBAfter = (await B.call('GET', `/api/dev-projects/${PROJ}`)).json;
+  record('findermine', "the interested user's own view now shows amInterested true", projAsBAfter.amInterested === true, JSON.stringify(projAsBAfter.amInterested));
+  const interestOff = await B.call('POST', `/api/dev-projects/${PROJ}/interest`, {});
+  record('findermine', 'withdrawing interest flips it back off', interestOff.json && interestOff.json.interested === false, JSON.stringify(interestOff.json));
+  const projAfterWithdraw = (await C.call('GET', `/api/dev-projects/${PROJ}`)).json;
+  record('findermine', 'withdrawn interest disappears from the owner\'s investor list too', projAfterWithdraw.interestedInvestors.length === 0, JSON.stringify(projAfterWithdraw.interestedInvestors));
+  const projStatus = await C.call('PUT', `/api/dev-projects/${PROJ}`, { action: 'set-status', status: 'funded' });
+  record('findermine', 'the owner can mark their own project funded', projStatus.status === 200 && sql(`SELECT status FROM dev_projects WHERE id = ${PROJ}`)[0].status === 'funded', `status ${projStatus.status}`);
+  const projBrowseAfter = (await B.call('GET', '/api/dev-projects')).json.projects;
+  record('findermine', 'a funded project drops out of the open browse list', !projBrowseAfter.some(p => p.id === PROJ), JSON.stringify(projBrowseAfter.map(p => p.id)));
+
   // ---------- 5. leak scan: everything B, H and anonymous can GET, grepped for planted secrets ----------
   console.log('\n== leak scan ==');
   const urls = ['/api/me', '/api/directory', '/api/matches', '/api/listings', `/api/listings/${LA}`, `/api/users/${A.id}`, `/api/users/${C.id}`, '/api/pre-listings', `/api/pre-listings/${PL}`,
     `/api/pre-listings/${PL}/photos`, `/api/pre-listings/${PL}/votes`, '/api/transactions', `/api/transactions/${T}`, '/api/agents/directory', `/api/agents/${G.id}`, '/api/agents/service-estimates',
     '/api/groups', '/api/groups/1', '/api/groups/2', '/api/posts', `/api/posts/${P}/comments`, '/api/conversations', '/api/notifications', '/api/favorites', '/api/hidden-listings',
-    '/api/saved-searches', '/api/agent-search-alerts', '/api/referrals', '/api/demo-overview', '/api/broker/stats', '/api/agents/my-bids', '/api/agents/my-invites', '/api/agents/favorites', `/sitemap.xml`];
+    '/api/saved-searches', '/api/agent-search-alerts', '/api/referrals', '/api/demo-overview', '/api/broker/stats', '/api/agents/my-bids', '/api/agents/my-invites', '/api/agents/favorites', `/sitemap.xml`,
+    '/api/augmented-homes', `/api/augmented-homes/${AUG}`, '/api/accessibility-needs-alerts', '/api/dev-projects', `/api/dev-projects/${PROJ}`];
   const secrets = [['client name', MARK.clientName], ['listing address', MARK.address], ['pre-listing address', MARK.preAddress], ['lockbox note (non-agent)', MARK.lockbox], ['private message', MARK.message],
+    ['augmented home address', MARK.augAddress], ['dev project address', MARK.projAddress],
     ['A email', A.email], ['C email', C.email], ['password hash', 'password_hash'], ['verify token', 'verify_token'], ['reset token', 'reset_token'], ['R2 key', 'r2_key'], ['session', 'ah_session']];
   for (const who of [B, anon]) {
     for (const url of urls) {

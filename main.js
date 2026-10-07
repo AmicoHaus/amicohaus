@@ -16,6 +16,71 @@ const DISCLOSURE_ITEMS = [
   { key: 'megan_law', label: "Megan's Law database disclosure", note: 'A standard notice directing buyers to the state database — required language, not something to look up yourself.' },
 ];
 
+// Kept in sync by hand with functions/_lib/adaptations.js. Deliberately broad
+// — mobility, vision, hearing, cognitive/sensory, height and stature,
+// respiratory/chemical sensitivity, safety, and caregiving.
+const ADAPTATION_ITEMS = [
+  { key: 'zero_step_entry', label: 'Zero-step or ramped entry', note: 'No steps at the main entrance — a ramp or level approach instead.' },
+  { key: 'wide_doorways_hallways', label: 'Widened doorways & hallways', note: 'Clearances built for a wheelchair, walker, or scooter to pass through comfortably.' },
+  { key: 'wheelchair_turning_clearance', label: 'Wheelchair turning clearance', note: 'Rooms and bathrooms with enough open floor space for a wheelchair to turn around.' },
+  { key: 'roll_in_shower', label: 'Roll-in / curbless shower', note: 'No curb to cross, often with a fold-down seat and handheld showerhead.' },
+  { key: 'accessible_bathtub', label: 'Accessible / walk-in bathtub', note: 'A low-threshold or walk-in tub instead of a standard high-sided tub.' },
+  { key: 'raised_toilet_or_bidet', label: 'Raised toilet or bidet seat', note: 'A comfort-height toilet or bidet attachment for easier transfers and hygiene.' },
+  { key: 'grab_bars_handrails', label: 'Grab bars & handrails', note: 'Reinforced grab bars in bathrooms and handrails along steps or ramps.' },
+  { key: 'stair_lift_or_elevator', label: 'Stair lift or elevator', note: 'An installed lift or elevator connecting multiple floors.' },
+  { key: 'porch_or_platform_lift', label: 'Porch lift / vertical platform lift', note: 'A lift bridging a porch, deck, or short level change outside the home.' },
+  { key: 'accessible_parking', label: 'Accessible parking', note: 'A dedicated accessible parking spot or a wide, level path from parking to the entry.' },
+  { key: 'main_floor_primary_suite', label: 'Main-floor primary suite / single-story living', note: 'A full bedroom and bathroom on the entry level — no stairs required to live day to day.' },
+  { key: 'automatic_door_openers', label: 'Automatic / power door openers', note: 'Push-button or sensor-activated doors at the entry or interior rooms.' },
+  { key: 'lever_door_handles', label: 'Lever-style door & faucet handles', note: 'Lever handles instead of round knobs — easier to operate with limited grip or dexterity.' },
+  { key: 'adjustable_height_counters', label: 'Height-adjustable counters & cabinets', note: 'Kitchen counters, sinks, and cabinets set or adjustable to a reachable height.' },
+  { key: 'lowered_switches_outlets', label: 'Lowered light switches & outlets', note: 'Switches, thermostats, and outlets mounted at a reachable height.' },
+  { key: 'lowered_closets_storage', label: 'Lowered closet rods & storage', note: 'Closet rods, shelving, and cabinetry brought down to a reachable height.' },
+  { key: 'visual_impairment_features', label: 'Visual-impairment features', note: 'High-contrast or tactile markings, braille labeling, and similar features.' },
+  { key: 'enhanced_lighting', label: 'Enhanced, glare-free lighting', note: 'Brighter, evenly-distributed, low-glare lighting throughout the home.' },
+  { key: 'hearing_impairment_features', label: 'Hearing-impairment features', note: 'Visual/vibrating alerts for doorbells, smoke alarms, and phones; induction loop systems.' },
+  { key: 'sensory_friendly_design', label: 'Sensory-friendly design', note: 'Reduced noise, soundproofing, and adjustable or non-flickering lighting to limit sensory overload.' },
+  { key: 'cognitive_safety_features', label: 'Cognitive / memory-support safety features', note: 'Secured exits, door and window alarms, or similar features that support safe wandering prevention.' },
+  { key: 'air_filtration_allergy_friendly', label: 'Air filtration & allergy-friendly materials', note: 'HEPA or similar filtration, low-VOC finishes, and materials chosen to reduce allergens and irritants.' },
+  { key: 'smart_home_assistive_tech', label: 'Smart-home / voice-controlled assistive tech', note: 'Voice- or app-controlled lighting, locks, thermostats, and blinds for limited mobility or dexterity.' },
+  { key: 'emergency_alert_system', label: 'Built-in emergency alert system', note: 'A wired medical alert, panic button, or monitored emergency response system already in place.' },
+  { key: 'caregiver_or_in_law_suite', label: 'Caregiver suite / in-law quarters', note: 'A separate living space for a live-in caregiver, aide, or family member.' },
+  { key: 'service_animal_friendly', label: 'Service-animal-friendly features', note: 'Durable, easy-clean flooring and secure, accessible yard access for a service animal.' },
+];
+
+function adaptationCheckboxesHtml(checkedKeys, checkClass) {
+  const checked = new Set(checkedKeys || []);
+  return ADAPTATION_ITEMS.map(item => `
+    <label class="checkbox-row">
+      <input type="checkbox" class="${checkClass}" value="${item.key}" ${checked.has(item.key) ? 'checked' : ''}>
+      <span>${escapeHtml(item.label)}<br><span class="tiny">${escapeHtml(item.note)}</span></span>
+    </label>
+  `).join('');
+}
+
+// Kept in sync by hand with functions/_lib/devProjects.js.
+const PROJECT_TYPE_LABELS = {
+  flip: 'Fix & Flip', new_construction: 'New Construction', multifamily: 'Multi-Family',
+  commercial: 'Commercial', land: 'Land / Entitlement', other: 'Other',
+};
+const PROJECT_STAGE_LABELS = {
+  concept: 'Concept', permitting: 'Permitting', under_construction: 'Under Construction',
+  funded: 'Fully Funded', completed: 'Completed',
+};
+function fillSelectFromLabels(select, labels, includeAny) {
+  select.innerHTML = '';
+  if (includeAny) {
+    const opt = document.createElement('option');
+    opt.value = ''; opt.textContent = 'Any';
+    select.appendChild(opt);
+  }
+  Object.entries(labels).forEach(([value, label]) => {
+    const opt = document.createElement('option');
+    opt.value = value; opt.textContent = label;
+    select.appendChild(opt);
+  });
+}
+
 function fillTypeSelect(select, includeAny) {
   select.innerHTML = '';
   if (includeAny) {
@@ -45,6 +110,8 @@ function goToTab(name) {
   if (name === 'saved') { loadFavorites(); loadHidden(); loadTrash(); }
   if (name === 'messages') loadConversations();
   if (name === 'marketplace') loadMarketplaceTab();
+  if (name === 'augmented') loadAugmentedTab();
+  if (name === 'findermine') loadFinderMineTab();
 }
 
 function listingLabel(l) {
@@ -941,7 +1008,7 @@ function openAgentTabSection(id) {
 // The specific thing a link like "/app#pre-listing-12" points at, or null for
 // a plain "/app" (or anything else) that has no more precise destination.
 function parseAppLink(link) {
-  const m = /#(pre-listing|transaction|messages|agent)-(\d+)$/.exec(link || '');
+  const m = /#(pre-listing|transaction|messages|agent|augmented-home|dev-project)-(\d+)$/.exec(link || '');
   return m ? { kind: m[1], id: Number(m[2]) } : null;
 }
 
@@ -972,6 +1039,8 @@ async function openAppLink(link) {
     } catch (err) { toast(err.message); }
     return true;
   }
+  if (target.kind === 'augmented-home') { goToTab('augmented'); openAugmentedHomeDetail(target.id); return true; }
+  if (target.kind === 'dev-project') { goToTab('findermine'); openProjectDetail(target.id); return true; }
   goToTab('marketplace');
   if (target.kind === 'pre-listing') openPreListingDetail(target.id);
   else openTransactionDetail(target.id);
@@ -1712,6 +1781,237 @@ async function openTransactionDetail(id) {
     }
     if (t.status === 'awarded' && (isParty || isAwardedAgent)) loadMilestonesInto('transaction', id);
     if (isParty && t.status === 'open') loadInvitedAgentsInto('transaction', id);
+  } catch (e) { contentEl.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
+}
+
+/* ---------------- AugmentedHomes ---------------- */
+let augmentedDetail = null; // { id }
+
+function showAugmentedDetail() {
+  document.getElementById('augmentedListView').classList.add('hidden');
+  document.getElementById('augmentedDetailView').classList.remove('hidden');
+  document.getElementById('augmentedDetailView').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function backToAugmentedList() {
+  augmentedDetail = null;
+  document.getElementById('augmentedDetailView').classList.add('hidden');
+  document.getElementById('augmentedListView').classList.remove('hidden');
+  loadMyAugmentedHomes();
+  loadAugmentedBrowse();
+}
+
+function adaptationLabel(key) {
+  const item = ADAPTATION_ITEMS.find(i => i.key === key);
+  return item ? item.label : key;
+}
+
+function augmentedHomeCardHtml(h, { mine } = {}) {
+  return `
+    <div class="card">
+      <div class="card-head">
+        <h3>${escapeHtml(h.title || h.propertyType)}</h3>
+        <span class="badge ${h.status === 'active' ? 'badge-active' : 'badge-paused'}">${h.status.replace('_', ' ')}</span>
+      </div>
+      <div class="mini-block">${escapeHtml(h.propertyType)} · ${h.beds}bd/${h.baths}ba in ${escapeHtml(h.city)}, ${escapeHtml(h.state)}<br>${money(h.askingPrice)} asking</div>
+      <p class="tiny">${h.adaptations.map(k => `<span class="badge badge-gold">${escapeHtml(adaptationLabel(k))}</span>`).join(' ')}</p>
+      <div class="card-actions">
+        <button class="btn btn-primary btn-sm" data-action="open-augmented-home" data-id="${h.id}">View</button>
+        ${mine && h.status === 'active' ? `
+          <button class="btn btn-ghost btn-sm" data-action="augmented-set-status" data-id="${h.id}" data-status="under_contract">Mark Under Contract</button>
+          <button class="btn btn-ghost btn-sm" data-action="augmented-set-status" data-id="${h.id}" data-status="sold">Mark Sold</button>
+          <button class="btn btn-ghost btn-sm" data-action="augmented-set-status" data-id="${h.id}" data-status="withdrawn">Withdraw</button>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+async function loadMyAugmentedHomes() {
+  const el = document.getElementById('myAugmentedHomesList');
+  try {
+    const { homes } = await apiGet('/api/augmented-homes?mine=1');
+    el.innerHTML = homes.length ? homes.map(h => augmentedHomeCardHtml(h, { mine: true })).join('') : '<div class="empty-state">You haven\'t listed a home yet.</div>';
+  } catch (e) { el.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
+}
+
+async function loadAugmentedBrowse() {
+  const el = document.getElementById('augmentedBrowseList');
+  const city = document.getElementById('augmentedCity').value.trim();
+  const state = document.getElementById('augmentedState').value.trim();
+  const wanted = [...document.querySelectorAll('.augmented-filter-check:checked')].map(c => c.value);
+  const params = new URLSearchParams();
+  if (city) params.set('city', city);
+  if (state) params.set('state', state);
+  wanted.forEach(k => params.append('adaptation', k));
+  try {
+    const { homes } = await apiGet(`/api/augmented-homes?${params.toString()}`);
+    el.innerHTML = homes.length ? homes.map(h => augmentedHomeCardHtml(h, { mine: false })).join('') : '<div class="empty-state">Nothing matching right now.</div>';
+  } catch (e) { el.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
+}
+
+async function loadMyAccessibilityAlerts() {
+  const el = document.getElementById('accessibilityAlertsList');
+  try {
+    const { alerts } = await apiGet('/api/accessibility-needs-alerts');
+    el.innerHTML = alerts.length ? alerts.map(a => `
+      <div class="side">
+        <strong>${escapeHtml(a.label)}</strong>
+        <span class="tiny">${a.adaptations.map(k => escapeHtml(adaptationLabel(k))).join(', ')}${a.city || a.state ? ` · ${escapeHtml(a.city)}${a.city && a.state ? ', ' : ''}${escapeHtml(a.state)}` : ''}</span>
+        <button class="link-btn" data-action="delete-accessibility-alert" data-id="${a.id}">Remove</button>
+      </div>
+    `).join('') : '<span class="tiny">No saved alerts yet.</span>';
+  } catch (e) { el.innerHTML = `<span class="tiny">${escapeHtml(e.message)}</span>`; }
+}
+
+async function loadAugmentedTab() {
+  document.getElementById('augmentedDetailView').classList.add('hidden');
+  document.getElementById('augmentedListView').classList.remove('hidden');
+  fillTypeSelect(document.getElementById('augPropertyType'), false);
+  document.getElementById('augmentedAdaptationsFields').innerHTML = adaptationCheckboxesHtml([], 'augmented-create-check');
+  document.getElementById('accessibilityAlertAdaptationsFields').innerHTML = adaptationCheckboxesHtml([], 'accessibility-alert-check');
+  document.getElementById('augmentedFilterChips').innerHTML = adaptationCheckboxesHtml([], 'augmented-filter-check');
+  loadMyAugmentedHomes();
+  loadMyAccessibilityAlerts();
+  loadAugmentedBrowse();
+}
+
+async function openAugmentedHomeDetail(id) {
+  const contentEl = document.getElementById('augmentedDetailContent');
+  try {
+    const { home: h, isOwner } = await apiGet(`/api/augmented-homes/${id}`);
+    augmentedDetail = { id };
+    showAugmentedDetail();
+    const photosHtml = h.photoIds.length
+      ? `<div class="photo-gallery">${h.photoIds.map(pid => `<img src="/api/augmented-home-photos/${pid}" alt="" loading="lazy" class="media-thumb">`).join('')}</div>`
+      : '';
+    contentEl.innerHTML = `
+      <div class="card">
+        <div class="card-head"><h2>${escapeHtml(h.title || h.propertyType)}</h2><span class="badge ${h.status === 'active' ? 'badge-active' : 'badge-paused'}">${h.status.replace('_', ' ')}</span></div>
+        <div class="mini-block">${escapeHtml(h.propertyType)} · ${h.beds}bd/${h.baths}ba${h.sqft ? ` · ${h.sqft.toLocaleString('en-US')} sqft` : ''} in ${escapeHtml(h.neighborhood ? h.neighborhood + ', ' : '')}${escapeHtml(h.city)}, ${escapeHtml(h.state)} ${escapeHtml(h.zip)}<br>${money(h.askingPrice)} asking</div>
+        ${h.description ? `<p>${escapeHtml(h.description)}</p>` : ''}
+        ${photosHtml}
+        <h3>Adaptations</h3>
+        <p class="tiny">${h.adaptations.map(k => `<span class="badge badge-gold">${escapeHtml(adaptationLabel(k))}</span>`).join(' ')}</p>
+        ${h.adaptationNotes ? `<p class="tiny"><span class="label">Seller's notes</span> ${escapeHtml(h.adaptationNotes)}</p>` : ''}
+        ${!isOwner ? `<div class="form-actions"><button class="btn btn-primary btn-sm" data-action="message-user" data-id="${h.userId}" data-name="${escapeHtml(h.owner)}">Message Seller</button></div>` : ''}
+      </div>
+    `;
+  } catch (e) { contentEl.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
+}
+
+/* ---------------- FinderMine ---------------- */
+let findermineDetail = null; // { id }
+
+function showFinderMineDetail() {
+  document.getElementById('findermineListView').classList.add('hidden');
+  document.getElementById('findermineDetailView').classList.remove('hidden');
+  document.getElementById('findermineDetailView').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function backToFinderMineList() {
+  findermineDetail = null;
+  document.getElementById('findermineDetailView').classList.add('hidden');
+  document.getElementById('findermineListView').classList.remove('hidden');
+  loadMyProjects();
+  loadProjectsBrowse();
+}
+
+function projectCardHtml(p, { mine } = {}) {
+  return `
+    <div class="card">
+      <div class="card-head">
+        <h3>${escapeHtml(p.title)}</h3>
+        <span class="badge ${p.status === 'open' ? 'badge-active' : 'badge-paused'}">${p.status}</span>
+      </div>
+      <div class="mini-block">${escapeHtml(PROJECT_TYPE_LABELS[p.projectType] || p.projectType)} · ${escapeHtml(PROJECT_STAGE_LABELS[p.stage] || p.stage)} in ${escapeHtml(p.city)}, ${escapeHtml(p.state)}<br>${p.fundingGoal ? `${money(p.fundingGoal)} funding sought` : 'Funding goal not set'}</div>
+      <p class="tiny">${p.interestCount} investor${p.interestCount === 1 ? '' : 's'} interested</p>
+      <div class="card-actions">
+        <button class="btn btn-primary btn-sm" data-action="open-dev-project" data-id="${p.id}">View</button>
+        ${mine && p.status === 'open' ? `
+          <button class="btn btn-ghost btn-sm" data-action="project-set-status" data-id="${p.id}" data-status="funded">Mark Funded</button>
+          <button class="btn btn-ghost btn-sm" data-action="project-set-status" data-id="${p.id}" data-status="closed">Close</button>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+async function loadMyProjects() {
+  const el = document.getElementById('myProjectsList');
+  try {
+    const { projects } = await apiGet('/api/dev-projects?mine=1');
+    el.innerHTML = projects.length ? projects.map(p => projectCardHtml(p, { mine: true })).join('') : '<div class="empty-state">You haven\'t posted a project yet.</div>';
+  } catch (e) { el.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
+}
+
+async function loadProjectsBrowse() {
+  const el = document.getElementById('projectsBrowseList');
+  const city = document.getElementById('projectCity').value.trim();
+  const state = document.getElementById('projectState').value.trim();
+  const type = document.getElementById('projectTypeFilter').value;
+  const stage = document.getElementById('projectStageFilter').value;
+  const params = new URLSearchParams();
+  if (city) params.set('city', city);
+  if (state) params.set('state', state);
+  if (type) params.set('type', type);
+  if (stage) params.set('stage', stage);
+  try {
+    const { projects } = await apiGet(`/api/dev-projects?${params.toString()}`);
+    el.innerHTML = projects.length ? projects.map(p => projectCardHtml(p, { mine: false })).join('') : '<div class="empty-state">Nothing open right now.</div>';
+  } catch (e) { el.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
+}
+
+async function loadFinderMineTab() {
+  document.getElementById('findermineDetailView').classList.add('hidden');
+  document.getElementById('findermineListView').classList.remove('hidden');
+  fillSelectFromLabels(document.getElementById('projTypeSelect'), PROJECT_TYPE_LABELS, false);
+  fillSelectFromLabels(document.getElementById('projStageSelect'), PROJECT_STAGE_LABELS, false);
+  fillSelectFromLabels(document.getElementById('projectTypeFilter'), PROJECT_TYPE_LABELS, true);
+  fillSelectFromLabels(document.getElementById('projectStageFilter'), PROJECT_STAGE_LABELS, true);
+  loadMyProjects();
+  loadProjectsBrowse();
+}
+
+async function openProjectDetail(id) {
+  const contentEl = document.getElementById('findermineDetailContent');
+  try {
+    const { project: p, isOwner, interestedInvestors, amInterested } = await apiGet(`/api/dev-projects/${id}`);
+    findermineDetail = { id };
+    showFinderMineDetail();
+    const photosHtml = p.photoIds.length
+      ? `<div class="photo-gallery">${p.photoIds.map(pid => `<img src="/api/dev-project-photos/${pid}" alt="" loading="lazy" class="media-thumb">`).join('')}</div>`
+      : '';
+    contentEl.innerHTML = `
+      <div class="card">
+        <div class="card-head"><h2>${escapeHtml(p.title)}</h2><span class="badge ${p.status === 'open' ? 'badge-active' : 'badge-paused'}">${p.status}</span></div>
+        <div class="mini-block">${escapeHtml(PROJECT_TYPE_LABELS[p.projectType] || p.projectType)} · ${escapeHtml(PROJECT_STAGE_LABELS[p.stage] || p.stage)} in ${escapeHtml(p.neighborhood ? p.neighborhood + ', ' : '')}${escapeHtml(p.city)}, ${escapeHtml(p.state)}</div>
+        <div class="mini-two">
+          <div class="mini-block"><span class="label">Funding sought</span>${p.fundingGoal ? money(p.fundingGoal) : 'Not set'}</div>
+          <div class="mini-block"><span class="label">Min. investment</span>${p.minInvestment ? money(p.minInvestment) : 'Not set'}</div>
+        </div>
+        <div class="mini-two">
+          <div class="mini-block"><span class="label">Target return</span>${escapeHtml(p.targetReturn) || 'Not stated'}</div>
+          <div class="mini-block"><span class="label">Timeline</span>${p.timelineMonths ? `${p.timelineMonths} months` : 'Not stated'}</div>
+        </div>
+        ${p.description ? `<p>${escapeHtml(p.description)}</p>` : ''}
+        ${photosHtml}
+        <p class="tiny">${p.interestCount} investor${p.interestCount === 1 ? '' : 's'} interested</p>
+        ${!isOwner ? `
+          <div class="form-actions">
+            <button class="btn ${amInterested ? 'btn-ghost' : 'btn-primary'} btn-sm" data-action="toggle-project-interest" data-id="${p.id}">${amInterested ? 'Interest Noted — Withdraw' : 'Express Interest'}</button>
+            <button class="btn btn-ghost btn-sm" data-action="message-user" data-id="${p.userId}" data-name="${escapeHtml(p.owner)}">Message</button>
+          </div>` : ''}
+      </div>
+      ${isOwner && interestedInvestors ? `
+        <h3>Interested Investors (${interestedInvestors.length})</h3>
+        ${interestedInvestors.length ? interestedInvestors.map(i => `
+          <div class="side">
+            <strong>${escapeHtml(i.display_name)}</strong>
+            ${i.note ? `<span class="tiny">${escapeHtml(i.note)}</span>` : ''}
+            <button class="link-btn" data-action="message-user" data-id="${i.user_id}" data-name="${escapeHtml(i.display_name)}">Message</button>
+          </div>
+        `).join('') : '<div class="empty-state">No investors yet.</div>'}
+      ` : ''}
+    `;
   } catch (e) { contentEl.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
 }
 
@@ -3009,6 +3309,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
     if (marketplaceDetail && !document.getElementById('marketplaceDetailView').classList.contains('hidden')) backToMarketplaceList();
+    else if (augmentedDetail && !document.getElementById('augmentedDetailView').classList.contains('hidden')) backToAugmentedList();
+    else if (findermineDetail && !document.getElementById('findermineDetailView').classList.contains('hidden')) backToFinderMineList();
     else if (!document.getElementById('messageThread').classList.contains('hidden')) loadConversations();
   });
 
@@ -3196,6 +3498,166 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   wireMarketplaceOpenButtons('myInvitesList');
 
+  /* ---------------- AugmentedHomes wiring ---------------- */
+  document.getElementById('createAugmentedHomeBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('createAugmentedHomeBtn');
+    btn.disabled = true;
+    try {
+      const adaptations = [...document.querySelectorAll('.augmented-create-check:checked')].map(c => c.value);
+      const { id } = await apiPost('/api/augmented-homes', {
+        title: document.getElementById('augTitle').value.trim(),
+        askingPrice: document.getElementById('augAskingPrice').value,
+        city: document.getElementById('augCity').value.trim(),
+        state: document.getElementById('augState').value.trim(),
+        zip: document.getElementById('augZip').value.trim(),
+        neighborhood: document.getElementById('augNeighborhood').value.trim(),
+        address: document.getElementById('augAddress').value.trim(),
+        propertyType: document.getElementById('augPropertyType').value,
+        beds: document.getElementById('augBeds').value,
+        baths: document.getElementById('augBaths').value,
+        sqft: document.getElementById('augSqft').value || null,
+        description: document.getElementById('augDescription').value.trim(),
+        adaptations,
+        adaptationNotes: document.getElementById('augAdaptationNotes').value.trim(),
+      });
+      const files = [...document.getElementById('augPhotos').files];
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append('photo', file);
+        try { await apiUpload(`/api/augmented-homes/${id}/photos`, formData); }
+        catch (err) { toast(`Photo upload failed: ${err.message}`); }
+      }
+      toast('Listed on AugmentedHomes.');
+      document.getElementById('postAugmentedWrap').open = false;
+      ['augTitle', 'augAskingPrice', 'augCity', 'augState', 'augZip', 'augNeighborhood', 'augAddress', 'augSqft', 'augDescription', 'augAdaptationNotes'].forEach(f => document.getElementById(f).value = '');
+      document.getElementById('augBeds').value = '';
+      document.getElementById('augBaths').value = '';
+      document.getElementById('augPhotos').value = '';
+      document.querySelectorAll('.augmented-create-check').forEach(c => c.checked = false);
+      loadMyAugmentedHomes();
+      loadAugmentedBrowse();
+    } catch (err) { toast(err.message); } finally { btn.disabled = false; }
+  });
+
+  document.getElementById('saveAccessibilityAlertBtn').addEventListener('click', async () => {
+    try {
+      const adaptations = [...document.querySelectorAll('.accessibility-alert-check:checked')].map(c => c.value);
+      await apiPost('/api/accessibility-needs-alerts', {
+        label: document.getElementById('accessibilityAlertLabel').value.trim(),
+        adaptations,
+        city: document.getElementById('accessibilityAlertCity').value.trim(),
+        state: document.getElementById('accessibilityAlertState').value.trim(),
+      });
+      document.getElementById('accessibilityAlertLabel').value = '';
+      document.getElementById('accessibilityAlertCity').value = '';
+      document.getElementById('accessibilityAlertState').value = '';
+      document.querySelectorAll('.accessibility-alert-check').forEach(c => c.checked = false);
+      loadMyAccessibilityAlerts();
+      toast("Saved — we'll notify you when a match is listed.");
+    } catch (err) { toast(err.message); }
+  });
+
+  document.getElementById('accessibilityAlertsList').addEventListener('click', async e => {
+    const btn = e.target.closest('[data-action="delete-accessibility-alert"]');
+    if (!btn) return;
+    try { await apiDelete(`/api/accessibility-needs-alerts/${btn.dataset.id}`); loadMyAccessibilityAlerts(); }
+    catch (err) { toast(err.message); }
+  });
+
+  document.getElementById('augmentedFilters').addEventListener('input', () => loadAugmentedBrowse());
+  document.getElementById('augmentedFilterChips').addEventListener('change', () => loadAugmentedBrowse());
+
+  function wireAugmentedOpenButtons(containerId) {
+    document.getElementById(containerId).addEventListener('click', async e => {
+      const openBtn = e.target.closest('[data-action="open-augmented-home"]');
+      const statusBtn = e.target.closest('[data-action="augmented-set-status"]');
+      if (openBtn) openAugmentedHomeDetail(openBtn.dataset.id);
+      else if (statusBtn) {
+        try { await apiPut(`/api/augmented-homes/${statusBtn.dataset.id}`, { action: 'set-status', status: statusBtn.dataset.status }); loadMyAugmentedHomes(); }
+        catch (err) { toast(err.message); }
+      }
+    });
+  }
+  wireAugmentedOpenButtons('myAugmentedHomesList');
+  wireAugmentedOpenButtons('augmentedBrowseList');
+
+  document.getElementById('backToAugmented').addEventListener('click', backToAugmentedList);
+
+  document.getElementById('augmentedDetailContent').addEventListener('click', async e => {
+    const msgBtn = e.target.closest('[data-action="message-user"]');
+    if (!msgBtn) return;
+    try { await startConversationWith(msgBtn.dataset.id, msgBtn.dataset.name); } catch (err) { toast(err.message); }
+  });
+
+  /* ---------------- FinderMine wiring ---------------- */
+  document.getElementById('createProjectBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('createProjectBtn');
+    btn.disabled = true;
+    try {
+      const { id } = await apiPost('/api/dev-projects', {
+        title: document.getElementById('projTitle').value.trim(),
+        city: document.getElementById('projCity').value.trim(),
+        state: document.getElementById('projState').value.trim(),
+        zip: document.getElementById('projZip').value.trim(),
+        neighborhood: document.getElementById('projNeighborhood').value.trim(),
+        address: document.getElementById('projAddress').value.trim(),
+        projectType: document.getElementById('projTypeSelect').value,
+        stage: document.getElementById('projStageSelect').value,
+        fundingGoal: document.getElementById('projFundingGoal').value || 0,
+        minInvestment: document.getElementById('projMinInvestment').value || 0,
+        targetReturn: document.getElementById('projTargetReturn').value.trim(),
+        timelineMonths: document.getElementById('projTimelineMonths').value || null,
+        description: document.getElementById('projDescription').value.trim(),
+      });
+      const files = [...document.getElementById('projPhotos').files];
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append('photo', file);
+        try { await apiUpload(`/api/dev-projects/${id}/photos`, formData); }
+        catch (err) { toast(`Photo upload failed: ${err.message}`); }
+      }
+      toast('Project posted on FinderMine.');
+      document.getElementById('postProjectWrap').open = false;
+      ['projTitle', 'projCity', 'projState', 'projZip', 'projNeighborhood', 'projAddress', 'projFundingGoal', 'projMinInvestment', 'projTargetReturn', 'projTimelineMonths', 'projDescription'].forEach(f => document.getElementById(f).value = '');
+      document.getElementById('projPhotos').value = '';
+      loadMyProjects();
+      loadProjectsBrowse();
+    } catch (err) { toast(err.message); } finally { btn.disabled = false; }
+  });
+
+  document.getElementById('projectFilters').addEventListener('input', () => loadProjectsBrowse());
+  document.getElementById('projectTypeFilter').addEventListener('change', () => loadProjectsBrowse());
+  document.getElementById('projectStageFilter').addEventListener('change', () => loadProjectsBrowse());
+
+  function wireProjectOpenButtons(containerId) {
+    document.getElementById(containerId).addEventListener('click', async e => {
+      const openBtn = e.target.closest('[data-action="open-dev-project"]');
+      const statusBtn = e.target.closest('[data-action="project-set-status"]');
+      if (openBtn) openProjectDetail(openBtn.dataset.id);
+      else if (statusBtn) {
+        try { await apiPut(`/api/dev-projects/${statusBtn.dataset.id}`, { action: 'set-status', status: statusBtn.dataset.status }); loadMyProjects(); }
+        catch (err) { toast(err.message); }
+      }
+    });
+  }
+  wireProjectOpenButtons('myProjectsList');
+  wireProjectOpenButtons('projectsBrowseList');
+
+  document.getElementById('backToFinderMine').addEventListener('click', backToFinderMineList);
+
+  document.getElementById('findermineDetailContent').addEventListener('click', async e => {
+    const msgBtn = e.target.closest('[data-action="message-user"]');
+    const interestBtn = e.target.closest('[data-action="toggle-project-interest"]');
+    if (msgBtn) { try { await startConversationWith(msgBtn.dataset.id, msgBtn.dataset.name); } catch (err) { toast(err.message); } }
+    else if (interestBtn) {
+      try {
+        const { interested } = await apiPost(`/api/dev-projects/${interestBtn.dataset.id}/interest`, {});
+        toast(interested ? 'Marked as interested.' : 'Interest withdrawn.');
+        openProjectDetail(interestBtn.dataset.id); // refresh investor count/list and button label
+      } catch (err) { toast(err.message); }
+    }
+  });
+
   // The Agent Strategy tab is where the app opens, unless a deep link
   // (/app#pre-listing-12, #transaction-7, #messages-3, #post-home) from a
   // bookmark, notification or shared URL says otherwise — and a deep link always wins over the remembered tab
@@ -3203,7 +3665,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // two runs, so the tab's data isn't fetched twice. The Feed loads when its tab is opened.
   const openedByLink = location.hash ? await openAppLink(location.hash) : false;
   if (!openedByLink) {
-    const VALID_TABS = ['marketplace', 'feed', 'listing', 'groups', 'matches', 'saved', 'messages'];
+    const VALID_TABS = ['marketplace', 'feed', 'listing', 'groups', 'matches', 'saved', 'messages', 'augmented', 'findermine'];
     let lastTab = 'marketplace';
     try { if (VALID_TABS.includes(localStorage.getItem('ah_last_tab'))) lastTab = localStorage.getItem('ah_last_tab'); } catch {}
     goToTab(lastTab);

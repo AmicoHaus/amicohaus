@@ -28,6 +28,8 @@
       <button class="tab" data-tab="matches">Matches</button>
       <button class="tab" data-tab="saved">Saved</button>
       <button class="tab" data-tab="messages">Messages <span id="messagesTabBadge" class="tab-badge hidden"></span></button>
+      <button class="tab" data-tab="augmented">AugmentedHomes</button>
+      <button class="tab" data-tab="findermine">FinderMine</button>
     </nav>
     <div class="auth-cta">
       <button class="btn btn-ghost btn-sm" id="notifBtn">🔔 <span id="notifBadge" class="hidden"></span></button>
@@ -536,6 +538,129 @@
           <input type="text" id="messageBody" maxlength="2000" placeholder="Write a message…" required>
           <button type="submit" class="btn btn-primary btn-sm">Send</button>
         </form>
+      </div>
+    </section>
+
+    <!-- AUGMENTED HOMES -->
+    <section id="tab-augmented" class="tab-panel">
+      <h1>AugmentedHomes</h1>
+      <p class="section-sub">A marketplace for homes modified for a disability — wheelchair access, roll-in showers, lowered counters, stair lifts, and more. List the adaptations your home has so the right buyer finds it, instead of it getting stripped out at resale. Or save what you need and get notified the moment a matching home is listed.</p>
+
+      <div id="augmentedListView">
+        <details class="panel bulk-upload" id="postAugmentedWrap">
+          <summary>List a home with accessibility adaptations</summary>
+          <div class="form-row two-col">
+            <div class="field"><label>Title (optional)</label><input type="text" id="augTitle" maxlength="120" placeholder="e.g. Fully wheelchair-accessible rancher"></div>
+            <div class="field"><label>Asking price ($) <span class="required-mark">*</span></label><input type="number" id="augAskingPrice" min="1" max="500000000" step="1000"></div>
+          </div>
+          <div class="form-row three-col">
+            <div class="field"><label>City <span class="required-mark">*</span></label><input type="text" id="augCity" maxlength="80"></div>
+            <div class="field"><label>State <span class="required-mark">*</span></label><input type="text" id="augState" maxlength="20"></div>
+            <div class="field"><label>Zip <span class="required-mark">*</span></label><input type="text" id="augZip" maxlength="10" placeholder="5-digit zip" inputmode="numeric"></div>
+          </div>
+          <div class="field"><label>Neighborhood (public)</label><input type="text" id="augNeighborhood" maxlength="80"></div>
+          <div class="field"><label>Street address (private — only you can see it)</label><input type="text" id="augAddress" maxlength="150"></div>
+          <div class="form-row three-col">
+            <div class="field"><label>Property type <span class="required-mark">*</span></label><select id="augPropertyType"></select></div>
+            <div class="field"><label>Beds <span class="required-mark">*</span></label><input type="number" id="augBeds" min="0" max="50"></div>
+            <div class="field"><label>Baths <span class="required-mark">*</span></label><input type="number" id="augBaths" min="0" max="50" step="0.5"></div>
+          </div>
+          <div class="field"><label>Sq ft</label><input type="number" id="augSqft" min="0" max="200000" step="50"></div>
+          <div class="field"><label>Description</label><textarea id="augDescription" maxlength="2000" placeholder="Anything a buyer should know"></textarea></div>
+
+          <p class="tiny"><strong>Adaptations this home has <span class="required-mark">*</span> (check at least one):</strong></p>
+          <div id="augmentedAdaptationsFields"></div>
+          <div class="field"><label>Notes about the adaptations (optional)</label><textarea id="augAdaptationNotes" maxlength="1000" placeholder="e.g. roll-in shower installed 2022, ADA-compliant grab bars throughout"></textarea></div>
+
+          <div class="field"><label>Photos (up to 8, added after posting)</label><input type="file" id="augPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple></div>
+          <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="createAugmentedHomeBtn">Post Listing</button></div>
+        </details>
+
+        <h2>My AugmentedHomes Listings</h2>
+        <div class="stack" id="myAugmentedHomesList"><div class="empty-state">Loading…</div></div>
+
+        <details class="panel bulk-upload" id="accessibilityAlertWrap">
+          <summary>Save what you need — get notified</summary>
+          <p class="section-sub">Pick the adaptations that matter to you and, optionally, a city/state — you'll be notified the moment a newly-listed home matches.</p>
+          <div class="field"><label>Name this alert (optional)</label><input type="text" id="accessibilityAlertLabel" maxlength="80" placeholder="e.g. Roll-in shower in San Diego"></div>
+          <div id="accessibilityAlertAdaptationsFields"></div>
+          <div class="form-row two-col">
+            <div class="field"><label>City (optional)</label><input type="text" id="accessibilityAlertCity" maxlength="80"></div>
+            <div class="field"><label>State (optional)</label><input type="text" id="accessibilityAlertState" maxlength="20"></div>
+          </div>
+          <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="saveAccessibilityAlertBtn">Save Alert</button></div>
+        </details>
+        <h2>My Saved Alerts</h2>
+        <div class="stack" id="accessibilityAlertsList"><div class="empty-state">Loading…</div></div>
+
+        <h2>Browse AugmentedHomes</h2>
+        <form id="augmentedFilters" class="form-row two-col">
+          <div class="field"><label>City</label><input type="text" id="augmentedCity"></div>
+          <div class="field"><label>State</label><input type="text" id="augmentedState"></div>
+        </form>
+        <p class="tiny"><strong>Filter by adaptation:</strong></p>
+        <div id="augmentedFilterChips"></div>
+        <div class="grid" id="augmentedBrowseList"><div class="empty-state">Loading…</div></div>
+      </div>
+
+      <div id="augmentedDetailView" class="hidden">
+        <button class="link-btn" id="backToAugmented">← Back to AugmentedHomes</button>
+        <div id="augmentedDetailContent"></div>
+      </div>
+    </section>
+
+    <!-- FINDERMINE -->
+    <section id="tab-findermine" class="tab-panel">
+      <h1>FinderMine</h1>
+      <p class="section-sub">A deal-discovery board for developers and investors — post a project, browse what's out there by type, stage, and location, and discuss it directly with the person behind it.</p>
+      <p class="form-note">FinderMine is for discovering and discussing projects only. No funds, equity, or investments are tracked or transacted through Amico Haus — any deal you make is strictly between you and the other party, off-platform. Nothing posted here is an offer to sell securities or a solicitation to invest.</p>
+
+      <div id="findermineListView">
+        <details class="panel bulk-upload" id="postProjectWrap">
+          <summary>Post a project</summary>
+          <div class="field"><label>Title <span class="required-mark">*</span></label><input type="text" id="projTitle" maxlength="120" placeholder="e.g. 12-unit multifamily rebuild, North Park"></div>
+          <div class="form-row three-col">
+            <div class="field"><label>City <span class="required-mark">*</span></label><input type="text" id="projCity" maxlength="80"></div>
+            <div class="field"><label>State <span class="required-mark">*</span></label><input type="text" id="projState" maxlength="20"></div>
+            <div class="field"><label>Zip</label><input type="text" id="projZip" maxlength="10" inputmode="numeric"></div>
+          </div>
+          <div class="field"><label>Neighborhood (public)</label><input type="text" id="projNeighborhood" maxlength="80"></div>
+          <div class="field"><label>Street address (private — only you can see it)</label><input type="text" id="projAddress" maxlength="150"></div>
+          <div class="form-row two-col">
+            <div class="field"><label>Project type <span class="required-mark">*</span></label><select id="projTypeSelect"></select></div>
+            <div class="field"><label>Stage</label><select id="projStageSelect"></select></div>
+          </div>
+          <div class="form-row two-col">
+            <div class="field"><label>Funding sought ($)</label><input type="number" id="projFundingGoal" min="0" max="5000000000" step="1000"></div>
+            <div class="field"><label>Min. investment ($)</label><input type="number" id="projMinInvestment" min="0" max="5000000000" step="1000"></div>
+          </div>
+          <div class="form-row two-col">
+            <div class="field"><label>Target return (free text, e.g. "15-18% IRR")</label><input type="text" id="projTargetReturn" maxlength="80"></div>
+            <div class="field"><label>Timeline (months)</label><input type="number" id="projTimelineMonths" min="0" max="600"></div>
+          </div>
+          <div class="field"><label>Description</label><textarea id="projDescription" maxlength="3000" placeholder="Scope, numbers, what you're looking for in a partner…"></textarea></div>
+          <div class="field"><label>Photos / renderings (up to 8, added after posting)</label><input type="file" id="projPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple></div>
+          <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="createProjectBtn">Post Project</button></div>
+        </details>
+
+        <h2>My Projects</h2>
+        <div class="stack" id="myProjectsList"><div class="empty-state">Loading…</div></div>
+
+        <h2>Browse Projects</h2>
+        <form id="projectFilters" class="form-row two-col">
+          <div class="field"><label>City</label><input type="text" id="projectCity"></div>
+          <div class="field"><label>State</label><input type="text" id="projectState"></div>
+        </form>
+        <div class="form-row two-col">
+          <div class="field"><label>Project type</label><select id="projectTypeFilter"></select></div>
+          <div class="field"><label>Stage</label><select id="projectStageFilter"></select></div>
+        </div>
+        <div class="grid" id="projectsBrowseList"><div class="empty-state">Loading…</div></div>
+      </div>
+
+      <div id="findermineDetailView" class="hidden">
+        <button class="link-btn" id="backToFinderMine">← Back to FinderMine</button>
+        <div id="findermineDetailContent"></div>
       </div>
     </section>
   </main>

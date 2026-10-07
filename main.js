@@ -338,7 +338,7 @@ function renderPostCard(p) {
   const isMine = currentUser && currentUser.id === p.user_id;
   return `
     <div class="match-card" data-post-id="${p.id}" data-user-id="${p.user_id}">
-      <div class="card-agent"><a class="profile-link" href="profile.html?id=${p.user_id}">${escapeHtml(p.author_name)}</a> · ${timeAgo(p.created_at)}</div>
+      <div class="card-agent"><a class="profile-link" href="/profile/${p.user_id}">${escapeHtml(p.author_name)}</a> · ${timeAgo(p.created_at)}</div>
       <p>${escapeHtml(p.body)}</p>
       <div class="card-actions">
         <button class="btn btn-ghost btn-sm" data-action="like" data-id="${p.id}">👍 ${p.like_count}</button>
@@ -363,7 +363,7 @@ function renderComment(c) {
   const isMine = currentUser && currentUser.id === c.user_id;
   return `
     <div class="side" data-comment-id="${c.id}">
-      <strong><a class="profile-link" href="profile.html?id=${c.user_id}">${escapeHtml(c.author_name)}</a></strong> <span class="tiny">${timeAgo(c.created_at)}</span>
+      <strong><a class="profile-link" href="/profile/${c.user_id}">${escapeHtml(c.author_name)}</a></strong> <span class="tiny">${timeAgo(c.created_at)}</span>
       <p class="tiny">${escapeHtml(c.body)}</p>
       ${isMine
         ? `<button class="link-btn danger" data-action="delete-comment" data-id="${c.id}">Delete</button>`
@@ -660,7 +660,7 @@ async function openGroup(id, label) {
 
   const { members, posts } = await apiGet(`/api/groups/${id}`);
   document.getElementById('groupMembers').innerHTML = members.filter(m => m.listing_id).map(m => `
-    <div class="side"><strong><a class="profile-link" href="profile.html?id=${m.owner_id}">${escapeHtml(m.owner_name)}</a></strong><p class="tiny">${listingLabel(m)}</p></div>
+    <div class="side"><strong><a class="profile-link" href="/profile/${m.owner_id}">${escapeHtml(m.owner_name)}</a></strong><p class="tiny">${listingLabel(m)}</p></div>
   `).join('') || '<p class="tiny">No active listings in this group yet.</p>';
 
   document.getElementById('groupPosts').innerHTML = posts.map(renderPostCard).join('') || '<div class="empty-state">No posts in this group yet.</div>';
@@ -739,9 +739,9 @@ function renderMatchCard(m) {
         ${topBadge}
       </div>
       <div class="match-pair">
-        <div class="side"><img class="side-thumb" src="${propertyArtUrl(mine.propertyType, mine.listingId)}" alt=""><h4><a class="profile-link" href="profile.html?id=${mine.userId}">${escapeHtml(mine.owner)}</a></h4><p class="tiny">${mineLine}</p></div>
+        <div class="side"><img class="side-thumb" src="${propertyArtUrl(mine.propertyType, mine.listingId)}" alt=""><h4><a class="profile-link" href="/profile/${mine.userId}">${escapeHtml(mine.owner)}</a></h4><p class="tiny">${mineLine}</p></div>
         <div class="swap-icon">${(m.isBuyerMatch || m.isRentalMatch) ? '→' : '⇄'}</div>
-        <div class="side"><img class="side-thumb" src="${propertyArtUrl(other.propertyType, other.listingId)}" alt=""><h4><a class="profile-link" href="profile.html?id=${other.userId}">${escapeHtml(other.owner)}</a></h4><p class="tiny">${otherLine}</p></div>
+        <div class="side"><img class="side-thumb" src="${propertyArtUrl(other.propertyType, other.listingId)}" alt=""><h4><a class="profile-link" href="/profile/${other.userId}">${escapeHtml(other.owner)}</a></h4><p class="tiny">${otherLine}</p></div>
       </div>
       ${m.isRentalMatch ? '<p class="tiny match-disclaimer">Illustrative estimate from rough sale-proceeds math only — not a promise, appraisal, or lease offer. Actual lease terms are negotiated directly between the two of you.</p>' : ''}
       ${goneQuietNote}
@@ -782,7 +782,7 @@ async function loadMatches() {
       <div class="chain-card">
         <div class="match-top"><span class="score-pill" title="Average match quality across every leg of this multi-party trade chain.">${c.avg}% avg match</span><span class="badge badge-gold">${c.path.length}-party chain</span></div>
         <div class="chain-flow">
-          ${c.path.map((n, i) => `<div class="chain-node"><img class="chain-thumb" src="${propertyArtUrl(n.propertyType, n.owner)}" alt=""><strong><a class="profile-link" href="profile.html?id=${n.userId}">${escapeHtml(n.owner)}</a></strong><span>${listingLabel(n)}</span></div>${i < c.path.length - 1 ? '<span class="chain-arrow">→</span>' : ''}`).join('')}
+          ${c.path.map((n, i) => `<div class="chain-node"><img class="chain-thumb" src="${propertyArtUrl(n.propertyType, n.owner)}" alt=""><strong><a class="profile-link" href="/profile/${n.userId}">${escapeHtml(n.owner)}</a></strong><span>${listingLabel(n)}</span></div>${i < c.path.length - 1 ? '<span class="chain-arrow">→</span>' : ''}`).join('')}
           <span class="chain-arrow">↩</span>
         </div>
       </div>
@@ -905,7 +905,7 @@ async function loadConversations() {
     updateMessagesTabBadge(conversations);
     list.innerHTML = conversations.length ? conversations.map(c => `
       <div class="card conversation-item" data-action="open-conversation" data-id="${c.id}" data-name="${escapeHtml(c.other_name)}" data-user-id="${c.other_user_id}">
-        <h3><a class="profile-link" href="profile.html?id=${c.other_user_id}">${escapeHtml(c.other_name)}</a>${c.unread_count > 0 ? '<span class="unread-dot"></span>' : ''}</h3>
+        <h3><a class="profile-link" href="/profile/${c.other_user_id}">${escapeHtml(c.other_name)}</a>${c.unread_count > 0 ? '<span class="unread-dot"></span>' : ''}</h3>
         <p class="tiny">${c.last_message ? escapeHtml(c.last_message) : 'No messages yet.'}</p>
       </div>
     `).join('') : '<div class="empty-state">No conversations yet — message someone from your Matches tab.</div>';
@@ -1026,7 +1026,7 @@ async function openAppLink(link) {
   if (!target) return false;
 
   if (target.kind === 'agent') {
-    window.location.href = `profile.html?id=${target.id}`;
+    window.location.href = `/profile/${target.id}`;
     return true;
   }
   if (target.kind === 'messages') {
@@ -1427,7 +1427,7 @@ function renderBidComparisonTable(bids, canAct) {
     const serviceCount = (b.services || []).length;
     const statusBadge = `<span class="badge ${b.status === 'accepted' ? 'badge-active' : b.status === 'declined' ? 'badge-paused' : 'badge-gold'}">${b.status}</span>`;
     return `<tr>
-      <td><a class="profile-link" href="profile.html?id=${b.agentUserId}">${escapeHtml(b.agentName)}</a>${b.topRated ? ' 🏆' : ''}</td>
+      <td><a class="profile-link" href="/profile/${b.agentUserId}">${escapeHtml(b.agentName)}</a>${b.topRated ? ' 🏆' : ''}</td>
       <td>${ratingChipHtml(b.rating, b.reviewCount)}</td>
       <td>${feeParts.length ? feeParts.join(' + ') : '—'}</td>
       <td>${serviceCount} service${serviceCount === 1 ? '' : 's'}</td>
@@ -1467,7 +1467,7 @@ function renderBidCard(b, canAct, backLink) {
     <div class="card">
       ${personHeadHtml({
         avatar: avatarHtml(b.agentName, { seed: b.agentUserId, size: 'lg' }),
-        nameHtml: `<a class="profile-link" href="profile.html?id=${b.agentUserId}${backLink ? `&back=${encodeURIComponent(backLink)}` : ''}">${escapeHtml(b.agentName)}</a>${b.isVerified ? ' <span class="badge badge-verified" title="Verified">✓</span>' : ''}${b.topRated ? ' <span class="badge badge-gold" title="4.5+ rating, 3+ reviews, 30%+ win rate">🏆 Top Rated</span>' : ''}`,
+        nameHtml: `<a class="profile-link" href="/profile/${b.agentUserId}${backLink ? `?back=${encodeURIComponent(backLink)}` : ''}">${escapeHtml(b.agentName)}</a>${b.isVerified ? ' <span class="badge badge-verified" title="Verified">✓</span>' : ''}${b.topRated ? ' <span class="badge badge-gold" title="4.5+ rating, 3+ reviews, 30%+ win rate">🏆 Top Rated</span>' : ''}`,
         sub: b.brokerageName || '',
         chips: [ratingChipHtml(b.rating, b.reviewCount), b.yearsExperience ? chipHtml(`${b.yearsExperience} yrs experience`, 'outline') : ''].filter(Boolean),
         aside: statusBadge,
@@ -2295,7 +2295,7 @@ async function loadFavoriteAgents() {
     el.innerHTML = agents.length ? agents.map(a => `
       <div class="side">
         ${avatarHtml(a.displayName, { seed: a.agentUserId, size: 'sm' })}
-        <strong><a class="profile-link" href="profile.html?id=${a.agentUserId}">${escapeHtml(a.displayName)}</a></strong>
+        <strong><a class="profile-link" href="/profile/${a.agentUserId}">${escapeHtml(a.displayName)}</a></strong>
         <span class="tiny">${escapeHtml(a.brokerageName || '')}${a.rating ? ` · ⭐ ${a.rating} (${a.reviewCount})` : ''}</span>
         <button class="link-btn" data-action="message-user" data-id="${a.agentUserId}" data-name="${escapeHtml(a.displayName)}">Message</button>
         <button class="link-btn" data-action="toggle-favorite-agent" data-agent-id="${a.agentUserId}">Remove</button>

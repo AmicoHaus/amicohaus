@@ -123,7 +123,7 @@ async function renderListingPage(context) {
       <div class="card-head">
         <div>
           <h1>${escapeHtml(listing.title || listing.property_type)}</h1>
-          <div class="card-agent">Listed by <a class="profile-link" href="/profile.html?id=${listing.owner_id}">${escapeHtml(listing.owner_name)}</a>${listing.owner_verified ? ' <span class="badge badge-verified" title="Verified by Amico Haus">✓ Verified</span>' : ''}${listing.client_name ? ` on behalf of <strong>${escapeHtml(listing.client_name)}</strong>` : ''} · ${listing.views} view${listing.views === 1 ? '' : 's'}</div>
+          <div class="card-agent">Listed by <a class="profile-link" href="/profile/${listing.owner_id}">${escapeHtml(listing.owner_name)}</a>${listing.owner_verified ? ' <span class="badge badge-verified" title="Verified by Amico Haus">✓ Verified</span>' : ''}${listing.client_name ? ` on behalf of <strong>${escapeHtml(listing.client_name)}</strong>` : ''} · ${listing.views} view${listing.views === 1 ? '' : 's'}</div>
         </div>
         <span class="badge badge-gold">${listing.is_portfolio ? `Portfolio · ${members.length}` : (listing.is_rental ? 'For Rent' : escapeHtml(listing.price_tier))}</span>
       </div>
@@ -160,7 +160,7 @@ async function renderListingPage(context) {
         ? `<p>Call or text: <a href="tel:${escapeHtml(listing.owner_phone.replace(/[^0-9+]/g, ''))}"><strong>${escapeHtml(listing.owner_phone)}</strong></a></p>`
         : `<p class="tiny">No phone on file — sign up to message ${escapeHtml(listing.owner_name)} directly through Amico Haus.</p>`}
       <div class="card-actions">
-        <a class="btn btn-primary btn-sm" href="/profile.html?id=${listing.owner_id}">View Full Profile</a>
+        <a class="btn btn-primary btn-sm" href="/profile/${listing.owner_id}">View Full Profile</a>
       </div>
     </div>
 

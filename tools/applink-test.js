@@ -57,7 +57,7 @@ function expect(label, actual, expected) {
   const closePanel = ['classList.add', 'notifPanel', 'hidden'];
   expect('pre-listing notification', await run('marketplace', '/app#pre-listing-12'), [closePanel, ['goToTab', 'marketplace'], ['openPreListingDetail', 12]]);
   expect('transaction notification', await run('marketplace', '/app#transaction-7'), [closePanel, ['goToTab', 'marketplace'], ['openTransactionDetail', 7]]);
-  expect('agent notification', await run('marketplace', '/app#agent-42'), [closePanel, ['navigate', 'profile.html?id=42']]);
+  expect('agent notification', await run('marketplace', '/app#agent-42'), [closePanel, ['navigate', '/profile/42']]);
   expect('message notification (found)', await run('message', '/app#messages-3'), [closePanel, ['goToTab', 'messages'], ['openConversation', 3, 'Sam', 9]]);
   expect('message notification (gone)', await run('message', '/app#messages-99'), [closePanel, ['goToTab', 'messages'], ['toast', 'That conversation is no longer available.']]);
   expect('match notification', await run('match', '/app'), [closePanel, ['goToTab', 'matches']]);

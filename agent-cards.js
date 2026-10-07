@@ -73,7 +73,7 @@ function directoryAgentCardHtml(a, { favorite = false, message = false } = {}) {
     <div class="card">
       ${personHeadHtml({
         avatar: avatarHtml(a.displayName, { seed: a.userId, size: 'lg' }),
-        nameHtml: `<a class="profile-link" href="/profile.html?id=${a.userId}">${escapeHtml(a.displayName)}</a>${a.isVerified ? ' <span class="badge badge-verified">✓</span>' : ''}${a.topRated ? ' <span class="badge badge-gold">🏆 Top Rated</span>' : ''}`,
+        nameHtml: `<a class="profile-link" href="/profile/${a.userId}">${escapeHtml(a.displayName)}</a>${a.isVerified ? ' <span class="badge badge-verified">✓</span>' : ''}${a.topRated ? ' <span class="badge badge-gold">🏆 Top Rated</span>' : ''}`,
         sub: [a.brokerageName, a.teamName ? `${a.teamName} Team` : ''].filter(Boolean).join(' · '),
         chips: [ratingChipHtml(a.rating, a.reviewCount), a.yearsExperience ? chipHtml(`${a.yearsExperience} yrs experience`, 'outline') : ''].filter(Boolean),
       })}

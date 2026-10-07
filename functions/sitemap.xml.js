@@ -31,7 +31,18 @@ async function renderSitemap(context) {
     loc: `https://amicohaus.com/listing/${l.id}`, freq: 'weekly', priority: '0.6',
   }));
 
-  const all = [...STATIC_URLS, ...listingUrls];
+  // Only approved agents, not every signed-up user — an agent's profile is a page they want found (it's their
+  // brand, same reasoning a listing gets a public page); a homeowner's generic bio/listings profile isn't
+  // actively promoted the same way, even though it stays crawlable if linked to from somewhere.
+  const agents = await db.prepare(
+    `SELECT agent_profiles.user_id FROM agent_profiles JOIN users ON users.id = agent_profiles.user_id
+     WHERE agent_profiles.status = 'approved' AND users.email NOT LIKE '%@demo.amicohaus.local'`
+  ).all();
+  const agentUrls = agents.results.map(a => ({
+    loc: `https://amicohaus.com/profile/${a.user_id}`, freq: 'monthly', priority: '0.5',
+  }));
+
+  const all = [...STATIC_URLS, ...listingUrls, ...agentUrls];
   const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
     all.map(u => `  <url>\n    <loc>${u.loc}</loc>\n    <changefreq>${u.freq}</changefreq>\n    <priority>${u.priority}</priority>\n  </url>`).join('\n') +
     `\n</urlset>\n`;

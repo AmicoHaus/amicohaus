@@ -634,13 +634,25 @@ const denied = r => r.status >= 400 && r.status < 500;
   const projBrowseAfter = (await B.call('GET', '/api/dev-projects')).json.projects;
   record('findermine', 'a funded project drops out of the open browse list', !projBrowseAfter.some(p => p.id === PROJ), JSON.stringify(projBrowseAfter.map(p => p.id)));
 
+  // ---------- public profile pages (server-rendered, functions/profile/[id].js) ----------
+  console.log('\n== public profile pages ==');
+  const agentProfilePage = await anon.call('GET', `/profile/${G.id}`);
+  record('profile', 'anonymous can view an approved agent\'s profile page', agentProfilePage.status === 200 && agentProfilePage.text.includes('Authz agent1'), `status ${agentProfilePage.status}`);
+  record('profile', 'the agent profile page title is per-agent, not the old generic shell', /<title>Authz agent1,.*Amico Haus<\/title>/.test(agentProfilePage.text), '');
+  const userProfilePage = await anon.call('GET', `/profile/${A.id}`);
+  record('profile', 'anonymous can view a regular user\'s profile page', userProfilePage.status === 200 && userProfilePage.text.includes('Authz homeowner'), `status ${userProfilePage.status}`);
+  const missingProfilePage = await anon.call('GET', '/profile/99999999');
+  record('profile', 'a nonexistent profile id is a real 404', missingProfilePage.status === 404, `status ${missingProfilePage.status}`);
+  record('profile', 'the public agent profile page never renders the admin-only applied/reviewed/rejection fields', !/appliedAt|reviewedAt|rejectionReason|notifyNewRequests/.test(agentProfilePage.text), '');
+
   // ---------- 5. leak scan: everything B, H and anonymous can GET, grepped for planted secrets ----------
   console.log('\n== leak scan ==');
   const urls = ['/api/me', '/api/directory', '/api/matches', '/api/listings', `/api/listings/${LA}`, `/api/users/${A.id}`, `/api/users/${C.id}`, '/api/pre-listings', `/api/pre-listings/${PL}`,
     `/api/pre-listings/${PL}/photos`, `/api/pre-listings/${PL}/votes`, '/api/transactions', `/api/transactions/${T}`, '/api/agents/directory', `/api/agents/${G.id}`, '/api/agents/service-estimates',
     '/api/groups', '/api/groups/1', '/api/groups/2', '/api/posts', `/api/posts/${P}/comments`, '/api/conversations', '/api/notifications', '/api/favorites', '/api/hidden-listings',
     '/api/saved-searches', '/api/agent-search-alerts', '/api/referrals', '/api/demo-overview', '/api/broker/stats', '/api/agents/my-bids', '/api/agents/my-invites', '/api/agents/favorites', `/sitemap.xml`,
-    '/api/augmented-homes', `/api/augmented-homes/${AUG}`, '/api/accessibility-needs-alerts', '/api/dev-projects', `/api/dev-projects/${PROJ}`];
+    '/api/augmented-homes', `/api/augmented-homes/${AUG}`, '/api/accessibility-needs-alerts', '/api/dev-projects', `/api/dev-projects/${PROJ}`,
+    `/profile/${G.id}`, `/profile/${A.id}`];
   const secrets = [['client name', MARK.clientName], ['listing address', MARK.address], ['pre-listing address', MARK.preAddress], ['lockbox note (non-agent)', MARK.lockbox], ['private message', MARK.message],
     ['augmented home address', MARK.augAddress], ['dev project address', MARK.projAddress],
     ['A email', A.email], ['C email', C.email], ['password hash', 'password_hash'], ['verify token', 'verify_token'], ['reset token', 'reset_token'], ['R2 key', 'r2_key'], ['session', 'ah_session']];

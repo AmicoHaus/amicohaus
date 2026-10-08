@@ -21,7 +21,7 @@ No payments run through the platform — fees are handled directly between the t
 
 ## Built by
 
-Presented by **Rudy Flores**, Real Estate Strategist with the McKelvey Team at Coldwell Banker West (DRE #02257808), working buyers and sellers throughout San Diego County. Amico Haus grew out of one recurring problem he kept seeing firsthand: homeowners committing to an agent and a price without ever really comparing either one.
+Presented by **Rudy Flores**, Real Estate Strategist with Coldwell Banker West (DRE #02257808), working buyers and sellers throughout San Diego County. Amico Haus grew out of one recurring problem he kept seeing firsthand: homeowners committing to an agent and a price without ever really comparing either one.
 
 ## Stack
 

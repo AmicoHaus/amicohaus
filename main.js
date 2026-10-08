@@ -2187,7 +2187,7 @@ function renderTeamPanel({ team, myStatus, myRole }, myUserId) {
   if (!team) {
     return `
       <div class="form-row two-col">
-        <input type="text" id="newTeamName" maxlength="80" placeholder="Team name, e.g. McKelvey Team">
+        <input type="text" id="newTeamName" maxlength="80" placeholder="Team name, e.g. The Flores Team">
         <button type="button" class="btn btn-ghost btn-sm" data-action="create-team">Create Team</button>
       </div>`;
   }

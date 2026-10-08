@@ -180,7 +180,11 @@ function fillListingFormFields(l, { forClone } = {}) {
   document.getElementById('beds').value = l.beds || '';
   document.getElementById('baths').value = l.baths || '';
   document.getElementById('sqft').value = l.sqft || '';
-  document.getElementById('externalLinks').value = forClone ? '' : (l.external_links || []).map(link => link.url).join('\n');
+  const links = forClone ? [] : (l.external_links || []);
+  document.getElementById('virtualTourUrl').value = links.find(link => link.label === 'Virtual Tour')?.url || '';
+  document.getElementById('externalLinks').value = links.filter(link => link.label !== 'Virtual Tour').map(link => link.url).join('\n');
+  const checkedLifeEvents = new Set(forClone ? [] : (l.life_event_tags || []));
+  document.querySelectorAll('.life-event-check').forEach(c => { c.checked = checkedLifeEvents.has(c.value); });
   document.getElementById('showExactAddress').checked = forClone ? false : !!l.show_exact_address;
   document.getElementById('rentAmount').value = l.rent_amount || '';
   document.getElementById('minLeaseMonths').value = l.min_lease_months || 12;
@@ -223,7 +227,7 @@ function populateListingFormForClone(l) {
 const LISTING_DRAFT_KEY = 'amicohaus_listing_draft_v1';
 const LISTING_DRAFT_FIELD_IDS = [
   'isBuyerOnly', 'isRental', 'title', 'clientName', 'city', 'state', 'neighborhood', 'address',
-  'propertyType', 'estimatedValue', 'beds', 'baths', 'sqft', 'externalLinks', 'showExactAddress',
+  'propertyType', 'estimatedValue', 'beds', 'baths', 'sqft', 'virtualTourUrl', 'externalLinks', 'showExactAddress',
   'rentAmount', 'minLeaseMonths', 'locations', 'desiredType', 'priceMin', 'priceMax', 'minBeds', 'minBaths',
   'mustHaves', 'cashMode', 'cashAmount',
 ];
@@ -533,7 +537,24 @@ async function loadMyListing() {
         </div>
         ${l.is_portfolio ? `<div class="mini-block"><span class="label">Includes</span>${(l.portfolio_members || []).map(m => `${escapeHtml(m.title || m.propertyType)} in ${escapeHtml(m.city)}, ${escapeHtml(m.state)} (${money(m.estimatedValue)})`).join('<br>')}</div>` : ''}
         ${l.bundled_into ? '<p class="tiny">This property is bundled into a portfolio — manage it from that portfolio\'s card.</p>' : ''}
+        ${(l.is_buyer_only || l.is_portfolio) ? '' : renderLifeEventTags(l.life_event_tags)}
         ${(l.is_buyer_only || l.is_portfolio) ? '' : renderExternalLinks(l.external_links)}
+        ${(l.is_buyer_only || l.is_portfolio || l.is_rental) ? '' : `
+        <details class="panel">
+          <summary>Open Houses</summary>
+          <div id="openHouses-${l.id}"><span class="tiny">Loading…</span></div>
+          <div class="form-row two-col">
+            <input type="datetime-local" id="ohStart-${l.id}">
+            <input type="datetime-local" id="ohEnd-${l.id}">
+          </div>
+          <div class="field"><input type="text" id="ohNote-${l.id}" maxlength="300" placeholder="Note (optional)"></div>
+          <div class="form-actions"><button type="button" class="btn btn-ghost btn-sm" data-action="add-open-house" data-id="${l.id}">Schedule</button></div>
+        </details>
+        <details class="panel">
+          <summary>Offers</summary>
+          <div id="listingOffers-${l.id}"><span class="tiny">Loading…</span></div>
+        </details>
+        `}
         <div class="card-actions">
           ${l.bundled_into ? '' : `
           <button class="btn btn-ghost btn-sm" data-action="edit-listing" data-id="${l.id}">Edit</button>
@@ -558,6 +579,10 @@ async function loadMyListing() {
         e.target.value = '';
         renderPhotoGallery(l.id);
       });
+      if (!l.is_rental) {
+        loadOpenHousesInto(l.id);
+        loadListingOffersInto(l.id);
+      }
     }
   } catch (e) {
     summaryEl.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`;
@@ -577,6 +602,44 @@ async function renderPhotoGallery(listingId) {
   } catch {
     el.innerHTML = '<span class="tiny">Could not load photos.</span>';
   }
+}
+
+async function loadOpenHousesInto(listingId) {
+  const el = document.getElementById(`openHouses-${listingId}`);
+  if (!el) return;
+  try {
+    const { openHouses } = await apiGet(`/api/listings/${listingId}/open-houses`);
+    el.innerHTML = openHouses.length ? openHouses.map(oh => `
+      <div class="side">
+        <strong>${new Date(oh.startsAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</strong>
+        <span class="tiny">${oh.rsvpCount} RSVP${oh.rsvpCount === 1 ? '' : 's'}${oh.note ? ` — ${escapeHtml(oh.note)}` : ''}</span>
+        <button type="button" class="link-btn" data-action="delete-open-house" data-listing-id="${listingId}" data-id="${oh.id}">Cancel</button>
+      </div>
+    `).join('') : '<span class="tiny">None scheduled.</span>';
+  } catch { el.innerHTML = '<span class="tiny">Could not load open houses.</span>'; }
+}
+
+async function loadListingOffersInto(listingId) {
+  const el = document.getElementById(`listingOffers-${listingId}`);
+  if (!el) return;
+  try {
+    const { offers } = await apiGet(`/api/listings/${listingId}/offers`);
+    el.innerHTML = offers.length ? offers.map(o => `
+      <div class="side">
+        <strong>${money(o.offerPrice)} — ${o.financingType === 'cash' ? 'Cash' : 'Financed'}</strong>
+        <span class="tiny">From <a class="profile-link" href="/profile/${o.buyerUserId}">${escapeHtml(o.buyerName)}</a> · <span class="badge ${o.status === 'accepted' ? 'badge-active' : o.status === 'declined' || o.status === 'withdrawn' ? 'badge-paused' : ''}">${o.status}</span></span>
+        ${o.closingTimeline ? `<p class="tiny"><span class="label">Timeline</span> ${escapeHtml(o.closingTimeline)}</p>` : ''}
+        ${o.contingencies ? `<p class="tiny"><span class="label">Contingencies</span> ${escapeHtml(o.contingencies)}</p>` : ''}
+        ${o.message ? `<p class="tiny">"${escapeHtml(o.message)}"</p>` : ''}
+        ${o.status === 'pending' ? `
+          <div class="card-actions">
+            <button type="button" class="btn btn-primary btn-sm" data-action="decide-offer" data-listing-id="${listingId}" data-id="${o.id}" data-decision="accept">Accept</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-action="decide-offer" data-listing-id="${listingId}" data-id="${o.id}" data-decision="decline">Decline</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-action="message-user" data-id="${o.buyerUserId}" data-name="${escapeHtml(o.buyerName)}">Message</button>
+          </div>` : ''}
+      </div>
+    `).join('') : '<span class="tiny">No offers yet.</span>';
+  } catch { el.innerHTML = '<span class="tiny">Could not load offers.</span>'; }
 }
 
 // Minimal CSV parser — handles quoted fields (with embedded commas/newlines
@@ -1297,6 +1360,7 @@ async function loadMyPreListings() {
           <button class="btn btn-primary btn-sm" data-action="open-pre-listing" data-id="${p.id}">View Proposals</button>
           ${p.status === 'open' ? `<button class="btn btn-ghost btn-sm" data-action="edit-pre-listing-from-list" data-id="${p.id}">Edit</button>
           <button class="btn btn-ghost btn-sm" data-action="close-pre-listing-from-list" data-id="${p.id}">Close</button>` : ''}
+          ${p.status !== 'awarded' ? `<button class="btn btn-danger btn-sm" data-action="delete-pre-listing-from-list" data-id="${p.id}">Delete</button>` : ''}
         </div>
       </div>
     `;
@@ -1550,14 +1614,16 @@ function renderDisclosuresChecklist(p) {
 }
 
 function renderPreListingOwnerBar(p) {
+  const deleteBtn = `<button type="button" class="btn btn-danger btn-sm" data-action="delete-pre-listing" data-id="${p.id}">Delete</button>`;
   if (p.status === 'open') {
     return `<div class="card-actions">
       <button type="button" class="btn btn-ghost btn-sm" data-action="edit-pre-listing">Edit details</button>
       <button type="button" class="btn btn-ghost btn-sm" data-action="close-pre-listing">Close pre-listing</button>
+      ${deleteBtn}
     </div>`;
   }
-  if (p.status === 'closed') return '<p class="tiny">You closed this pre-listing, so agents can no longer vote or send proposals.</p>';
-  return '';
+  if (p.status === 'closed') return `<p class="tiny">You closed this pre-listing, so agents can no longer vote or send proposals.</p><div class="card-actions">${deleteBtn}</div>`;
+  return ''; // awarded — deletion is blocked server-side too, same protection as closing/editing
 }
 
 function renderPreListingEditForm(p) {
@@ -1688,10 +1754,28 @@ async function closePreListing(id, fromList) {
   } catch (err) { toast(err.message); }
 }
 
+async function deletePreListing(id, fromList) {
+  if (!confirm('Permanently delete this pre-listing? It cannot be recovered after this.')) return;
+  try {
+    await apiDelete(`/api/pre-listings/${id}`);
+    toast('Pre-listing deleted.');
+    if (fromList) loadMyPreListings(); else backToMarketplaceList();
+  } catch (err) { toast(err.message); }
+}
+
 function showMarketplaceDetail() {
   document.getElementById('marketplaceListView').classList.add('hidden');
   document.getElementById('marketplaceDetailView').classList.remove('hidden');
   document.getElementById('marketplaceDetailView').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function backToMarketplaceList() {
+  marketplaceDetail = null;
+  document.getElementById('marketplaceDetailView').classList.add('hidden');
+  document.getElementById('marketplaceListView').classList.remove('hidden');
+  loadMyPreListings();
+  loadMyTransactions();
+  loadMarketplaceBrowse();
 }
 
 async function openPreListingDetail(id, opts = {}) {
@@ -1721,6 +1805,8 @@ async function openPreListingDetail(id, opts = {}) {
         ${p.description ? `<p>${escapeHtml(p.description)}</p>` : ''}
         ${photosHtml}
         <p class="tiny">${voteSummary(p.votes, 'Agent votes')}</p>
+        ${renderPriceHistory(p.priceHistory)}
+        ${isOwner ? `<p class="form-note trust"><strong>Talk to a lender.</strong> If selling here means financing your next place, rates, loan programs and approvals come from lenders, not from websites or real estate agents. Talk to your own mortgage broker, or use our preferred lender, <strong>Point Mortgage Corporation</strong> (NMLS #231073), at <a href="tel:+16194754095">(619) 475-4095</a>. You are always free to choose any lender you like, and you can verify any lender's license at nmlsconsumeraccess.org.</p>` : ''}
         ${isOwner ? renderPreListingOwnerBar(p) : ''}
       </div>
       ${isOwner && p.status === 'open' ? renderPreListingEditForm(p) : ''}
@@ -1882,7 +1968,9 @@ async function openAugmentedHomeDetail(id) {
     augmentedDetail = { id };
     showAugmentedDetail();
     const photosHtml = h.photoIds.length
-      ? `<div class="photo-gallery">${h.photoIds.map(pid => `<img src="/api/augmented-home-photos/${pid}" alt="" loading="lazy" class="media-thumb">`).join('')}</div>`
+      ? `<div class="photo-gallery">${h.photoIds.map(pid => isOwner
+          ? `<div class="photo-thumb"><img src="/api/augmented-home-photos/${pid}" alt="" loading="lazy"><button type="button" class="photo-delete" data-action="delete-augmented-photo" data-id="${pid}">✕</button></div>`
+          : `<img src="/api/augmented-home-photos/${pid}" alt="" loading="lazy" class="media-thumb">`).join('')}</div>`
       : '';
     contentEl.innerHTML = `
       <div class="card">
@@ -1892,6 +1980,7 @@ async function openAugmentedHomeDetail(id) {
         ${photosHtml}
         <h3>Adaptations</h3>
         <p class="tiny">${h.adaptations.map(k => `<span class="badge badge-gold">${escapeHtml(adaptationLabel(k))}</span>`).join(' ')}</p>
+        ${isOwner ? `<div class="form-actions"><button type="button" class="btn btn-danger btn-sm" data-action="delete-augmented-home" data-id="${h.id}">Delete Listing</button></div>` : ''}
         ${h.adaptationNotes ? `<p class="tiny"><span class="label">Seller's notes</span> ${escapeHtml(h.adaptationNotes)}</p>` : ''}
         ${!isOwner ? `<div class="form-actions"><button class="btn btn-primary btn-sm" data-action="message-user" data-id="${h.userId}" data-name="${escapeHtml(h.owner)}">Message Seller</button></div>` : ''}
       </div>
@@ -1978,7 +2067,9 @@ async function openProjectDetail(id) {
     findermineDetail = { id };
     showFinderMineDetail();
     const photosHtml = p.photoIds.length
-      ? `<div class="photo-gallery">${p.photoIds.map(pid => `<img src="/api/dev-project-photos/${pid}" alt="" loading="lazy" class="media-thumb">`).join('')}</div>`
+      ? `<div class="photo-gallery">${p.photoIds.map(pid => isOwner
+          ? `<div class="photo-thumb"><img src="/api/dev-project-photos/${pid}" alt="" loading="lazy"><button type="button" class="photo-delete" data-action="delete-project-photo" data-id="${pid}">✕</button></div>`
+          : `<img src="/api/dev-project-photos/${pid}" alt="" loading="lazy" class="media-thumb">`).join('')}</div>`
       : '';
     contentEl.innerHTML = `
       <div class="card">
@@ -2000,6 +2091,7 @@ async function openProjectDetail(id) {
             <button class="btn ${amInterested ? 'btn-ghost' : 'btn-primary'} btn-sm" data-action="toggle-project-interest" data-id="${p.id}">${amInterested ? 'Interest Noted — Withdraw' : 'Express Interest'}</button>
             <button class="btn btn-ghost btn-sm" data-action="message-user" data-id="${p.userId}" data-name="${escapeHtml(p.owner)}">Message</button>
           </div>` : ''}
+        ${isOwner ? `<div class="form-actions"><button type="button" class="btn btn-danger btn-sm" data-action="delete-project" data-id="${p.id}">Delete Project</button></div>` : ''}
       </div>
       ${isOwner && interestedInvestors ? `
         <h3>Interested Investors (${interestedInvestors.length})</h3>
@@ -2356,7 +2448,13 @@ async function loadMyInvites() {
 }
 
 /* ---- Milestones, disputes, homeowner reviews, and direct invites within a request's detail view ---- */
+// A starting point, not a required sequence — every deal is different, and these are just common enough to be
+// worth one click instead of typing them out. Only suggested for ones not already on the checklist.
+const SUGGESTED_MILESTONES = ['Inspection', 'Appraisal', 'Loan contingency cleared', 'Disclosures signed', 'Final walkthrough', 'Closing'];
+
 function renderMilestonesHtml(milestones) {
+  const existingLabels = new Set(milestones.map(m => m.label));
+  const suggestions = SUGGESTED_MILESTONES.filter(s => !existingLabels.has(s));
   return `
     <div class="panel">
       <h3>Progress Checklist</h3>
@@ -2368,6 +2466,7 @@ function renderMilestonesHtml(milestones) {
           <button type="button" class="link-btn" data-action="delete-milestone" data-milestone-id="${m.id}">✕</button>
         </label>
       `).join('')}
+      ${suggestions.length ? `<p class="tiny">Common steps: ${suggestions.map(s => `<button type="button" class="link-btn" data-action="add-suggested-milestone" data-label="${escapeHtml(s)}">+ ${escapeHtml(s)}</button>`).join(' ')}</p>` : ''}
       <div class="form-row two-col">
         <input type="text" id="newMilestoneLabel" maxlength="200" placeholder="Add a checklist item…">
         <button type="button" class="btn btn-ghost btn-sm" data-action="add-milestone">Add</button>
@@ -2426,6 +2525,12 @@ function voteSummary(v, label) {
   const base = `${label}: ${v.too_high} too high · ${v.too_low} too low · ${v.just_right} just right`;
   if (v.nearby === null || v.nearby === undefined) return base;
   return `${base} — ${v.nearby} of ${v.total} from agents within 20 miles of this home`;
+}
+
+function renderPriceHistory(history) {
+  if (!history || !history.length) return '';
+  const changes = history.map(h => `${money(h.oldPrice)} → ${money(h.newPrice)} on ${new Date(h.changedAt + 'Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`);
+  return `<p class="tiny"><span class="label">Price history</span> ${changes.join(' · ')}</p>`;
 }
 
 function renderHomeownerRatingBadge(rating, label) {
@@ -2542,6 +2647,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   fillTypeSelect(document.getElementById('desiredType'), true);
   fillTypeSelect(document.getElementById('savedType'), true);
   fillTypeSelect(document.getElementById('portfolioDesiredType'), true);
+  document.getElementById('lifeEventTagsFields').innerHTML = Object.entries(LIFE_EVENT_LABELS).map(([key, label]) => `
+    <label class="checkbox-row"><input type="checkbox" class="life-event-check" value="${key}"><span>${escapeHtml(label)}</span></label>
+  `).join('');
 
   document.getElementById('tabs').addEventListener('click', e => {
     const btn = e.target.closest('.tab');
@@ -2642,7 +2750,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     e.preventDefault();
     const btn = document.getElementById('listingSubmitBtn');
     btn.disabled = true;
-    const links = document.getElementById('externalLinks').value.split('\n').map(s => s.trim()).filter(Boolean).map(url => ({ label: 'Link', url }));
+    const virtualTourUrl = document.getElementById('virtualTourUrl').value.trim();
+    const links = [
+      ...(virtualTourUrl ? [{ label: 'Virtual Tour', url: virtualTourUrl }] : []),
+      ...document.getElementById('externalLinks').value.split('\n').map(s => s.trim()).filter(Boolean).map(url => ({ label: 'Link', url })),
+    ];
     const payload = {
       isBuyerOnly: document.getElementById('isBuyerOnly').checked,
       isRental: document.getElementById('isRental').checked,
@@ -2661,6 +2773,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       sqft: document.getElementById('sqft').value || null,
       showExactAddress: document.getElementById('showExactAddress').checked,
       externalLinks: links,
+      lifeEventTags: [...document.querySelectorAll('.life-event-check:checked')].map(c => c.value),
       locations: document.getElementById('locations').value.trim(),
       desiredType: document.getElementById('desiredType').value,
       priceMin: document.getElementById('priceMin').value,
@@ -2789,6 +2902,27 @@ document.addEventListener('DOMContentLoaded', async () => {
         await apiDelete(`/api/listings/${btn.dataset.listingId}/photos/${btn.dataset.photoId}`);
         renderPhotoGallery(btn.dataset.listingId);
       } catch (err) { toast(err.message); }
+    } else if (btn.dataset.action === 'add-open-house') {
+      const listingId = btn.dataset.id;
+      const start = document.getElementById(`ohStart-${listingId}`).value;
+      const end = document.getElementById(`ohEnd-${listingId}`).value;
+      if (!start || !end) { toast('Pick a start and end time.'); return; }
+      try {
+        await apiPost(`/api/listings/${listingId}/open-houses`, {
+          startsAt: new Date(start).toISOString(), endsAt: new Date(end).toISOString(),
+          note: document.getElementById(`ohNote-${listingId}`).value.trim(),
+        });
+        document.getElementById(`ohStart-${listingId}`).value = '';
+        document.getElementById(`ohEnd-${listingId}`).value = '';
+        document.getElementById(`ohNote-${listingId}`).value = '';
+        toast('Open house scheduled.');
+        loadOpenHousesInto(listingId);
+      } catch (err) { toast(err.message); }
+    } else if (btn.dataset.action === 'delete-open-house') {
+      try {
+        await apiDelete(`/api/listings/${btn.dataset.listingId}/open-houses/${btn.dataset.id}`);
+        loadOpenHousesInto(btn.dataset.listingId);
+      } catch (err) { toast(err.message); }
     } else if (btn.dataset.action === 'edit-listing') {
       const l = myListings.find(x => String(x.id) === btn.dataset.id);
       if (!l) return;
@@ -2797,6 +2931,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     } else if (btn.dataset.action === 'clone-listing') {
       const l = myListings.find(x => String(x.id) === btn.dataset.id);
       if (l) populateListingFormForClone(l);
+    } else if (btn.dataset.action === 'decide-offer') {
+      try {
+        await apiPut(`/api/listings/${btn.dataset.listingId}/offers/${btn.dataset.id}`, { action: btn.dataset.decision });
+        toast(btn.dataset.decision === 'accept' ? 'Offer accepted.' : 'Offer declined.');
+        loadListingOffersInto(btn.dataset.listingId);
+      } catch (err) { toast(err.message); }
+    } else if (btn.dataset.action === 'message-user') {
+      try { await startConversationWith(btn.dataset.id, btn.dataset.name); } catch (err) { toast(err.message); }
     }
   });
 
@@ -3271,10 +3413,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       const txBtn = e.target.closest('[data-action="open-transaction"]');
       const editPlBtn = e.target.closest('[data-action="edit-pre-listing-from-list"]');
       const closePlBtn = e.target.closest('[data-action="close-pre-listing-from-list"]');
+      const deletePlBtn = e.target.closest('[data-action="delete-pre-listing-from-list"]');
       const checkInBtn = e.target.closest('[data-action="check-in-bid"]');
       if (plBtn) openPreListingDetail(plBtn.dataset.id);
       else if (editPlBtn) openPreListingDetail(editPlBtn.dataset.id, { edit: true });
       else if (closePlBtn) closePreListing(closePlBtn.dataset.id, true);
+      else if (deletePlBtn) deletePreListing(deletePlBtn.dataset.id, true);
       else if (txBtn) openTransactionDetail(txBtn.dataset.id);
       else if (checkInBtn) {
         try {
@@ -3295,14 +3439,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   wireMarketplaceOpenButtons('marketplaceBrowseList');
   wireMarketplaceOpenButtons('myBidsList');
 
-  function backToMarketplaceList() {
-    marketplaceDetail = null;
-    document.getElementById('marketplaceDetailView').classList.add('hidden');
-    document.getElementById('marketplaceListView').classList.remove('hidden');
-    loadMyPreListings();
-    loadMyTransactions();
-    loadMarketplaceBrowse();
-  }
   document.getElementById('backToMarketplace').addEventListener('click', backToMarketplaceList);
   // Escape backs out of whatever's currently open — a detail view first (most common), else the full-screen
   // conversation thread — so the keyboard alone can navigate back out, not just the mouse.
@@ -3331,6 +3467,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const favoriteBtn = e.target.closest('[data-action="toggle-favorite-agent"]');
     const msgBtn = e.target.closest('[data-action="message-user"]');
     const addMilestoneBtn = e.target.closest('[data-action="add-milestone"]');
+    const addSuggestedMilestoneBtn = e.target.closest('[data-action="add-suggested-milestone"]');
     const deleteMilestoneBtn = e.target.closest('[data-action="delete-milestone"]');
     const disputeBtn = e.target.closest('[data-action="raise-dispute"]');
     const homeownerReviewBtn = e.target.closest('[data-action="submit-homeowner-review"]');
@@ -3341,6 +3478,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const cancelEditBtn = e.target.closest('[data-action="cancel-edit-pre-listing"]');
     const savePlBtn = e.target.closest('[data-action="save-pre-listing"]');
     const closePlBtn = e.target.closest('[data-action="close-pre-listing"]');
+    const deletePlBtn = e.target.closest('[data-action="delete-pre-listing"]');
     const deletePlPhotoBtn = e.target.closest('[data-action="delete-pre-listing-photo"]');
     const requestShowingBtn = e.target.closest('[data-action="request-showing"]');
     const decideShowingBtn = e.target.closest('[data-action="decide-showing"]');
@@ -3370,6 +3508,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (cancelEditBtn) { openPreListingDetail(id); return; } // re-fetch: drops unsaved edits and any removed photo
       if (savePlBtn) { await savePreListingEdit(id); return; }
       if (closePlBtn) { await closePreListing(id, false); return; }
+      if (deletePlBtn) { await deletePreListing(id, false); return; }
       if (deletePlPhotoBtn) {
         if (!confirm('Remove this photo?')) return;
         await apiDelete(`/api/pre-listings/${id}/photos/${deletePlPhotoBtn.dataset.photoId}`);
@@ -3423,6 +3562,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!label) return;
         await apiPost(`${basePath}/milestones`, { label });
         document.getElementById('newMilestoneLabel').value = '';
+        loadMilestonesInto(kind, id);
+      } else if (addSuggestedMilestoneBtn) {
+        await apiPost(`${basePath}/milestones`, { label: addSuggestedMilestoneBtn.dataset.label });
         loadMilestonesInto(kind, id);
       } else if (deleteMilestoneBtn) {
         await apiDelete(`${basePath}/milestones/${deleteMilestoneBtn.dataset.milestoneId}`);
@@ -3585,8 +3727,18 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   document.getElementById('augmentedDetailContent').addEventListener('click', async e => {
     const msgBtn = e.target.closest('[data-action="message-user"]');
-    if (!msgBtn) return;
-    try { await startConversationWith(msgBtn.dataset.id, msgBtn.dataset.name); } catch (err) { toast(err.message); }
+    const deletePhotoBtn = e.target.closest('[data-action="delete-augmented-photo"]');
+    const deleteHomeBtn = e.target.closest('[data-action="delete-augmented-home"]');
+    if (msgBtn) { try { await startConversationWith(msgBtn.dataset.id, msgBtn.dataset.name); } catch (err) { toast(err.message); } }
+    else if (deletePhotoBtn) {
+      if (!confirm('Remove this photo?')) return;
+      try { await apiDelete(`/api/augmented-homes/${augmentedDetail.id}/photos/${deletePhotoBtn.dataset.id}`); openAugmentedHomeDetail(augmentedDetail.id); }
+      catch (err) { toast(err.message); }
+    } else if (deleteHomeBtn) {
+      if (!confirm('Permanently delete this listing? It cannot be recovered after this.')) return;
+      try { await apiDelete(`/api/augmented-homes/${deleteHomeBtn.dataset.id}`); toast('Listing deleted.'); backToAugmentedList(); }
+      catch (err) { toast(err.message); }
+    }
   });
 
   /* ---------------- FinderMine wiring ---------------- */
@@ -3648,6 +3800,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('findermineDetailContent').addEventListener('click', async e => {
     const msgBtn = e.target.closest('[data-action="message-user"]');
     const interestBtn = e.target.closest('[data-action="toggle-project-interest"]');
+    const deletePhotoBtn = e.target.closest('[data-action="delete-project-photo"]');
+    const deleteProjectBtn = e.target.closest('[data-action="delete-project"]');
     if (msgBtn) { try { await startConversationWith(msgBtn.dataset.id, msgBtn.dataset.name); } catch (err) { toast(err.message); } }
     else if (interestBtn) {
       try {
@@ -3655,6 +3809,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         toast(interested ? 'Marked as interested.' : 'Interest withdrawn.');
         openProjectDetail(interestBtn.dataset.id); // refresh investor count/list and button label
       } catch (err) { toast(err.message); }
+    } else if (deletePhotoBtn) {
+      if (!confirm('Remove this photo?')) return;
+      try { await apiDelete(`/api/dev-projects/${findermineDetail.id}/photos/${deletePhotoBtn.dataset.id}`); openProjectDetail(findermineDetail.id); }
+      catch (err) { toast(err.message); }
+    } else if (deleteProjectBtn) {
+      if (!confirm('Permanently delete this project? It cannot be recovered after this.')) return;
+      try { await apiDelete(`/api/dev-projects/${deleteProjectBtn.dataset.id}`); toast('Project deleted.'); backToFinderMineList(); }
+      catch (err) { toast(err.message); }
     }
   });
 

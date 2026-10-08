@@ -134,8 +134,8 @@ ${jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd)}</script
     Amico Haus — where homeowners and vetted agents find each other. <a href="/about">About</a> · <a href="/contact">Contact</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a>
   </footer>
 </div>
-<script src="/client.js"></script>
-<script src="/profile-actions.js"></script>
+<script src="/client.js?v=${ASSET_VERSIONS['/client.js']}"></script>
+<script src="/profile-actions.js?v=${ASSET_VERSIONS['/profile-actions.js']}"></script>
 </body>
 </html>`;
 }

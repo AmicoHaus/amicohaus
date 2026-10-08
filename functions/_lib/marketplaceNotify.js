@@ -183,3 +183,19 @@ export async function notifyAgentsNewRequest(context, requestType, requestId, zi
   // is waiting on it either.
   await Promise.allSettled(sends);
 }
+
+// A structured offer on a regular trade listing — the clearest "someone wants to make a deal" event on that
+// side of the site, so it gets the same email treatment as a new pre-listing proposal.
+export async function notifyNewOffer(context, listingId, ownerUserId, buyerUserId) {
+  const db = context.env.DB;
+  const buyer = await db.prepare('SELECT display_name FROM users WHERE id = ?').bind(buyerUserId).first();
+  const owner = await db.prepare('SELECT id, email, email_frequency FROM users WHERE id = ?').bind(ownerUserId).first();
+  if (!owner) return;
+  const body = `${buyer ? buyer.display_name : 'Someone'} made an offer on your listing.`;
+  await notifyAndMaybeEmail(context, { userId: owner.id, email: owner.email, emailFrequency: owner.email_frequency }, body,
+    `/listing/${listingId}`, 'New offer on Amico Haus', 'see the details');
+}
+
+export async function notifyOfferDecision(context, buyerUserId, listingId, accepted) {
+  await notify(context.env.DB, buyerUserId, accepted ? 'Your offer was accepted!' : 'Your offer was not accepted this time.', `/listing/${listingId}`);
+}

@@ -71,12 +71,26 @@ function escapeHtml(str) {
   return String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// Kept in sync by hand with functions/_lib/lifeEvents.js.
+const LIFE_EVENT_LABELS = {
+  relocation: 'Relocating for work or family', upsizing_growing_family: 'Growing family, need more space',
+  downsizing: 'Downsizing, need less space', divorce_separation: 'Divorce or separation',
+  inheritance: 'Inherited property', investment: 'Investment property', retirement: 'Retirement', other: 'Other',
+};
+function renderLifeEventTags(tags) {
+  if (!Array.isArray(tags) || tags.length === 0) return '';
+  return `<p class="tiny">${tags.map(k => `<span class="badge badge-gold">${escapeHtml(LIFE_EVENT_LABELS[k] || k)}</span>`).join(' ')}</p>`;
+}
+
 function renderExternalLinks(links) {
   if (!Array.isArray(links) || links.length === 0) return '';
-  const items = links.map(l =>
-    `<a href="${escapeHtml(l.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(l.label || 'Link')}</a>`
-  ).join(' · ');
-  return `<div class="mini-block"><span class="label">Links</span>${items}</div>`;
+  const tour = links.find(l => l.label === 'Virtual Tour');
+  const rest = links.filter(l => l.label !== 'Virtual Tour');
+  const tourHtml = tour ? `<a class="btn btn-ghost btn-sm" href="${escapeHtml(tour.url)}" target="_blank" rel="noopener noreferrer">🎥 Take the Virtual Tour</a>` : '';
+  const restHtml = rest.length
+    ? `<div class="mini-block"><span class="label">Links</span>${rest.map(l => `<a href="${escapeHtml(l.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(l.label || 'Link')}</a>`).join(' · ')}</div>`
+    : '';
+  return tourHtml + restHtml;
 }
 
 // Fallback photos for listings without a real uploaded photo — keyed by

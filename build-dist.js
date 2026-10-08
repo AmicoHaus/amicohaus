@@ -77,7 +77,7 @@ for (const name of fs.readdirSync(OUT).filter(n => n.endsWith('.html'))) {
 // Server-rendered pages (functions/listing/[id].js) never pass through the
 // loop above, so give them the same hashes through a generated module — wrangler
 // bundles ./functions after this script runs.
-const SERVER_RENDERED_ASSETS = ['/styles.css'];
+const SERVER_RENDERED_ASSETS = ['/styles.css', '/client.js', '/listing-actions.js', '/profile-actions.js'];
 const versionLines = SERVER_RENDERED_ASSETS.map(ref => {
   const hash = crypto.createHash('sha1').update(fs.readFileSync(path.join(OUT, ref.slice(1)))).digest('hex').slice(0, 8);
   return `  '${ref}': '${hash}',`;

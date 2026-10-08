@@ -41,6 +41,7 @@ export async function onRequestGet(context) {
     delete safe.views;
   }
   safe.external_links = parseJsonSafe(listing.external_links, []);
+  safe.life_event_tags = parseJsonSafe(listing.life_event_tags_json, []);
   return json({ listing: safe, isOwner: isOwnerOrAdmin });
 }
 

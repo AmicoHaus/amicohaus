@@ -33,6 +33,7 @@ function renderDirectory(listings) {
       ${l.is_rental
         ? `<div class="mini-block"><span class="label">Rent</span>${money(l.rent_amount)}/mo · ${l.min_lease_months}-month min lease</div>`
         : (l.desired_type ? `<div class="mini-block"><span class="label">Wants</span>${escapeHtml(l.desired_type)} in ${escapeHtml(l.locations || 'Anywhere')}</div>` : '')}
+      ${renderLifeEventTags(l.life_event_tags)}
       ${renderExternalLinks(l.external_links)}
       <div class="card-actions">
         <button type="button" class="btn btn-ghost btn-sm thumb-btn ${l.my_feedback === 'up' ? 'active' : ''}" data-action="thumb-up" data-id="${l.id}" title="Save to your favorites">👍</button>

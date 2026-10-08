@@ -144,9 +144,14 @@
                 <div class="field"><label>Baths <span class="required-mark">*</span></label><input type="number" id="baths" required min="0" max="50" step="0.5"></div>
                 <div class="field"><label>Sq ft</label><input type="number" id="sqft" min="0" max="200000" step="50"></div>
               </div>
+              <div class="field"><label>Virtual tour URL (optional)</label><input type="url" id="virtualTourUrl" maxlength="500" placeholder="https://my.matterport.com/show/?m=..."></div>
               <div class="field"><label>External links (Airbnb, Zillow, etc — one per line)</label><textarea id="externalLinks" maxlength="800" placeholder="https://airbnb.com/rooms/..."></textarea></div>
               <div class="field"><label>Photos (up to 8, added after you create the listing)</label><input type="file" id="listingPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple></div>
               <label class="checkbox-row"><input type="checkbox" id="showExactAddress"><span>Reveal exact address once matched</span></label>
+              <div class="field">
+                <label>Why you're moving (optional — purely informational, helps the right match recognize itself)</label>
+                <div id="lifeEventTagsFields"></div>
+              </div>
             </fieldset>
 
             <fieldset class="panel" id="whatYouWantFieldset">

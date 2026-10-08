@@ -22,6 +22,9 @@ const MARK = {
   comment: 'AUTHZCOMMENT' + RUN,
   augAddress: '789 ADAPTADDR' + RUN + ' Way',
   projAddress: '321 PROJADDR' + RUN + ' Blvd',
+  // Deliberately distinct from MARK.message: B legitimately owns this one (it's B's own offer message, read
+  // back via B's own GET), so it can't share a value with the A<->C conversation secret B must never see.
+  offerMessage: 'OFFERMSG' + RUN,
 };
 
 const results = [];
@@ -645,6 +648,56 @@ const denied = r => r.status >= 400 && r.status < 500;
   record('profile', 'a nonexistent profile id is a real 404', missingProfilePage.status === 404, `status ${missingProfilePage.status}`);
   record('profile', 'the public agent profile page never renders the admin-only applied/reviewed/rejection fields', !/appliedAt|reviewedAt|rejectionReason|notifyNewRequests/.test(agentProfilePage.text), '');
 
+  // ---------- listing offers & open houses (regular trade listings, functions/api/listings/[id]/*) ----------
+  console.log('\n== listing offers & open houses ==');
+  const offerByOwner = await A.call('POST', `/api/listings/${LA}/offers`, { offerPrice: 500000 });
+  record('offers', "the listing owner can't make an offer on their own listing", offerByOwner.status === 400, `status ${offerByOwner.status}`);
+  const offerCreate = await B.call('POST', `/api/listings/${LA}/offers`, { offerPrice: 575000, financingType: 'cash', closingTimeline: '14 days', contingencies: 'none', message: MARK.offerMessage });
+  record('offers', 'a non-owner can submit an offer', offerCreate.status === 201, `status ${offerCreate.status} ${offerCreate.text.slice(0, 100)}`);
+  const OFFER = offerCreate.json && offerCreate.json.id;
+  const dupeOffer = await B.call('POST', `/api/listings/${LA}/offers`, { offerPrice: 550000 });
+  record('offers', 'the same buyer cannot have two pending offers on one listing', dupeOffer.status === 400, `status ${dupeOffer.status}`);
+
+  const ownerOffers = await A.call('GET', `/api/listings/${LA}/offers`);
+  record('offers', 'the listing owner sees the offer with full terms', ownerOffers.json.isOwner === true && ownerOffers.json.offers.length === 1 && ownerOffers.json.offers[0].offerPrice === 575000, JSON.stringify(ownerOffers.json.offers));
+  const strangerOffers = await C.call('GET', `/api/listings/${LA}/offers`);
+  record('offers', "a non-owner, non-buyer sees neither the list, nor B's offer price or message", strangerOffers.json.isOwner === false && strangerOffers.json.myOffer === null && !strangerOffers.text.includes('575000') && !strangerOffers.text.includes(MARK.offerMessage), JSON.stringify(strangerOffers.json));
+  const buyerOwnOffer = await B.call('GET', `/api/listings/${LA}/offers`);
+  record('offers', "the buyer sees only their own offer, not an owner-style list", buyerOwnOffer.json.isOwner === false && buyerOwnOffer.json.myOffer && buyerOwnOffer.json.myOffer.id === OFFER, JSON.stringify(buyerOwnOffer.json));
+
+  const acceptByStranger = await C.call('PUT', `/api/listings/${LA}/offers/${OFFER}`, { action: 'accept' });
+  record('offers', "an unrelated user can't accept someone else's offer", denied(acceptByStranger), `status ${acceptByStranger.status}`);
+  const acceptByBuyer = await B.call('PUT', `/api/listings/${LA}/offers/${OFFER}`, { action: 'accept' });
+  record('offers', "the buyer can't accept their own offer (only the listing owner can; the buyer can only withdraw)", denied(acceptByBuyer), `status ${acceptByBuyer.status}`);
+  const withdrawByStranger = await C.call('PUT', `/api/listings/${LA}/offers/${OFFER}`, { action: 'withdraw' });
+  record('offers', "an unrelated user can't withdraw someone else's offer", denied(withdrawByStranger), `status ${withdrawByStranger.status}`);
+  const accept = await A.call('PUT', `/api/listings/${LA}/offers/${OFFER}`, { action: 'accept' });
+  record('offers', 'the owner can accept the offer', accept.status === 200, `status ${accept.status}`);
+  const reDecide = await A.call('PUT', `/api/listings/${LA}/offers/${OFFER}`, { action: 'decline' });
+  record('offers', "an already-decided offer can't be decided again", reDecide.status === 400, `status ${reDecide.status}`);
+
+  const ohCreateByStranger = await B.call('POST', `/api/listings/${LA}/open-houses`, { startsAt: new Date(Date.now() + 48 * 3600000).toISOString(), endsAt: new Date(Date.now() + 50 * 3600000).toISOString() });
+  record('open-house', "a non-owner can't schedule an open house on someone else's listing", denied(ohCreateByStranger), `status ${ohCreateByStranger.status}`);
+  const ohCreate = await A.call('POST', `/api/listings/${LA}/open-houses`, { startsAt: new Date(Date.now() + 48 * 3600000).toISOString(), endsAt: new Date(Date.now() + 50 * 3600000).toISOString(), note: 'AUTHZ open house' });
+  record('open-house', 'the owner can schedule an open house', ohCreate.status === 201, `status ${ohCreate.status}`);
+  const OH = ohCreate.json && ohCreate.json.id;
+  const ohListAnon = await anon.call('GET', `/api/listings/${LA}/open-houses`);
+  record('open-house', 'open houses are publicly visible (anonymous)', ohListAnon.status === 200 && ohListAnon.json.openHouses.some(o => o.id === OH), JSON.stringify(ohListAnon.json));
+  const rsvpAnon = await anon.call('POST', `/api/listings/${LA}/open-houses/${OH}/rsvp`, {});
+  record('open-house', "anonymous can't RSVP", rsvpAnon.status === 401, `status ${rsvpAnon.status}`);
+  const rsvpB = await B.call('POST', `/api/listings/${LA}/open-houses/${OH}/rsvp`, {});
+  record('open-house', 'a signed-in user can RSVP', rsvpB.json && rsvpB.json.going === true, JSON.stringify(rsvpB.json));
+  const ohDeleteByStranger = await B.call('DELETE', `/api/listings/${LA}/open-houses/${OH}`);
+  record('open-house', "a non-owner can't cancel someone else's open house", denied(ohDeleteByStranger), `status ${ohDeleteByStranger.status}`);
+
+  // ---------- pre-listing delete: awarded protection (PL is awarded from setup) ----------
+  const deleteAwarded = await A.call('DELETE', `/api/pre-listings/${PL}`);
+  record('owner', "an awarded pre-listing can't be deleted, same protection as closing/editing", deleteAwarded.status === 400 && sql(`SELECT COUNT(*) AS n FROM pre_listings WHERE id = ${PL}`)[0].n === 1, `status ${deleteAwarded.status}`);
+  const deletePL2ByStranger = await B.call('DELETE', `/api/pre-listings/${PL2}`);
+  record('owner', "a non-owner can't delete A's closed pre-listing", denied(deletePL2ByStranger) && sql(`SELECT COUNT(*) AS n FROM pre_listings WHERE id = ${PL2}`)[0].n === 1, `status ${deletePL2ByStranger.status}`);
+  const deletePL2 = await A.call('DELETE', `/api/pre-listings/${PL2}`);
+  record('owner', 'the owner can delete their own closed pre-listing', deletePL2.status === 200 && sql(`SELECT COUNT(*) AS n FROM pre_listings WHERE id = ${PL2}`)[0].n === 0, `status ${deletePL2.status}`);
+
   // ---------- 5. leak scan: everything B, H and anonymous can GET, grepped for planted secrets ----------
   console.log('\n== leak scan ==');
   const urls = ['/api/me', '/api/directory', '/api/matches', '/api/listings', `/api/listings/${LA}`, `/api/users/${A.id}`, `/api/users/${C.id}`, '/api/pre-listings', `/api/pre-listings/${PL}`,
@@ -652,7 +705,7 @@ const denied = r => r.status >= 400 && r.status < 500;
     '/api/groups', '/api/groups/1', '/api/groups/2', '/api/posts', `/api/posts/${P}/comments`, '/api/conversations', '/api/notifications', '/api/favorites', '/api/hidden-listings',
     '/api/saved-searches', '/api/agent-search-alerts', '/api/referrals', '/api/demo-overview', '/api/broker/stats', '/api/agents/my-bids', '/api/agents/my-invites', '/api/agents/favorites', `/sitemap.xml`,
     '/api/augmented-homes', `/api/augmented-homes/${AUG}`, '/api/accessibility-needs-alerts', '/api/dev-projects', `/api/dev-projects/${PROJ}`,
-    `/profile/${G.id}`, `/profile/${A.id}`];
+    `/profile/${G.id}`, `/profile/${A.id}`, `/api/listings/${LA}/offers`, `/api/listings/${LA}/open-houses`, `/listing/${LA}`];
   const secrets = [['client name', MARK.clientName], ['listing address', MARK.address], ['pre-listing address', MARK.preAddress], ['lockbox note (non-agent)', MARK.lockbox], ['private message', MARK.message],
     ['augmented home address', MARK.augAddress], ['dev project address', MARK.projAddress],
     ['A email', A.email], ['C email', C.email], ['password hash', 'password_hash'], ['verify token', 'verify_token'], ['reset token', 'reset_token'], ['R2 key', 'r2_key'], ['session', 'ah_session']];

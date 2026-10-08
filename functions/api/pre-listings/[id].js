@@ -25,6 +25,9 @@ export async function onRequestGet(context) {
   const canSeeInstructions = isOwner || isApprovedAgentViewer || user.role === 'admin';
   const photos = await fetchPreListingPhotos(db, id);
   const votes = await getVoteTally(db, id);
+  const priceHistoryRows = await db.prepare(
+    'SELECT old_price, new_price, changed_at FROM pre_listing_price_history WHERE pre_listing_id = ? ORDER BY changed_at ASC'
+  ).bind(id).all();
 
   const preListing = {
     id: row.id, userId: row.user_id, owner: row.owner_name,
@@ -39,6 +42,7 @@ export async function onRequestGet(context) {
     propertyType: row.property_type, beds: row.beds, baths: row.baths, sqft: row.sqft, askingPrice: row.asking_price,
     status: row.status, awardedBidId: row.awarded_bid_id, createdAt: row.created_at,
     photoIds: photos.map(p => p.id), votes,
+    priceHistory: priceHistoryRows.results.map(r => ({ oldPrice: r.old_price, newPrice: r.new_price, changedAt: r.changed_at })),
   };
 
   // The owner sees every proposal; an agent sees only their own (they're not
@@ -98,6 +102,10 @@ export async function onRequestPut(context) {
   if (Number(validated.data.askingPrice) !== Number(existing.asking_price)) {
     const cleared = await db.prepare('DELETE FROM pre_listing_price_votes WHERE pre_listing_id = ?').bind(id).run();
     votesCleared = (cleared.meta && cleared.meta.changes) || 0;
+    // Clearing the votes without a trace would look like nothing happened — logged so anyone viewing (owner or
+    // a bidding agent) can see the price actually moved, same transparency a real listing's price history gives.
+    await db.prepare('INSERT INTO pre_listing_price_history (pre_listing_id, old_price, new_price) VALUES (?, ?, ?)')
+      .bind(id, existing.asking_price, validated.data.askingPrice).run();
   }
   return json({ ok: true, votesCleared });
 }
@@ -108,9 +116,12 @@ export async function onRequestDelete(context) {
   if (!user) return unauthorized();
 
   const db = context.env.DB;
-  const existing = await db.prepare('SELECT user_id FROM pre_listings WHERE id = ?').bind(id).first();
+  const existing = await db.prepare('SELECT user_id, status FROM pre_listings WHERE id = ?').bind(id).first();
   if (!existing) return notFound('Pre-listing not found.');
   if (existing.user_id !== user.id && user.role !== 'admin') return forbidden();
+  // Same protection as closing or editing — an awarded pre-listing has a real agent and a milestone checklist
+  // attached; it isn't the owner's to delete out from under them. An admin can still override for moderation.
+  if (existing.status === 'awarded' && user.role !== 'admin') return badRequest('An awarded pre-listing can\'t be deleted — close it instead once the engagement wraps up.');
 
   await db.prepare('DELETE FROM pre_listings WHERE id = ?').bind(id).run();
   return json({ ok: true });

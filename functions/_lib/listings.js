@@ -1,6 +1,7 @@
 import { clampString, priceTierFor } from './util.js';
 import { syncGroupMemberships } from './groups.js';
 import { notifySavedSearches } from './savedSearches.js';
+import { validLifeEventKeys } from './lifeEvents.js';
 
 export const PROPERTY_TYPES = ['Single Family Home', 'Condo', 'Townhouse', 'Penthouse', 'Ranch / Land', 'Multi-Family', 'Investment Property'];
 
@@ -90,6 +91,7 @@ export function validateListingInput(body) {
         // insertListing skips the desired_criteria insert entirely for rentals.
         locations: '', desiredType: null, priceMin: 0, priceMax: 0, minBeds: 0, minBaths: 0,
         mustHaves: '', cashMode: 'none', cashAmount: 0,
+        lifeEventTags: validLifeEventKeys(body.lifeEventTags),
       },
     };
   }
@@ -119,6 +121,7 @@ export function validateListingInput(body) {
         locations, desiredType, priceMin, priceMax, minBeds, minBaths,
         mustHaves: clampString(body.mustHaves, 200),
         cashMode: 'pay', cashAmount: priceMax || priceMin || 0,
+        lifeEventTags: validLifeEventKeys(body.lifeEventTags),
       },
     };
   }
@@ -150,6 +153,7 @@ export function validateListingInput(body) {
       locations, desiredType, priceMin, priceMax, minBeds, minBaths,
       mustHaves: desiredValidated.data.mustHaves,
       cashMode: desiredValidated.data.cashMode, cashAmount: desiredValidated.data.cashAmount,
+      lifeEventTags: validLifeEventKeys(body.lifeEventTags),
     },
   };
 }
@@ -169,12 +173,13 @@ export async function updateListing(db, id, userId, d) {
     `UPDATE listings SET title = ?, description = ?, address = ?, neighborhood = ?, client_name = ?,
        city = ?, state = ?, property_type = ?, beds = ?, baths = ?, sqft = ?, estimated_value = ?,
        price_tier = ?, show_exact_address = ?, external_links = ?, rent_amount = ?, min_lease_months = ?,
-       updated_at = datetime('now')
+       life_event_tags_json = ?, updated_at = datetime('now')
      WHERE id = ?`
   ).bind(
     d.title, d.description, d.address, d.neighborhood, d.clientName || null,
     d.city, d.state, d.propertyType, d.beds, d.baths, d.sqft, d.estimatedValue, priceTier,
-    d.showExactAddress ? 1 : 0, JSON.stringify(d.externalLinks), d.rentAmount || 0, d.minLeaseMonths || 12, id
+    d.showExactAddress ? 1 : 0, JSON.stringify(d.externalLinks), d.rentAmount || 0, d.minLeaseMonths || 12,
+    JSON.stringify(d.lifeEventTags || []), id
   ).run();
 
   // A rental has no desired_criteria row. Every other kind does — upsert
@@ -205,13 +210,13 @@ export async function insertListing(db, userId, d) {
   const result = await db.prepare(
     `INSERT INTO listings (user_id, title, description, address, neighborhood, client_name, city, state, property_type,
        beds, baths, sqft, estimated_value, price_tier, show_exact_address, external_links, is_buyer_only,
-       is_rental, rent_amount, min_lease_months)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       is_rental, rent_amount, min_lease_months, life_event_tags_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     userId, d.title, d.description, d.address, d.neighborhood, d.clientName || null,
     d.city, d.state, d.propertyType, d.beds, d.baths, d.sqft, d.estimatedValue, priceTier,
     d.showExactAddress ? 1 : 0, JSON.stringify(d.externalLinks), d.isBuyerOnly ? 1 : 0,
-    d.isRental ? 1 : 0, d.rentAmount || 0, d.minLeaseMonths || 12
+    d.isRental ? 1 : 0, d.rentAmount || 0, d.minLeaseMonths || 12, JSON.stringify(d.lifeEventTags || [])
   ).run();
 
   const listingId = result.meta.last_row_id;

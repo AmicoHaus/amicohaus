@@ -72,6 +72,7 @@ export async function onRequestGet(context) {
     `SELECT listings.id, listings.title, listings.neighborhood, listings.city, listings.state,
             listings.property_type, listings.beds, listings.baths, listings.estimated_value, listings.price_tier,
             listings.external_links, listings.is_rental, listings.rent_amount, listings.min_lease_months, listings.is_portfolio,
+            listings.life_event_tags_json,
             users.display_name AS owner_name,
             desired_criteria.locations, desired_criteria.property_type AS desired_type,
             desired_criteria.price_min, desired_criteria.price_max,
@@ -90,6 +91,7 @@ export async function onRequestGet(context) {
 
   const listings = rows.results.map(r => ({
     ...r, external_links: parseJsonSafe(r.external_links, []),
+    life_event_tags: parseJsonSafe(r.life_event_tags_json, []),
     portfolio_members: r.is_portfolio ? (membersByPortfolio.get(r.id) || []) : undefined,
   }));
   return json({ listings });

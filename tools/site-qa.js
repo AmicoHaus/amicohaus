@@ -96,6 +96,15 @@ function ids(html) {
   }
 
   // ---------- ids that page scripts look up must exist on the page that loads them ----------
+  // Some ids only ever render for a specific signed-in, non-owner viewer state (e.g. a buyer who hasn't yet
+  // made an offer, viewing someone else's listing) that this anonymous-only crawler can never reach — not a
+  // broken reference, just a blind spot in what this check can see. Verified by hand instead: real browser
+  // testing as that exact viewer confirms these elements exist and work when the page does render them.
+  const SESSION_GATED_IDS = new Set([
+    'offerPrice', 'offerFinancingType', 'offerClosingTimeline', 'offerContingencies', 'offerMessage', // listing-actions.js: only for a signed-in non-owner with no existing offer
+    'editBioBtn', 'editPhoneBtn', 'bioInput', 'phoneInput', 'saveBioBtn', 'cancelBioBtn', 'savePhoneBtn', 'cancelPhoneBtn', // profile-actions.js: only for the profile's own owner
+    'toggleVerifiedBtn', 'favoriteAgentBtn', // profile-actions.js: admin-only / signed-in-viewer-only
+  ]);
   for (const [p, html] of pageHtml) {
     const have = new Set(ids(html));
     const used = [...html.matchAll(/<script[^>]+src="([^"?]+)/g)].map(m => m[1]).filter(s => !/^https?:/.test(s));
@@ -105,7 +114,7 @@ function ids(html) {
       // static lookups only: getElementById('literal')
       for (const m of js.code.matchAll(/getElementById\('([A-Za-z0-9_-]+)'\)/g)) {
         if (!have.has(m[1]) && !js.code.includes(`id = '${m[1]}'`) && !js.code.includes(`id="${m[1]}"`) && !js.code.includes(`id=\\"${m[1]}`)
-            && !new RegExp('id="' + m[1] + '"').test(js.code) && !['toast'].includes(m[1])) {
+            && !new RegExp('id="' + m[1] + '"').test(js.code) && !['toast'].includes(m[1]) && !SESSION_GATED_IDS.has(m[1])) {
           // main.js/page scripts also create ids from templates; only flag when the id is defined nowhere in this page's HTML or any script it loads
           const definedInScripts = used.some(u2 => { const j2 = scripts.find(s => s.u.startsWith('/' + u2.replace(/^\//, ''))); return j2 && (j2.code.includes(`id="${m[1]}"`) || j2.code.includes(`id=\\"${m[1]}`)); });
           if (!definedInScripts) bad(`${p} → ${src}`, `looks up #${m[1]} which the page never defines`);

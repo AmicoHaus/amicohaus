@@ -24,6 +24,7 @@ export async function onRequestGet(context) {
 
   const listings = rows.results.map(l => ({
     ...l, external_links: parseJsonSafe(l.external_links, []),
+    life_event_tags: parseJsonSafe(l.life_event_tags_json, []),
     portfolio_members: l.is_portfolio ? (membersByPortfolio.get(l.id) || []) : undefined,
   }));
   return json({ listings });

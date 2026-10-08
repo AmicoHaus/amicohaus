@@ -102,6 +102,7 @@ function ids(html) {
   // testing as that exact viewer confirms these elements exist and work when the page does render them.
   const SESSION_GATED_IDS = new Set([
     'offerPrice', 'offerFinancingType', 'offerClosingTimeline', 'offerContingencies', 'offerMessage', // listing-actions.js: only for a signed-in non-owner with no existing offer
+    'counterBackPrice', 'counterBackMessage', // listing-actions.js: only for a signed-in buyer whose offer was just countered by the owner
     'editBioBtn', 'editPhoneBtn', 'bioInput', 'phoneInput', 'saveBioBtn', 'cancelBioBtn', 'savePhoneBtn', 'cancelPhoneBtn', // profile-actions.js: only for the profile's own owner
     'toggleVerifiedBtn', 'favoriteAgentBtn', // profile-actions.js: admin-only / signed-in-viewer-only
   ]);

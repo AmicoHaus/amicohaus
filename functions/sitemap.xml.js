@@ -31,6 +31,33 @@ async function renderSitemap(context) {
     loc: `https://amicohaus.com/listing/${l.id}`, freq: 'weekly', priority: '0.6',
   }));
 
+  const augmentedHomes = await db.prepare(
+    `SELECT augmented_homes.id FROM augmented_homes JOIN users ON users.id = augmented_homes.user_id
+     WHERE augmented_homes.status = 'active' AND users.email NOT LIKE '%@demo.amicohaus.local'
+     ORDER BY augmented_homes.created_at DESC LIMIT 5000`
+  ).all();
+  const augmentedHomeUrls = augmentedHomes.results.map(h => ({
+    loc: `https://amicohaus.com/augmented-home/${h.id}`, freq: 'weekly', priority: '0.6',
+  }));
+
+  const greenHomes = await db.prepare(
+    `SELECT green_homes.id FROM green_homes JOIN users ON users.id = green_homes.user_id
+     WHERE green_homes.status = 'active' AND users.email NOT LIKE '%@demo.amicohaus.local'
+     ORDER BY green_homes.created_at DESC LIMIT 5000`
+  ).all();
+  const greenHomeUrls = greenHomes.results.map(h => ({
+    loc: `https://amicohaus.com/green-home/${h.id}`, freq: 'weekly', priority: '0.6',
+  }));
+
+  const projects = await db.prepare(
+    `SELECT dev_projects.id FROM dev_projects JOIN users ON users.id = dev_projects.user_id
+     WHERE dev_projects.status = 'open' AND users.email NOT LIKE '%@demo.amicohaus.local'
+     ORDER BY dev_projects.created_at DESC LIMIT 5000`
+  ).all();
+  const projectUrls = projects.results.map(p => ({
+    loc: `https://amicohaus.com/project/${p.id}`, freq: 'weekly', priority: '0.5',
+  }));
+
   // Only approved agents, not every signed-up user — an agent's profile is a page they want found (it's their
   // brand, same reasoning a listing gets a public page); a homeowner's generic bio/listings profile isn't
   // actively promoted the same way, even though it stays crawlable if linked to from somewhere.
@@ -42,7 +69,7 @@ async function renderSitemap(context) {
     loc: `https://amicohaus.com/profile/${a.user_id}`, freq: 'monthly', priority: '0.5',
   }));
 
-  const all = [...STATIC_URLS, ...listingUrls, ...agentUrls];
+  const all = [...STATIC_URLS, ...listingUrls, ...augmentedHomeUrls, ...greenHomeUrls, ...projectUrls, ...agentUrls];
   const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
     all.map(u => `  <url>\n    <loc>${u.loc}</loc>\n    <changefreq>${u.freq}</changefreq>\n    <priority>${u.priority}</priority>\n  </url>`).join('\n') +
     `\n</urlset>\n`;

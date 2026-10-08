@@ -49,7 +49,7 @@ function mapOfferRow(r) {
     id: r.id, listingId: r.listing_id, buyerUserId: r.buyer_user_id, buyerName: r.buyer_name,
     offerPrice: r.offer_price, financingType: r.financing_type, closingTimeline: r.closing_timeline,
     contingencies: r.contingencies, message: r.message, status: r.status,
-    counterPrice: r.counter_price, counterMessage: r.counter_message, createdAt: r.created_at,
+    counterPrice: r.counter_price, counterMessage: r.counter_message, counteredBy: r.countered_by, createdAt: r.created_at,
   };
 }
 
@@ -63,11 +63,12 @@ export function validateCounterInput(body) {
   return { data: { counterPrice, counterMessage: clampString(body.counterMessage, 1000) } };
 }
 
-// The owner proposes a different price; the buyer then accepts (offer_price becomes the counter_price) or
-// declines it, same one-round negotiation a quick back-and-forth call would have -- not unlimited rounds.
+// Either side can propose a new counter_price/counter_message -- counteredBy ('owner'|'buyer') records who just
+// proposed it, so the API route can gate the other side's response (accept/decline/counter back) correctly,
+// across any number of rounds, like a real back-and-forth negotiation instead of a single take-it-or-leave-it.
 export async function counterOffer(db, offerId, d) {
-  await db.prepare("UPDATE listing_offers SET status = 'countered', counter_price = ?, counter_message = ?, updated_at = datetime('now') WHERE id = ?")
-    .bind(d.counterPrice, d.counterMessage, offerId).run();
+  await db.prepare("UPDATE listing_offers SET status = 'countered', counter_price = ?, counter_message = ?, countered_by = ?, updated_at = datetime('now') WHERE id = ?")
+    .bind(d.counterPrice, d.counterMessage, d.counteredBy, offerId).run();
 }
 
 export async function acceptCounter(db, offerId, counterPrice) {

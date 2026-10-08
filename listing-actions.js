@@ -10,6 +10,7 @@
     const submitOfferBtn = e.target.closest('[data-action="submit-offer"]');
     const withdrawOfferBtn = e.target.closest('[data-action="withdraw-offer"]');
     const respondCounterBtn = e.target.closest('[data-action="respond-counter"]');
+    const counterBackBtn = e.target.closest('[data-action="counter-back"]');
 
     if (rsvpBtn) {
       try {
@@ -53,6 +54,16 @@
       try {
         await apiPut(`/api/listings/${listingId}/offers/${respondCounterBtn.dataset.id}`, { action: decision });
         toast(decision === 'accept_counter' ? 'Counter-offer accepted!' : 'Counter-offer declined.');
+        window.location.reload();
+      } catch (err) { toast(err.message); }
+    } else if (counterBackBtn) {
+      const price = document.getElementById('counterBackPrice').value;
+      if (!price) { toast('Enter a counter-offer price.'); return; }
+      try {
+        await apiPut(`/api/listings/${listingId}/offers/${counterBackBtn.dataset.id}`, {
+          action: 'counter', counterPrice: price, counterMessage: document.getElementById('counterBackMessage').value.trim(),
+        });
+        toast('Counter-offer sent.');
         window.location.reload();
       } catch (err) { toast(err.message); }
     }

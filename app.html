@@ -579,6 +579,11 @@
           <div id="augmentedAdaptationsFields"></div>
           <div class="field"><label>Notes about the adaptations (optional)</label><textarea id="augAdaptationNotes" maxlength="1000" placeholder="e.g. roll-in shower installed 2022, ADA-compliant grab bars throughout"></textarea></div>
 
+          <div class="field">
+            <label>Why you're selling (optional — purely informational)</label>
+            <div id="augLifeEventFields"></div>
+          </div>
+
           <div class="field"><label>Photos (up to 8, added after posting)</label><input type="file" id="augPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple></div>
           <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="createAugmentedHomeBtn">Post Listing</button></div>
         </details>
@@ -647,12 +652,31 @@
           <div id="greenFeaturesFields"></div>
           <div class="field"><label>Notes about the features (optional)</label><textarea id="greenFeatureNotes" maxlength="1000" placeholder="e.g. 6kW solar system installed 2023, fully owned not leased"></textarea></div>
 
+          <div class="field">
+            <label>Why you're selling (optional — purely informational)</label>
+            <div id="greenLifeEventFields"></div>
+          </div>
+
           <div class="field"><label>Photos (up to 8, added after posting)</label><input type="file" id="greenPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple></div>
           <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="createGreenHomeBtn">Post Listing</button></div>
         </details>
 
         <h2>My GreenHomes Listings</h2>
         <div class="stack" id="myGreenHomesList"><div class="empty-state">Loading…</div></div>
+
+        <details class="panel bulk-upload" id="greenAlertWrap">
+          <summary>Save what you need — get notified</summary>
+          <p class="section-sub">Pick the green features that matter to you and, optionally, a city/state — you'll be notified the moment a newly-listed home matches.</p>
+          <div class="field"><label>Name this alert (optional)</label><input type="text" id="greenAlertLabel" maxlength="80" placeholder="e.g. Solar + EV charging in San Diego"></div>
+          <div id="greenAlertFeaturesFields"></div>
+          <div class="form-row two-col">
+            <div class="field"><label>City (optional)</label><input type="text" id="greenAlertCity" maxlength="80"></div>
+            <div class="field"><label>State (optional)</label><input type="text" id="greenAlertState" maxlength="20"></div>
+          </div>
+          <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="saveGreenAlertBtn">Save Alert</button></div>
+        </details>
+        <h2>My Saved Alerts</h2>
+        <div class="stack" id="greenAlertsList"><div class="empty-state">Loading…</div></div>
 
         <h2>Browse GreenHomes</h2>
         <form id="greenFilters" class="form-row two-col">
@@ -704,6 +728,10 @@
             <label>Built for any accessibility adaptations? (optional)</label>
             <div id="projAdaptationsFields"></div>
           </div>
+          <div class="field">
+            <label>Built with any green features? (optional)</label>
+            <div id="projGreenFeaturesFields"></div>
+          </div>
           <div class="field"><label>Photos / renderings (up to 8, added after posting)</label><input type="file" id="projPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple></div>
           <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="createProjectBtn">Post Project</button></div>
         </details>
@@ -723,6 +751,10 @@
         <details class="panel">
           <summary>Filter by accessibility adaptation (optional)</summary>
           <div id="projectAdaptationFilterChips"></div>
+        </details>
+        <details class="panel">
+          <summary>Filter by green feature (optional)</summary>
+          <div id="projectGreenFeatureFilterChips"></div>
         </details>
         <div class="grid" id="projectsBrowseList"><div class="empty-state">Loading…</div></div>
       </div>

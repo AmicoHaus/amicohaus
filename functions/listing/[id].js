@@ -151,7 +151,7 @@ async function renderListingPage(context) {
             <p><strong>${money(myOffer.offerPrice)}</strong> — ${myOffer.financingType === 'cash' ? 'Cash' : 'Financed'} <span class="badge">pending</span></p>
             <div class="card-actions"><button type="button" class="btn btn-ghost btn-sm" data-action="withdraw-offer" data-id="${myOffer.id}">Withdraw Offer</button></div>
           </div>`;
-      } else if (myOffer && myOffer.status === 'countered') {
+      } else if (myOffer && myOffer.status === 'countered' && myOffer.counteredBy === 'owner') {
         offerHtml = `
           <div class="card about-card">
             <h2>Your Offer</h2>
@@ -160,7 +160,22 @@ async function renderListingPage(context) {
             <div class="card-actions">
               <button type="button" class="btn btn-primary btn-sm" data-action="respond-counter" data-id="${myOffer.id}" data-decision="accept_counter">Accept ${money(myOffer.counterPrice)}</button>
               <button type="button" class="btn btn-ghost btn-sm" data-action="respond-counter" data-id="${myOffer.id}" data-decision="decline_counter">Decline</button>
+              <button type="button" class="btn btn-ghost btn-sm" data-action="withdraw-offer" data-id="${myOffer.id}">Withdraw</button>
             </div>
+            <details class="panel">
+              <summary>Counter back</summary>
+              <div class="field"><label>Counter price ($)</label><input type="number" id="counterBackPrice" min="1" max="500000000" step="1000"></div>
+              <div class="field"><label>Message (optional)</label><textarea id="counterBackMessage" maxlength="1000"></textarea></div>
+              <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="counter-back" data-id="${myOffer.id}">Send Counter</button></div>
+            </details>
+          </div>`;
+      } else if (myOffer && myOffer.status === 'countered' && myOffer.counteredBy === 'buyer') {
+        offerHtml = `
+          <div class="card about-card">
+            <h2>Your Offer</h2>
+            <p><strong>${money(myOffer.counterPrice)}</strong>${myOffer.counterMessage ? ` — "${escapeHtml(myOffer.counterMessage)}"` : ''} <span class="badge">countered</span></p>
+            <p class="tiny">Waiting on the seller to respond.</p>
+            <div class="card-actions"><button type="button" class="btn btn-ghost btn-sm" data-action="withdraw-offer" data-id="${myOffer.id}">Withdraw Offer</button></div>
           </div>`;
       } else if (myOffer && myOffer.status !== 'pending') {
         offerHtml = `<div class="card about-card"><h2>Your Offer</h2><p><strong>${money(myOffer.offerPrice)}</strong> — <span class="badge">${myOffer.status}</span></p></div>`;

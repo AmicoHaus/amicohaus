@@ -24,6 +24,7 @@ export async function onRequestGet(context) {
     projectType: row.project_type, stage: row.stage, fundingGoal: row.funding_goal, minInvestment: row.min_investment,
     targetReturn: row.target_return, timelineMonths: row.timeline_months, status: row.status, createdAt: row.created_at,
     photoIds: photos.map(p => p.id), interestCount, adaptations: JSON.parse(row.adaptations_json || '[]'),
+    greenFeatures: JSON.parse(row.green_features_json || '[]'),
   };
 
   const interestedInvestors = isOwner ? await fetchInterestedInvestors(db, id) : null;

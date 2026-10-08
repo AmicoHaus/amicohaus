@@ -200,17 +200,21 @@ export async function notifyOfferDecision(context, buyerUserId, listingId, accep
   await notify(context.env.DB, buyerUserId, accepted ? 'Your offer was accepted!' : 'Your offer was not accepted this time.', `/listing/${listingId}`);
 }
 
-export async function notifyOfferCounter(context, listingId, buyerUserId, counterPrice) {
+// proposedBy is who JUST made this counter ('owner' or 'buyer'), so the recipient (the other side) gets the
+// right phrasing -- a buyer hearing from the seller reads differently than a seller hearing back from a buyer
+// who countered their counter. Supports any number of back-and-forth rounds, not just the seller's first one.
+export async function notifyOfferCounter(context, listingId, notifyUserId, counterPrice, proposedBy) {
   const price = '$' + Number(counterPrice).toLocaleString('en-US');
   const db = context.env.DB;
-  const buyer = await db.prepare('SELECT id, email, email_frequency FROM users WHERE id = ?').bind(buyerUserId).first();
-  if (!buyer) return;
-  await notifyAndMaybeEmail(context, { userId: buyer.id, email: buyer.email, emailFrequency: buyer.email_frequency },
-    `The seller countered your offer at ${price}.`, `/listing/${listingId}`, 'Counter-offer on Amico Haus', 'see the details and respond');
+  const recipient = await db.prepare('SELECT id, email, email_frequency FROM users WHERE id = ?').bind(notifyUserId).first();
+  if (!recipient) return;
+  const body = proposedBy === 'owner' ? `The seller countered your offer at ${price}.` : `The buyer countered back at ${price}.`;
+  await notifyAndMaybeEmail(context, { userId: recipient.id, email: recipient.email, emailFrequency: recipient.email_frequency },
+    body, `/listing/${listingId}`, 'Counter-offer on Amico Haus', 'see the details and respond');
 }
 
-export async function notifyCounterDecision(context, listingId, ownerUserId, accepted) {
-  await notify(context.env.DB, ownerUserId, accepted ? 'Your counter-offer was accepted!' : 'Your counter-offer was declined.', `/listing/${listingId}`);
+export async function notifyCounterDecision(context, listingId, notifyUserId, accepted) {
+  await notify(context.env.DB, notifyUserId, accepted ? 'Your counter-offer was accepted!' : 'Your counter-offer was declined.', `/listing/${listingId}`);
 }
 
 // A listing someone favorited just got a new open house scheduled -- the one event on a regular listing

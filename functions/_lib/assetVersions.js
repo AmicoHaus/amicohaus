@@ -4,6 +4,6 @@
 export const ASSET_VERSIONS = {
   '/styles.css': 'f9e77a03',
   '/client.js': '5422aaef',
-  '/listing-actions.js': 'c79a87b3',
+  '/listing-actions.js': '0d47d396',
   '/profile-actions.js': '26b547c1',
 };

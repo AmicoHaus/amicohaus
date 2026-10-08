@@ -1,6 +1,7 @@
 import { clampString } from './util.js';
 import { PROPERTY_TYPES, num } from './listings.js';
 import { validAdaptationKeys } from './adaptations.js';
+import { validLifeEventKeys } from './lifeEvents.js';
 
 export function validateAugmentedHomeInput(body) {
   const city = clampString(body.city, 80);
@@ -29,6 +30,8 @@ export function validateAugmentedHomeInput(body) {
       sqft: body.sqft ? num(body.sqft, { min: 0, max: 200000 }) : null,
       askingPrice, adaptations,
       adaptationNotes: clampString(body.adaptationNotes, 1000),
+      // Purely informational context (why the home is being sold), same as listings.life_event_tags_json. Optional.
+      lifeEventTags: validLifeEventKeys(body.lifeEventTags),
     },
   };
 }
@@ -36,11 +39,11 @@ export function validateAugmentedHomeInput(body) {
 export async function insertAugmentedHome(db, userId, d) {
   const result = await db.prepare(
     `INSERT INTO augmented_homes (user_id, title, description, address, neighborhood, city, state, zip, property_type,
-       beds, baths, sqft, asking_price, adaptations_json, adaptation_notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       beds, baths, sqft, asking_price, adaptations_json, adaptation_notes, life_event_tags_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     userId, d.title, d.description, d.address, d.neighborhood, d.city, d.state, d.zip, d.propertyType,
-    d.beds, d.baths, d.sqft, d.askingPrice, JSON.stringify(d.adaptations), d.adaptationNotes
+    d.beds, d.baths, d.sqft, d.askingPrice, JSON.stringify(d.adaptations), d.adaptationNotes, JSON.stringify(d.lifeEventTags)
   ).run();
   return result.meta.last_row_id;
 }
@@ -49,11 +52,11 @@ export async function updateAugmentedHome(db, id, d) {
   await db.prepare(
     `UPDATE augmented_homes SET title = ?, description = ?, address = ?, neighborhood = ?, city = ?, state = ?, zip = ?,
        property_type = ?, beds = ?, baths = ?, sqft = ?, asking_price = ?, adaptations_json = ?, adaptation_notes = ?,
-       updated_at = datetime('now')
+       life_event_tags_json = ?, updated_at = datetime('now')
      WHERE id = ?`
   ).bind(
     d.title, d.description, d.address, d.neighborhood, d.city, d.state, d.zip, d.propertyType,
-    d.beds, d.baths, d.sqft, d.askingPrice, JSON.stringify(d.adaptations), d.adaptationNotes, id
+    d.beds, d.baths, d.sqft, d.askingPrice, JSON.stringify(d.adaptations), d.adaptationNotes, JSON.stringify(d.lifeEventTags), id
   ).run();
 }
 

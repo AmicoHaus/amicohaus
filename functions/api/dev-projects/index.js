@@ -5,7 +5,7 @@ import { validateDevProjectInput, insertDevProject, fetchDevProjectPhotos, fetch
 const LIST_FIELDS = `dev_projects.id, dev_projects.user_id, dev_projects.title, dev_projects.city, dev_projects.state,
   dev_projects.project_type, dev_projects.stage, dev_projects.funding_goal, dev_projects.min_investment,
   dev_projects.target_return, dev_projects.timeline_months, dev_projects.status, dev_projects.created_at,
-  dev_projects.adaptations_json, users.display_name AS owner_name`;
+  dev_projects.adaptations_json, dev_projects.green_features_json, users.display_name AS owner_name`;
 
 // ?mine=1 for a poster's own projects (any status); otherwise every open
 // one, filterable by ?type=, ?stage=, ?city=, ?state= — open to anyone
@@ -41,18 +41,21 @@ export async function onRequestGet(context) {
   }
 
   const wantedAdaptations = url.searchParams.getAll('adaptation');
+  const wantedGreenFeatures = url.searchParams.getAll('greenFeature');
   const mine = url.searchParams.get('mine') === '1';
   const projects = [];
   for (const r of rows.results) {
     const adaptations = JSON.parse(r.adaptations_json || '[]');
+    const greenFeatures = JSON.parse(r.green_features_json || '[]');
     if (!mine && wantedAdaptations.length && !wantedAdaptations.some(k => adaptations.includes(k))) continue;
+    if (!mine && wantedGreenFeatures.length && !wantedGreenFeatures.some(k => greenFeatures.includes(k))) continue;
     const photos = await fetchDevProjectPhotos(db, r.id);
     const interestCount = await fetchInterestCount(db, r.id);
     projects.push({
       id: r.id, userId: r.user_id, owner: r.owner_name, title: r.title, city: r.city, state: r.state,
       projectType: r.project_type, stage: r.stage, fundingGoal: r.funding_goal, minInvestment: r.min_investment,
       targetReturn: r.target_return, timelineMonths: r.timeline_months, status: r.status, createdAt: r.created_at,
-      photoIds: photos.map(p => p.id), interestCount, adaptations,
+      photoIds: photos.map(p => p.id), interestCount, adaptations, greenFeatures,
     });
   }
   return json({ projects });

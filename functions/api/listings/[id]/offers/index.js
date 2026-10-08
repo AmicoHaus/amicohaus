@@ -34,8 +34,11 @@ export async function onRequestPost(context) {
   if (listing.status !== 'active') return badRequest('This listing is no longer active.');
   if (listing.is_rental || listing.is_buyer_only) return badRequest('Offers only apply to a home listed for sale or trade.');
 
-  const existing = await db.prepare('SELECT id, status FROM listing_offers WHERE listing_id = ? AND buyer_user_id = ?').bind(id, user.id).first();
-  if (existing && existing.status === 'pending') return badRequest('You already have a pending offer on this listing — withdraw it first to submit a new one.');
+  // A buyer can have several historical rows on the same listing (declined, withdrawn, from a prior round) --
+  // checking just the first one found (arbitrary order) missed a currently-live one sitting behind it. Filter
+  // for a live status directly so any accepted/declined/withdrawn history never masks an in-progress offer.
+  const existing = await db.prepare("SELECT id FROM listing_offers WHERE listing_id = ? AND buyer_user_id = ? AND status IN ('pending', 'countered')").bind(id, user.id).first();
+  if (existing) return badRequest('You already have an offer in progress on this listing — withdraw it first to submit a new one.');
 
   let body;
   try { body = await context.request.json(); } catch { return badRequest('Invalid request body.'); }

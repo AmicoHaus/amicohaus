@@ -675,7 +675,19 @@ async function loadListingOffersInto(listingId) {
             <div class="field"><label>Message (optional)</label><textarea id="counterMsg-${o.id}" maxlength="1000"></textarea></div>
             <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="counter-offer" data-listing-id="${listingId}" data-id="${o.id}">Send Counter</button></div>
           </details>` : ''}
-        ${o.status === 'countered' ? `<p class="tiny"><span class="label">Your counter</span> ${money(o.counterPrice)}${o.counterMessage ? ` — "${escapeHtml(o.counterMessage)}"` : ''} · waiting on buyer</p>` : ''}
+        ${o.status === 'countered' && o.counteredBy === 'owner' ? `<p class="tiny"><span class="label">Your counter</span> ${money(o.counterPrice)}${o.counterMessage ? ` — "${escapeHtml(o.counterMessage)}"` : ''} · waiting on buyer</p>` : ''}
+        ${o.status === 'countered' && o.counteredBy === 'buyer' ? `
+          <p class="tiny"><span class="label">Buyer countered</span> ${money(o.counterPrice)}${o.counterMessage ? ` — "${escapeHtml(o.counterMessage)}"` : ''}</p>
+          <div class="card-actions">
+            <button type="button" class="btn btn-primary btn-sm" data-action="decide-offer" data-listing-id="${listingId}" data-id="${o.id}" data-decision="accept_counter">Accept ${money(o.counterPrice)}</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-action="decide-offer" data-listing-id="${listingId}" data-id="${o.id}" data-decision="decline_counter">Decline</button>
+          </div>
+          <details class="panel">
+            <summary>Counter again</summary>
+            <div class="field"><label>Counter price ($)</label><input type="number" id="counterPrice-${o.id}" min="1" max="500000000" step="1000"></div>
+            <div class="field"><label>Message (optional)</label><textarea id="counterMsg-${o.id}" maxlength="1000"></textarea></div>
+            <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="counter-offer" data-listing-id="${listingId}" data-id="${o.id}">Send Counter</button></div>
+          </details>` : ''}
       </div>
     `).join('') : '<span class="tiny">No offers yet.</span>';
   } catch { el.innerHTML = '<span class="tiny">Could not load offers.</span>'; }
@@ -1941,6 +1953,7 @@ function augmentedHomeCardHtml(h, { mine } = {}) {
       </div>
       <div class="mini-block">${escapeHtml(h.propertyType)} · ${h.beds}bd/${h.baths}ba in ${escapeHtml(h.city)}, ${escapeHtml(h.state)}<br>${money(h.askingPrice)} asking</div>
       <p class="tiny">${h.adaptations.map(k => `<span class="badge badge-gold">${escapeHtml(adaptationLabel(k))}</span>`).join(' ')}</p>
+      ${renderLifeEventTags(h.lifeEventTags)}
       <div class="card-actions">
         <button class="btn btn-primary btn-sm" data-action="open-augmented-home" data-id="${h.id}">View</button>
         ${mine && h.status === 'active' ? `
@@ -1996,6 +2009,9 @@ async function loadAugmentedTab() {
   document.getElementById('augmentedAdaptationsFields').innerHTML = adaptationCheckboxesHtml([], 'augmented-create-check');
   document.getElementById('accessibilityAlertAdaptationsFields').innerHTML = adaptationCheckboxesHtml([], 'accessibility-alert-check');
   document.getElementById('augmentedFilterChips').innerHTML = adaptationCheckboxesHtml([], 'augmented-filter-check');
+  document.getElementById('augLifeEventFields').innerHTML = Object.entries(LIFE_EVENT_LABELS).map(([key, label]) => `
+    <label class="checkbox-row"><input type="checkbox" class="aug-life-event-check" value="${key}"><span>${escapeHtml(label)}</span></label>
+  `).join('');
   loadMyAugmentedHomes();
   loadMyAccessibilityAlerts();
   loadAugmentedBrowse();
@@ -2016,13 +2032,16 @@ async function openAugmentedHomeDetail(id) {
       <div class="card">
         <div class="card-head"><h2>${escapeHtml(h.title || h.propertyType)}</h2><span class="badge ${h.status === 'active' ? 'badge-active' : 'badge-paused'}">${h.status.replace('_', ' ')}</span></div>
         <div class="mini-block">${escapeHtml(h.propertyType)} · ${h.beds}bd/${h.baths}ba${h.sqft ? ` · ${h.sqft.toLocaleString('en-US')} sqft` : ''} in ${escapeHtml(h.neighborhood ? h.neighborhood + ', ' : '')}${escapeHtml(h.city)}, ${escapeHtml(h.state)} ${escapeHtml(h.zip)}<br>${money(h.askingPrice)} asking</div>
+        ${renderLifeEventTags(h.lifeEventTags)}
         ${h.description ? `<p>${escapeHtml(h.description)}</p>` : ''}
         ${photosHtml}
         <h3>Adaptations</h3>
         <p class="tiny">${h.adaptations.map(k => `<span class="badge badge-gold">${escapeHtml(adaptationLabel(k))}</span>`).join(' ')}</p>
         ${isOwner ? `<div class="form-actions"><button type="button" class="btn btn-danger btn-sm" data-action="delete-augmented-home" data-id="${h.id}">Delete Listing</button></div>` : ''}
         ${h.adaptationNotes ? `<p class="tiny"><span class="label">Seller's notes</span> ${escapeHtml(h.adaptationNotes)}</p>` : ''}
+        ${renderPriceHistory(h.priceHistory)}
         ${!isOwner ? `<div class="form-actions"><button class="btn btn-primary btn-sm" data-action="message-user" data-id="${h.userId}" data-name="${escapeHtml(h.owner)}">Message Seller</button></div>` : ''}
+        ${h.status === 'active' ? `<p class="tiny"><a href="/augmented-home/${h.id}" target="_blank" rel="noopener noreferrer">View Public Page ↗</a></p>` : ''}
       </div>
     `;
   } catch (e) { contentEl.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
@@ -2054,6 +2073,7 @@ function greenHomeCardHtml(h, { mine } = {}) {
       </div>
       <div class="mini-block">${escapeHtml(h.propertyType)} · ${h.beds}bd/${h.baths}ba in ${escapeHtml(h.city)}, ${escapeHtml(h.state)}<br>${money(h.askingPrice)} asking</div>
       <p class="tiny">${h.greenFeatures.map(k => `<span class="badge badge-gold">${escapeHtml(greenFeatureLabel(k))}</span>`).join(' ')}</p>
+      ${renderLifeEventTags(h.lifeEventTags)}
       <div class="card-actions">
         <button class="btn btn-primary btn-sm" data-action="open-green-home" data-id="${h.id}">View</button>
         ${mine && h.status === 'active' ? `
@@ -2088,13 +2108,32 @@ async function loadGreenBrowse() {
   } catch (e) { el.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
 }
 
+async function loadMyGreenAlerts() {
+  const el = document.getElementById('greenAlertsList');
+  try {
+    const { alerts } = await apiGet('/api/green-needs-alerts');
+    el.innerHTML = alerts.length ? alerts.map(a => `
+      <div class="side">
+        <strong>${escapeHtml(a.label)}</strong>
+        <span class="tiny">${a.greenFeatures.map(k => escapeHtml(greenFeatureLabel(k))).join(', ')}${a.city || a.state ? ` · ${escapeHtml(a.city)}${a.city && a.state ? ', ' : ''}${escapeHtml(a.state)}` : ''}</span>
+        <button class="link-btn" data-action="delete-green-alert" data-id="${a.id}">Remove</button>
+      </div>
+    `).join('') : '<span class="tiny">No saved alerts yet.</span>';
+  } catch (e) { el.innerHTML = `<span class="tiny">${escapeHtml(e.message)}</span>`; }
+}
+
 async function loadGreenTab() {
   document.getElementById('greenDetailView').classList.add('hidden');
   document.getElementById('greenListView').classList.remove('hidden');
   fillTypeSelect(document.getElementById('greenPropertyType'), false);
   document.getElementById('greenFeaturesFields').innerHTML = greenFeatureCheckboxesHtml([], 'green-create-check');
+  document.getElementById('greenAlertFeaturesFields').innerHTML = greenFeatureCheckboxesHtml([], 'green-alert-check');
   document.getElementById('greenFilterChips').innerHTML = greenFeatureCheckboxesHtml([], 'green-filter-check');
+  document.getElementById('greenLifeEventFields').innerHTML = Object.entries(LIFE_EVENT_LABELS).map(([key, label]) => `
+    <label class="checkbox-row"><input type="checkbox" class="green-life-event-check" value="${key}"><span>${escapeHtml(label)}</span></label>
+  `).join('');
   loadMyGreenHomes();
+  loadMyGreenAlerts();
   loadGreenBrowse();
 }
 
@@ -2113,13 +2152,16 @@ async function openGreenHomeDetail(id) {
       <div class="card">
         <div class="card-head"><h2>${escapeHtml(h.title || h.propertyType)}</h2><span class="badge ${h.status === 'active' ? 'badge-active' : 'badge-paused'}">${h.status.replace('_', ' ')}</span></div>
         <div class="mini-block">${escapeHtml(h.propertyType)} · ${h.beds}bd/${h.baths}ba${h.sqft ? ` · ${h.sqft.toLocaleString('en-US')} sqft` : ''} in ${escapeHtml(h.neighborhood ? h.neighborhood + ', ' : '')}${escapeHtml(h.city)}, ${escapeHtml(h.state)} ${escapeHtml(h.zip)}<br>${money(h.askingPrice)} asking</div>
+        ${renderLifeEventTags(h.lifeEventTags)}
         ${h.description ? `<p>${escapeHtml(h.description)}</p>` : ''}
         ${photosHtml}
         <h3>Green Features</h3>
         <p class="tiny">${h.greenFeatures.map(k => `<span class="badge badge-gold">${escapeHtml(greenFeatureLabel(k))}</span>`).join(' ')}</p>
         ${isOwner ? `<div class="form-actions"><button type="button" class="btn btn-danger btn-sm" data-action="delete-green-home" data-id="${h.id}">Delete Listing</button></div>` : ''}
         ${h.featureNotes ? `<p class="tiny"><span class="label">Seller's notes</span> ${escapeHtml(h.featureNotes)}</p>` : ''}
+        ${renderPriceHistory(h.priceHistory)}
         ${!isOwner ? `<div class="form-actions"><button class="btn btn-primary btn-sm" data-action="message-user" data-id="${h.userId}" data-name="${escapeHtml(h.owner)}">Message Seller</button></div>` : ''}
+        ${h.status === 'active' ? `<p class="tiny"><a href="/green-home/${h.id}" target="_blank" rel="noopener noreferrer">View Public Page ↗</a></p>` : ''}
       </div>
     `;
   } catch (e) { contentEl.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
@@ -2151,6 +2193,7 @@ function projectCardHtml(p, { mine } = {}) {
       </div>
       <div class="mini-block">${escapeHtml(PROJECT_TYPE_LABELS[p.projectType] || p.projectType)} · ${escapeHtml(PROJECT_STAGE_LABELS[p.stage] || p.stage)} in ${escapeHtml(p.city)}, ${escapeHtml(p.state)}<br>${p.fundingGoal ? `${money(p.fundingGoal)} funding sought` : 'Funding goal not set'}</div>
       ${p.adaptations && p.adaptations.length ? `<p class="tiny">${p.adaptations.map(k => `<span class="badge badge-gold">${escapeHtml(adaptationLabel(k))}</span>`).join(' ')}</p>` : ''}
+      ${p.greenFeatures && p.greenFeatures.length ? `<p class="tiny">${p.greenFeatures.map(k => `<span class="badge badge-gold">${escapeHtml(greenFeatureLabel(k))}</span>`).join(' ')}</p>` : ''}
       <p class="tiny">${p.interestCount} investor${p.interestCount === 1 ? '' : 's'} interested</p>
       <div class="card-actions">
         <button class="btn btn-primary btn-sm" data-action="open-dev-project" data-id="${p.id}">View</button>
@@ -2177,12 +2220,14 @@ async function loadProjectsBrowse() {
   const type = document.getElementById('projectTypeFilter').value;
   const stage = document.getElementById('projectStageFilter').value;
   const wantedAdaptations = [...document.querySelectorAll('.project-adaptation-filter-check:checked')].map(c => c.value);
+  const wantedGreenFeatures = [...document.querySelectorAll('.project-green-feature-filter-check:checked')].map(c => c.value);
   const params = new URLSearchParams();
   if (city) params.set('city', city);
   if (state) params.set('state', state);
   if (type) params.set('type', type);
   if (stage) params.set('stage', stage);
   wantedAdaptations.forEach(k => params.append('adaptation', k));
+  wantedGreenFeatures.forEach(k => params.append('greenFeature', k));
   try {
     const { projects } = await apiGet(`/api/dev-projects?${params.toString()}`);
     el.innerHTML = projects.length ? projects.map(p => projectCardHtml(p, { mine: false })).join('') : '<div class="empty-state">Nothing open right now.</div>';
@@ -2198,6 +2243,8 @@ async function loadFinderMineTab() {
   fillSelectFromLabels(document.getElementById('projectStageFilter'), PROJECT_STAGE_LABELS, true);
   document.getElementById('projAdaptationsFields').innerHTML = adaptationCheckboxesHtml([], 'proj-create-check');
   document.getElementById('projectAdaptationFilterChips').innerHTML = adaptationCheckboxesHtml([], 'project-adaptation-filter-check');
+  document.getElementById('projGreenFeaturesFields').innerHTML = greenFeatureCheckboxesHtml([], 'proj-green-create-check');
+  document.getElementById('projectGreenFeatureFilterChips').innerHTML = greenFeatureCheckboxesHtml([], 'project-green-feature-filter-check');
   loadMyProjects();
   loadProjectsBrowse();
 }
@@ -2228,6 +2275,7 @@ async function openProjectDetail(id) {
         ${p.description ? `<p>${escapeHtml(p.description)}</p>` : ''}
         ${photosHtml}
         ${p.adaptations && p.adaptations.length ? `<h3>Built For</h3><p class="tiny">${p.adaptations.map(k => `<span class="badge badge-gold">${escapeHtml(adaptationLabel(k))}</span>`).join(' ')}</p>` : ''}
+        ${p.greenFeatures && p.greenFeatures.length ? `<h3>Green Features</h3><p class="tiny">${p.greenFeatures.map(k => `<span class="badge badge-gold">${escapeHtml(greenFeatureLabel(k))}</span>`).join(' ')}</p>` : ''}
         <p class="tiny">${p.interestCount} investor${p.interestCount === 1 ? '' : 's'} interested</p>
         ${!isOwner ? `
           <div class="form-actions">
@@ -2235,6 +2283,7 @@ async function openProjectDetail(id) {
             <button class="btn btn-ghost btn-sm" data-action="message-user" data-id="${p.userId}" data-name="${escapeHtml(p.owner)}">Message</button>
           </div>` : ''}
         ${isOwner ? `<div class="form-actions"><button type="button" class="btn btn-danger btn-sm" data-action="delete-project" data-id="${p.id}">Delete Project</button></div>` : ''}
+        ${p.status === 'open' ? `<p class="tiny"><a href="/project/${p.id}" target="_blank" rel="noopener noreferrer">View Public Page ↗</a></p>` : ''}
       </div>
       ${isOwner && interestedInvestors ? `
         <h3>Interested Investors (${interestedInvestors.length})</h3>
@@ -3077,7 +3126,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     } else if (btn.dataset.action === 'decide-offer') {
       try {
         await apiPut(`/api/listings/${btn.dataset.listingId}/offers/${btn.dataset.id}`, { action: btn.dataset.decision });
-        toast(btn.dataset.decision === 'accept' ? 'Offer accepted.' : 'Offer declined.');
+        const toastByDecision = { accept: 'Offer accepted.', decline: 'Offer declined.', accept_counter: 'Counter-offer accepted!', decline_counter: 'Counter-offer declined.' };
+        toast(toastByDecision[btn.dataset.decision] || 'Updated.');
         loadListingOffersInto(btn.dataset.listingId);
       } catch (err) { toast(err.message); }
     } else if (btn.dataset.action === 'counter-offer') {
@@ -3816,6 +3866,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         description: document.getElementById('augDescription').value.trim(),
         adaptations,
         adaptationNotes: document.getElementById('augAdaptationNotes').value.trim(),
+        lifeEventTags: [...document.querySelectorAll('.aug-life-event-check:checked')].map(c => c.value),
       });
       const files = [...document.getElementById('augPhotos').files];
       for (const file of files) {
@@ -3831,6 +3882,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.getElementById('augBaths').value = '';
       document.getElementById('augPhotos').value = '';
       document.querySelectorAll('.augmented-create-check').forEach(c => c.checked = false);
+      document.querySelectorAll('.aug-life-event-check').forEach(c => c.checked = false);
       loadMyAugmentedHomes();
       loadAugmentedBrowse();
     } catch (err) { toast(err.message); } finally { btn.disabled = false; }
@@ -3917,6 +3969,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         description: document.getElementById('greenDescription').value.trim(),
         greenFeatures,
         featureNotes: document.getElementById('greenFeatureNotes').value.trim(),
+        lifeEventTags: [...document.querySelectorAll('.green-life-event-check:checked')].map(c => c.value),
       });
       const files = [...document.getElementById('greenPhotos').files];
       for (const file of files) {
@@ -3932,9 +3985,35 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.getElementById('greenBaths').value = '';
       document.getElementById('greenPhotos').value = '';
       document.querySelectorAll('.green-create-check').forEach(c => c.checked = false);
+      document.querySelectorAll('.green-life-event-check').forEach(c => c.checked = false);
       loadMyGreenHomes();
       loadGreenBrowse();
     } catch (err) { toast(err.message); } finally { btn.disabled = false; }
+  });
+
+  document.getElementById('saveGreenAlertBtn').addEventListener('click', async () => {
+    try {
+      const greenFeatures = [...document.querySelectorAll('.green-alert-check:checked')].map(c => c.value);
+      await apiPost('/api/green-needs-alerts', {
+        label: document.getElementById('greenAlertLabel').value.trim(),
+        greenFeatures,
+        city: document.getElementById('greenAlertCity').value.trim(),
+        state: document.getElementById('greenAlertState').value.trim(),
+      });
+      document.getElementById('greenAlertLabel').value = '';
+      document.getElementById('greenAlertCity').value = '';
+      document.getElementById('greenAlertState').value = '';
+      document.querySelectorAll('.green-alert-check').forEach(c => c.checked = false);
+      loadMyGreenAlerts();
+      toast("Saved — we'll notify you when a match is listed.");
+    } catch (err) { toast(err.message); }
+  });
+
+  document.getElementById('greenAlertsList').addEventListener('click', async e => {
+    const btn = e.target.closest('[data-action="delete-green-alert"]');
+    if (!btn) return;
+    try { await apiDelete(`/api/green-needs-alerts/${btn.dataset.id}`); loadMyGreenAlerts(); }
+    catch (err) { toast(err.message); }
   });
 
   document.getElementById('greenFilters').addEventListener('input', () => loadGreenBrowse());
@@ -3992,6 +4071,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         timelineMonths: document.getElementById('projTimelineMonths').value || null,
         description: document.getElementById('projDescription').value.trim(),
         adaptations: [...document.querySelectorAll('.proj-create-check:checked')].map(c => c.value),
+        greenFeatures: [...document.querySelectorAll('.proj-green-create-check:checked')].map(c => c.value),
       });
       const files = [...document.getElementById('projPhotos').files];
       for (const file of files) {
@@ -4005,6 +4085,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       ['projTitle', 'projCity', 'projState', 'projZip', 'projNeighborhood', 'projAddress', 'projFundingGoal', 'projMinInvestment', 'projTargetReturn', 'projTimelineMonths', 'projDescription'].forEach(f => document.getElementById(f).value = '');
       document.getElementById('projPhotos').value = '';
       document.querySelectorAll('.proj-create-check').forEach(c => c.checked = false);
+      document.querySelectorAll('.proj-green-create-check').forEach(c => c.checked = false);
       loadMyProjects();
       loadProjectsBrowse();
     } catch (err) { toast(err.message); } finally { btn.disabled = false; }
@@ -4014,6 +4095,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('projectTypeFilter').addEventListener('change', () => loadProjectsBrowse());
   document.getElementById('projectStageFilter').addEventListener('change', () => loadProjectsBrowse());
   document.getElementById('projectAdaptationFilterChips').addEventListener('change', () => loadProjectsBrowse());
+  document.getElementById('projectGreenFeatureFilterChips').addEventListener('change', () => loadProjectsBrowse());
 
   function wireProjectOpenButtons(containerId) {
     document.getElementById(containerId).addEventListener('click', async e => {

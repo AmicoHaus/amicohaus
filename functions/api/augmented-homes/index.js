@@ -5,7 +5,7 @@ import { checkAlertsForNewHome } from '../../_lib/accessibilityAlerts.js';
 
 const LIST_FIELDS = `augmented_homes.id, augmented_homes.user_id, augmented_homes.title, augmented_homes.city,
   augmented_homes.state, augmented_homes.zip, augmented_homes.property_type, augmented_homes.beds,
-  augmented_homes.baths, augmented_homes.asking_price, augmented_homes.adaptations_json,
+  augmented_homes.baths, augmented_homes.asking_price, augmented_homes.adaptations_json, augmented_homes.life_event_tags_json,
   augmented_homes.status, augmented_homes.created_at, users.display_name AS owner_name`;
 
 // ?mine=1 for a seller's own listings (any status); otherwise every active
@@ -47,7 +47,8 @@ export async function onRequestGet(context) {
     homes.push({
       id: r.id, userId: r.user_id, owner: r.owner_name, title: r.title, city: r.city, state: r.state, zip: r.zip,
       propertyType: r.property_type, beds: r.beds, baths: r.baths, askingPrice: r.asking_price,
-      adaptations, status: r.status, createdAt: r.created_at, photoIds: photos.map(p => p.id),
+      adaptations, lifeEventTags: JSON.parse(r.life_event_tags_json || '[]'),
+      status: r.status, createdAt: r.created_at, photoIds: photos.map(p => p.id),
     });
   }
   return json({ homes });

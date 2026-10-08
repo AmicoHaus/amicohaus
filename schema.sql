@@ -660,6 +660,7 @@ CREATE TABLE IF NOT EXISTS augmented_homes (
   asking_price INTEGER NOT NULL,
   adaptations_json TEXT NOT NULL DEFAULT '[]',
   adaptation_notes TEXT NOT NULL DEFAULT '',
+  life_event_tags_json TEXT NOT NULL DEFAULT '[]',
   status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','under_contract','sold','withdrawn')),
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -677,6 +678,16 @@ CREATE TABLE IF NOT EXISTS augmented_home_photos (
 );
 CREATE INDEX IF NOT EXISTS idx_augmented_home_photos_home ON augmented_home_photos(augmented_home_id);
 
+-- Price-change transparency, mirroring pre_listing_price_history.
+CREATE TABLE IF NOT EXISTS augmented_home_price_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  augmented_home_id INTEGER NOT NULL REFERENCES augmented_homes(id) ON DELETE CASCADE,
+  old_price INTEGER NOT NULL,
+  new_price INTEGER NOT NULL,
+  changed_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_augmented_home_price_history_home ON augmented_home_price_history(augmented_home_id);
+
 -- A buyer's saved "what I need" profile — mirrors agent_search_alerts: a flat
 -- notified-ids list so the same home never re-notifies the same alert twice.
 CREATE TABLE IF NOT EXISTS accessibility_needs_alerts (
@@ -690,6 +701,19 @@ CREATE TABLE IF NOT EXISTS accessibility_needs_alerts (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_accessibility_needs_alerts_user ON accessibility_needs_alerts(user_id);
+
+-- Same pattern, for GreenHomes' green-feature taxonomy instead of AugmentedHomes' adaptations.
+CREATE TABLE IF NOT EXISTS green_needs_alerts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  label TEXT NOT NULL DEFAULT '',
+  green_features_json TEXT NOT NULL DEFAULT '[]',
+  city TEXT NOT NULL DEFAULT '',
+  state TEXT NOT NULL DEFAULT '',
+  notified_home_ids_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_green_needs_alerts_user ON green_needs_alerts(user_id);
 
 -- FinderMine: a deal-discovery and discussion board for developers/investors.
 -- Discovery and messaging only — no funds, equity, or escrow are tracked or
@@ -712,6 +736,7 @@ CREATE TABLE IF NOT EXISTS dev_projects (
   timeline_months INTEGER,
   status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','closed','funded')),
   adaptations_json TEXT NOT NULL DEFAULT '[]',
+  green_features_json TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -791,6 +816,9 @@ CREATE TABLE IF NOT EXISTS listing_offers (
   status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','countered','accepted','declined','withdrawn')),
   counter_price INTEGER,
   counter_message TEXT NOT NULL DEFAULT '',
+  -- Which side proposed the current counter_price/counter_message, so the other side's response options
+  -- (accept/decline/counter back) are gated correctly across any number of negotiation rounds.
+  countered_by TEXT NOT NULL DEFAULT 'owner',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -816,6 +844,7 @@ CREATE TABLE IF NOT EXISTS green_homes (
   asking_price INTEGER NOT NULL,
   green_features_json TEXT NOT NULL DEFAULT '[]',
   feature_notes TEXT NOT NULL DEFAULT '',
+  life_event_tags_json TEXT NOT NULL DEFAULT '[]',
   status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','under_contract','sold','withdrawn')),
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -832,3 +861,12 @@ CREATE TABLE IF NOT EXISTS green_home_photos (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_green_home_photos_home ON green_home_photos(green_home_id);
+
+CREATE TABLE IF NOT EXISTS green_home_price_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  green_home_id INTEGER NOT NULL REFERENCES green_homes(id) ON DELETE CASCADE,
+  old_price INTEGER NOT NULL,
+  new_price INTEGER NOT NULL,
+  changed_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_green_home_price_history_home ON green_home_price_history(green_home_id);

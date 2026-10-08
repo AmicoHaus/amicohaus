@@ -16,13 +16,18 @@ export async function onRequestGet(context) {
 
   const isOwner = user.id === row.user_id;
   const photos = await fetchGreenHomePhotos(db, id);
+  const priceHistoryRows = await db.prepare(
+    'SELECT old_price, new_price, changed_at FROM green_home_price_history WHERE green_home_id = ? ORDER BY changed_at ASC'
+  ).bind(id).all();
 
   const home = {
     id: row.id, userId: row.user_id, owner: row.owner_name, title: row.title, description: row.description,
     address: isOwner ? row.address : undefined, neighborhood: row.neighborhood, city: row.city, state: row.state, zip: row.zip,
     propertyType: row.property_type, beds: row.beds, baths: row.baths, sqft: row.sqft, askingPrice: row.asking_price,
     greenFeatures: JSON.parse(row.green_features_json || '[]'), featureNotes: row.feature_notes,
+    lifeEventTags: JSON.parse(row.life_event_tags_json || '[]'),
     status: row.status, createdAt: row.created_at, photoIds: photos.map(p => p.id),
+    priceHistory: priceHistoryRows.results.map(r => ({ oldPrice: r.old_price, newPrice: r.new_price, changedAt: r.changed_at })),
   };
 
   return json({ home, isOwner: !!isOwner });
@@ -34,7 +39,7 @@ export async function onRequestPut(context) {
   if (!user) return unauthorized();
 
   const db = context.env.DB;
-  const existing = await db.prepare('SELECT user_id, status FROM green_homes WHERE id = ?').bind(id).first();
+  const existing = await db.prepare('SELECT user_id, status, asking_price FROM green_homes WHERE id = ?').bind(id).first();
   if (!existing) return notFound('Listing not found.');
   if (existing.user_id !== user.id) return forbidden();
 
@@ -51,6 +56,10 @@ export async function onRequestPut(context) {
   const validated = validateGreenHomeInput(body);
   if (validated.error) return badRequest(validated.error);
   await updateGreenHome(db, id, validated.data);
+  if (Number(validated.data.askingPrice) !== Number(existing.asking_price)) {
+    await db.prepare('INSERT INTO green_home_price_history (green_home_id, old_price, new_price) VALUES (?, ?, ?)')
+      .bind(id, existing.asking_price, validated.data.askingPrice).run();
+  }
   return json({ ok: true });
 }
 

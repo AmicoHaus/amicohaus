@@ -588,8 +588,24 @@ const denied = r => r.status >= 400 && r.status < 500;
   record('augmented', 'the adaptation filter includes a matching home', augFilterHit.some(h => h.id === AUG), JSON.stringify(augFilterHit.map(h => h.id)));
   const augFilterMiss = (await B.call('GET', '/api/augmented-homes?adaptation=hearing_impairment_features')).json.homes;
   record('augmented', 'the adaptation filter excludes a non-matching home', !augFilterMiss.some(h => h.id === AUG), JSON.stringify(augFilterMiss.map(h => h.id)));
+  const augGet0 = (await A.call('GET', `/api/augmented-homes/${AUG}`)).json.home;
+  record('augmented', 'priceHistory starts empty', Array.isArray(augGet0.priceHistory) && augGet0.priceHistory.length === 0, JSON.stringify(augGet0.priceHistory));
+  const augEdit = await A.call('PUT', `/api/augmented-homes/${AUG}`, { ...augBody, askingPrice: 600000, lifeEventTags: ['downsizing', 'not_a_real_tag'] });
+  record('augmented', 'owner can edit price and life-event tags', augEdit.status === 200, JSON.stringify(augEdit));
+  const augGet1 = (await A.call('GET', `/api/augmented-homes/${AUG}`)).json.home;
+  record('augmented', 'price change is logged in priceHistory', augGet1.priceHistory.length === 1 && augGet1.priceHistory[0].oldPrice === 625000 && augGet1.priceHistory[0].newPrice === 600000, JSON.stringify(augGet1.priceHistory));
+  record('augmented', 'a bogus life-event key is filtered, a valid one kept', JSON.stringify(augGet1.lifeEventTags) === JSON.stringify(['downsizing']), JSON.stringify(augGet1.lifeEventTags));
+
+  const augPublicPage = await anon.call('GET', `/augmented-home/${AUG}`);
+  record('augmented', 'the public share page is visible while active, anonymously', augPublicPage.status === 200 && augPublicPage.text.includes('AUTHZ Adapted Home'), `status ${augPublicPage.status}`);
+  record('augmented', "the public share page never leaks the street address", !augPublicPage.text.includes(MARK.augAddress), '');
+  const augPublic404 = await anon.call('GET', '/augmented-home/999999999');
+  record('augmented', 'the public share page 404s for a bogus id', augPublic404.status === 404, `status ${augPublic404.status}`);
+
   const augStatus = await A.call('PUT', `/api/augmented-homes/${AUG}`, { action: 'set-status', status: 'under_contract' });
   record('augmented', 'the owner can change their own listing status', augStatus.status === 200 && sql(`SELECT status FROM augmented_homes WHERE id = ${AUG}`)[0].status === 'under_contract', `status ${augStatus.status}`);
+  const augPublicAfter = await anon.call('GET', `/augmented-home/${AUG}`);
+  record('augmented', 'a no-longer-active listing drops off its public share page too', augPublicAfter.status === 404, `status ${augPublicAfter.status}`);
   const augBrowseAfter = (await B.call('GET', '/api/augmented-homes')).json.homes;
   record('augmented', 'a listing no longer active drops out of the public browse list', !augBrowseAfter.some(h => h.id === AUG), JSON.stringify(augBrowseAfter.map(h => h.id)));
 
@@ -628,24 +644,61 @@ const denied = r => r.status >= 400 && r.status < 500;
   record('green', 'the feature filter includes a matching home', greenFilterHit.some(h => h.id === GREEN), JSON.stringify(greenFilterHit.map(h => h.id)));
   const greenFilterMiss = (await B.call('GET', '/api/green-homes?feature=geothermal')).json.homes;
   record('green', 'the feature filter excludes a non-matching home', !greenFilterMiss.some(h => h.id === GREEN), JSON.stringify(greenFilterMiss.map(h => h.id)));
+  const greenGet0 = (await A.call('GET', `/api/green-homes/${GREEN}`)).json.home;
+  record('green', 'priceHistory starts empty', Array.isArray(greenGet0.priceHistory) && greenGet0.priceHistory.length === 0, JSON.stringify(greenGet0.priceHistory));
+  const greenEdit = await A.call('PUT', `/api/green-homes/${GREEN}`, { ...greenBody, askingPrice: 690000, lifeEventTags: ['relocation', 'not_a_real_tag'] });
+  record('green', 'owner can edit price and life-event tags', greenEdit.status === 200, JSON.stringify(greenEdit));
+  const greenGet1 = (await A.call('GET', `/api/green-homes/${GREEN}`)).json.home;
+  record('green', 'price change is logged in priceHistory', greenGet1.priceHistory.length === 1 && greenGet1.priceHistory[0].oldPrice === 710000 && greenGet1.priceHistory[0].newPrice === 690000, JSON.stringify(greenGet1.priceHistory));
+  record('green', 'a bogus life-event key is filtered, a valid one kept', JSON.stringify(greenGet1.lifeEventTags) === JSON.stringify(['relocation']), JSON.stringify(greenGet1.lifeEventTags));
+
+  const greenAlertNoFeature = await B.call('POST', '/api/green-needs-alerts', { label: 'x', greenFeatures: [] });
+  record('green', 'a green alert with no features checked is refused', greenAlertNoFeature.status === 400, `status ${greenAlertNoFeature.status}`);
+  const greenAlertCreate = await B.call('POST', '/api/green-needs-alerts', { label: 'AUTHZ green alert', greenFeatures: ['solar_panels'], city: 'San Diego', state: 'CA' });
+  const GREEN_ALERT = greenAlertCreate.json && greenAlertCreate.json.id;
+  record('green', 'another user can save a green needs alert', greenAlertCreate.status === 201, `status ${greenAlertCreate.status}`);
+  const greenMatch = await A.call('POST', '/api/green-homes', { ...greenBody, title: 'AUTHZ Green Home 2', address: '' });
+  const bNotifAfterGreenMatch = sql(`SELECT body FROM notifications WHERE user_id = ${B.id} AND body LIKE 'A new GreenHomes listing%AUTHZ green alert%'`);
+  record('green', "posting a newly-matching home notifies the saved alert's owner", bNotifAfterGreenMatch.length > 0, JSON.stringify(bNotifAfterGreenMatch));
+  await A.call('DELETE', `/api/green-needs-alerts/${GREEN_ALERT}`);
+  const greenAlertsAfterAttempt = (await B.call('GET', '/api/green-needs-alerts')).json.alerts;
+  record('green', "another user cannot delete someone else's green needs alert", greenAlertsAfterAttempt.some(a => a.id === GREEN_ALERT), JSON.stringify(greenAlertsAfterAttempt.map(a => a.id)));
+  await B.call('DELETE', `/api/green-needs-alerts/${GREEN_ALERT}`);
+  const greenAlertsAfterOwn = (await B.call('GET', '/api/green-needs-alerts')).json.alerts;
+  record('green', "the alert's own owner can delete it", !greenAlertsAfterOwn.some(a => a.id === GREEN_ALERT), JSON.stringify(greenAlertsAfterOwn.map(a => a.id)));
+
+  const greenPublicPage = await anon.call('GET', `/green-home/${GREEN}`);
+  record('green', 'the public share page is visible while active, anonymously', greenPublicPage.status === 200 && greenPublicPage.text.includes('AUTHZ Green Home'), `status ${greenPublicPage.status}`);
+  record('green', "the public share page never leaks the street address", !greenPublicPage.text.includes(MARK.greenAddress), '');
+  const greenPublic404 = await anon.call('GET', '/green-home/999999999');
+  record('green', 'the public share page 404s for a bogus id', greenPublic404.status === 404, `status ${greenPublic404.status}`);
+
   const greenStatus = await A.call('PUT', `/api/green-homes/${GREEN}`, { action: 'set-status', status: 'under_contract' });
   record('green', 'the owner can change their own listing status', greenStatus.status === 200 && sql(`SELECT status FROM green_homes WHERE id = ${GREEN}`)[0].status === 'under_contract', `status ${greenStatus.status}`);
+  const greenPublicAfter = await anon.call('GET', `/green-home/${GREEN}`);
+  record('green', 'a no-longer-active listing drops off its public share page too', greenPublicAfter.status === 404, `status ${greenPublicAfter.status}`);
   const greenBrowseAfter = (await B.call('GET', '/api/green-homes')).json.homes;
   record('green', 'a listing no longer active drops out of the public browse list', !greenBrowseAfter.some(h => h.id === GREEN), JSON.stringify(greenBrowseAfter.map(h => h.id)));
 
   // ---------- FinderMine ----------
   console.log('\n== findermine ==');
   const projBody = { title: 'AUTHZ Dev Project', city: 'San Diego', state: 'CA', address: MARK.projAddress, projectType: 'multifamily', stage: 'permitting',
-    fundingGoal: 900000, minInvestment: 25000, targetReturn: '14% IRR', timelineMonths: 14, description: 'authz project', adaptations: ['roll_in_shower', 'not_a_real_key'] };
+    fundingGoal: 900000, minInvestment: 25000, targetReturn: '14% IRR', timelineMonths: 14, description: 'authz project',
+    adaptations: ['roll_in_shower', 'not_a_real_key'], greenFeatures: ['solar_panels', 'not_a_real_feature'] };
   const projCreate = await C.call('POST', '/api/dev-projects', projBody);
   const PROJ = projCreate.json && projCreate.json.id;
   record('findermine', 'a developer can post a project', projCreate.status === 201, `status ${projCreate.status} ${projCreate.text.slice(0, 100)}`);
   const projAdaptCheck = (await C.call('GET', `/api/dev-projects/${PROJ}`)).json;
   record('findermine', 'adaptations are optional on a project; a bogus key is filtered, a valid one kept', JSON.stringify(projAdaptCheck.project.adaptations) === JSON.stringify(['roll_in_shower']), JSON.stringify(projAdaptCheck.project.adaptations));
+  record('findermine', 'green features are optional on a project; a bogus key is filtered, a valid one kept', JSON.stringify(projAdaptCheck.project.greenFeatures) === JSON.stringify(['solar_panels']), JSON.stringify(projAdaptCheck.project.greenFeatures));
   const projAdaptFilterHit = (await B.call('GET', '/api/dev-projects?adaptation=roll_in_shower')).json.projects;
   record('findermine', 'the adaptation filter includes a matching project', projAdaptFilterHit.some(p => p.id === PROJ), JSON.stringify(projAdaptFilterHit.map(p => p.id)));
   const projAdaptFilterMiss = (await B.call('GET', '/api/dev-projects?adaptation=hearing_impairment_features')).json.projects;
   record('findermine', 'the adaptation filter excludes a non-matching project', !projAdaptFilterMiss.some(p => p.id === PROJ), JSON.stringify(projAdaptFilterMiss.map(p => p.id)));
+  const projGreenFilterHit = (await B.call('GET', '/api/dev-projects?greenFeature=solar_panels')).json.projects;
+  record('findermine', 'the green feature filter includes a matching project', projGreenFilterHit.some(p => p.id === PROJ), JSON.stringify(projGreenFilterHit.map(p => p.id)));
+  const projGreenFilterMiss = (await B.call('GET', '/api/dev-projects?greenFeature=geothermal')).json.projects;
+  record('findermine', 'the green feature filter excludes a non-matching project', !projGreenFilterMiss.some(p => p.id === PROJ), JSON.stringify(projGreenFilterMiss.map(p => p.id)));
   const projBadType = await C.call('POST', '/api/dev-projects', { ...projBody, projectType: 'not-a-real-type' });
   record('findermine', 'an invalid project type is refused', projBadType.status === 400, `status ${projBadType.status}`);
   const projAsOwner = (await C.call('GET', `/api/dev-projects/${PROJ}`)).json || {};
@@ -668,10 +721,18 @@ const denied = r => r.status >= 400 && r.status < 500;
   record('findermine', 'withdrawing interest flips it back off', interestOff.json && interestOff.json.interested === false, JSON.stringify(interestOff.json));
   const projAfterWithdraw = (await C.call('GET', `/api/dev-projects/${PROJ}`)).json;
   record('findermine', 'withdrawn interest disappears from the owner\'s investor list too', projAfterWithdraw.interestedInvestors.length === 0, JSON.stringify(projAfterWithdraw.interestedInvestors));
+  const projPublicPage = await anon.call('GET', `/project/${PROJ}`);
+  record('findermine', 'the public share page is visible while open, anonymously', projPublicPage.status === 200 && projPublicPage.text.includes('AUTHZ Dev Project'), `status ${projPublicPage.status}`);
+  record('findermine', "the public share page never leaks the street address", !projPublicPage.text.includes(MARK.projAddress), '');
+  const projPublic404 = await anon.call('GET', '/project/999999999');
+  record('findermine', 'the public share page 404s for a bogus id', projPublic404.status === 404, `status ${projPublic404.status}`);
+
   const projStatus = await C.call('PUT', `/api/dev-projects/${PROJ}`, { action: 'set-status', status: 'funded' });
   record('findermine', 'the owner can mark their own project funded', projStatus.status === 200 && sql(`SELECT status FROM dev_projects WHERE id = ${PROJ}`)[0].status === 'funded', `status ${projStatus.status}`);
   const projBrowseAfter = (await B.call('GET', '/api/dev-projects')).json.projects;
   record('findermine', 'a funded project drops out of the open browse list', !projBrowseAfter.some(p => p.id === PROJ), JSON.stringify(projBrowseAfter.map(p => p.id)));
+  const projPublicAfter = await anon.call('GET', `/project/${PROJ}`);
+  record('findermine', 'a no-longer-open project drops off its public share page too', projPublicAfter.status === 404, `status ${projPublicAfter.status}`);
 
   // ---------- public profile pages (server-rendered, functions/profile/[id].js) ----------
   console.log('\n== public profile pages ==');
@@ -746,6 +807,35 @@ const denied = r => r.status >= 400 && r.status < 500;
   record('counter', "the owner can't decline_counter (that's the buyer's decision)", denied(declineCounterByOwner), `status ${declineCounterByOwner.status}`);
   const declineCounter = await G.call('PUT', `/api/listings/${LA}/offers/${OFFER3}`, { action: 'decline_counter' });
   record('counter', 'the buyer can decline the counter', declineCounter.status === 200 && sql(`SELECT status FROM listing_offers WHERE id = ${OFFER3}`)[0].status === 'declined', `status ${declineCounter.status}`);
+
+  // ---------- multi-round: the buyer can counter back, any number of times, not just accept/decline ----------
+  const dupeWhilePending = await H.call('POST', `/api/listings/${LA}/offers`, { offerPrice: 561000 });
+  record('counter', "a buyer with an already-accepted offer can still submit a fresh one on the same listing", dupeWhilePending.status === 201, `status ${dupeWhilePending.status}`);
+  const offer4Create = await G.call('POST', `/api/listings/${LA}/offers`, { offerPrice: 530000 });
+  const OFFER4 = offer4Create.json && offer4Create.json.id;
+  const dupeWhilePending2 = await G.call('POST', `/api/listings/${LA}/offers`, { offerPrice: 531000 });
+  record('counter', "a buyer can't submit a second offer while one is pending", dupeWhilePending2.status === 400, `status ${dupeWhilePending2.status}`);
+  const round1 = await A.call('PUT', `/api/listings/${LA}/offers/${OFFER4}`, { action: 'counter', counterPrice: 560000, counterMessage: 'round 1' });
+  record('counter', 'round 1: owner counters the pending offer', round1.status === 200, `status ${round1.status}`);
+  let offer4Row = sql(`SELECT status, countered_by FROM listing_offers WHERE id = ${OFFER4}`)[0];
+  record('counter', 'after round 1: countered_by=owner', offer4Row.countered_by === 'owner', JSON.stringify(offer4Row));
+  const dupeWhileCountered = await G.call('POST', `/api/listings/${LA}/offers`, { offerPrice: 532000 });
+  record('counter', "a buyer can't submit a second offer while one is countered (still in progress)", dupeWhileCountered.status === 400, `status ${dupeWhileCountered.status}`);
+  const ownerCounterTooSoon = await A.call('PUT', `/api/listings/${LA}/offers/${OFFER4}`, { action: 'counter', counterPrice: 565000 });
+  record('counter', "the owner can't counter again before the buyer responds", ownerCounterTooSoon.status >= 400 && ownerCounterTooSoon.status < 500, `status ${ownerCounterTooSoon.status}`);
+  const round2 = await G.call('PUT', `/api/listings/${LA}/offers/${OFFER4}`, { action: 'counter', counterPrice: 540000, counterMessage: 'round 2' });
+  record('counter', 'round 2: the buyer counters back instead of accept/decline', round2.status === 200, `status ${round2.status}`);
+  offer4Row = sql(`SELECT status, countered_by, counter_price FROM listing_offers WHERE id = ${OFFER4}`)[0];
+  record('counter', 'after round 2: countered_by=buyer, price updated to the buyer\'s number', offer4Row.countered_by === 'buyer' && offer4Row.counter_price === 540000, JSON.stringify(offer4Row));
+  const buyerCounterTooSoon = await G.call('PUT', `/api/listings/${LA}/offers/${OFFER4}`, { action: 'counter', counterPrice: 545000 });
+  record('counter', "the buyer can't counter again before the owner responds", buyerCounterTooSoon.status >= 400 && buyerCounterTooSoon.status < 500, `status ${buyerCounterTooSoon.status}`);
+  const strangerCounterRound2 = await C.call('PUT', `/api/listings/${LA}/offers/${OFFER4}`, { action: 'counter', counterPrice: 900000 });
+  record('counter', "an unrelated user can't counter at any round", denied(strangerCounterRound2), `status ${strangerCounterRound2.status}`);
+  const round3 = await A.call('PUT', `/api/listings/${LA}/offers/${OFFER4}`, { action: 'counter', counterPrice: 550000, counterMessage: 'round 3, final' });
+  record('counter', 'round 3: the owner counters back again', round3.status === 200, `status ${round3.status}`);
+  const acceptRound3 = await G.call('PUT', `/api/listings/${LA}/offers/${OFFER4}`, { action: 'accept_counter' });
+  offer4Row = sql(`SELECT status, offer_price, counter_price FROM listing_offers WHERE id = ${OFFER4}`)[0];
+  record('counter', 'the buyer accepts the 3rd-round counter, final price matches it', acceptRound3.status === 200 && offer4Row.status === 'accepted' && offer4Row.offer_price === 550000 && offer4Row.offer_price === offer4Row.counter_price, `status ${acceptRound3.status} row=${JSON.stringify(offer4Row)}`);
 
   const ohCreateByStranger = await B.call('POST', `/api/listings/${LA}/open-houses`, { startsAt: new Date(Date.now() + 48 * 3600000).toISOString(), endsAt: new Date(Date.now() + 50 * 3600000).toISOString() });
   record('open-house', "a non-owner can't schedule an open house on someone else's listing", denied(ohCreateByStranger), `status ${ohCreateByStranger.status}`);

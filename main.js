@@ -58,6 +58,37 @@ function adaptationCheckboxesHtml(checkedKeys, checkClass) {
   `).join('');
 }
 
+// Kept in sync by hand with functions/_lib/greenFeatures.js.
+const GREEN_FEATURE_ITEMS = [
+  { key: 'solar_panels', label: 'Solar panels', note: 'Rooftop or ground-mount solar, owned or leased.' },
+  { key: 'battery_storage', label: 'Battery storage', note: 'A home battery system (e.g. Powerwall) for stored solar power or backup.' },
+  { key: 'ev_charger', label: 'EV charger', note: 'A dedicated electric-vehicle charging station installed at the home.' },
+  { key: 'high_efficiency_hvac', label: 'High-efficiency HVAC', note: 'A high-SEER heat pump or similarly rated efficient heating/cooling system.' },
+  { key: 'tankless_water_heater', label: 'Tankless water heater', note: 'An on-demand water heater instead of a storage tank.' },
+  { key: 'enhanced_insulation', label: 'Enhanced insulation', note: 'Upgraded wall, attic, or window insulation beyond standard code.' },
+  { key: 'energy_efficient_appliances', label: 'Energy-efficient appliances', note: 'ENERGY STAR or similarly rated major appliances.' },
+  { key: 'low_flow_fixtures', label: 'Low-flow fixtures', note: 'Low-flow toilets, showerheads, and faucets to cut water use.' },
+  { key: 'greywater_rainwater', label: 'Greywater / rainwater system', note: 'A greywater reuse system or rainwater catchment for irrigation.' },
+  { key: 'drought_tolerant_landscaping', label: 'Drought-tolerant landscaping', note: 'Native or low-water landscaping in place of a traditional lawn.' },
+  { key: 'green_certification', label: 'Green building certification', note: 'A recognized certification such as LEED, ENERGY STAR, or similar.' },
+  { key: 'geothermal', label: 'Geothermal system', note: 'A geothermal heat pump using ground-source heating and cooling.' },
+];
+
+function greenFeatureLabel(key) {
+  const item = GREEN_FEATURE_ITEMS.find(i => i.key === key);
+  return item ? item.label : key;
+}
+
+function greenFeatureCheckboxesHtml(checkedKeys, checkClass) {
+  const checked = new Set(checkedKeys || []);
+  return GREEN_FEATURE_ITEMS.map(item => `
+    <label class="checkbox-row">
+      <input type="checkbox" class="${checkClass}" value="${item.key}" ${checked.has(item.key) ? 'checked' : ''}>
+      <span>${escapeHtml(item.label)}<br><span class="tiny">${escapeHtml(item.note)}</span></span>
+    </label>
+  `).join('');
+}
+
 // Kept in sync by hand with functions/_lib/devProjects.js.
 const PROJECT_TYPE_LABELS = {
   flip: 'Fix & Flip', new_construction: 'New Construction', multifamily: 'Multi-Family',
@@ -112,6 +143,7 @@ function goToTab(name) {
   if (name === 'marketplace') loadMarketplaceTab();
   if (name === 'augmented') loadAugmentedTab();
   if (name === 'findermine') loadFinderMineTab();
+  if (name === 'greenhomes') loadGreenTab();
 }
 
 function listingLabel(l) {
@@ -636,7 +668,14 @@ async function loadListingOffersInto(listingId) {
             <button type="button" class="btn btn-primary btn-sm" data-action="decide-offer" data-listing-id="${listingId}" data-id="${o.id}" data-decision="accept">Accept</button>
             <button type="button" class="btn btn-ghost btn-sm" data-action="decide-offer" data-listing-id="${listingId}" data-id="${o.id}" data-decision="decline">Decline</button>
             <button type="button" class="btn btn-ghost btn-sm" data-action="message-user" data-id="${o.buyerUserId}" data-name="${escapeHtml(o.buyerName)}">Message</button>
-          </div>` : ''}
+          </div>
+          <details class="panel">
+            <summary>Counter this offer</summary>
+            <div class="field"><label>Counter price ($)</label><input type="number" id="counterPrice-${o.id}" min="1" max="500000000" step="1000"></div>
+            <div class="field"><label>Message (optional)</label><textarea id="counterMsg-${o.id}" maxlength="1000"></textarea></div>
+            <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="counter-offer" data-listing-id="${listingId}" data-id="${o.id}">Send Counter</button></div>
+          </details>` : ''}
+        ${o.status === 'countered' ? `<p class="tiny"><span class="label">Your counter</span> ${money(o.counterPrice)}${o.counterMessage ? ` — "${escapeHtml(o.counterMessage)}"` : ''} · waiting on buyer</p>` : ''}
       </div>
     `).join('') : '<span class="tiny">No offers yet.</span>';
   } catch { el.innerHTML = '<span class="tiny">Could not load offers.</span>'; }
@@ -1071,7 +1110,7 @@ function openAgentTabSection(id) {
 // The specific thing a link like "/app#pre-listing-12" points at, or null for
 // a plain "/app" (or anything else) that has no more precise destination.
 function parseAppLink(link) {
-  const m = /#(pre-listing|transaction|messages|agent|augmented-home|dev-project)-(\d+)$/.exec(link || '');
+  const m = /#(pre-listing|transaction|messages|agent|augmented-home|dev-project|green-home)-(\d+)$/.exec(link || '');
   return m ? { kind: m[1], id: Number(m[2]) } : null;
 }
 
@@ -1104,6 +1143,7 @@ async function openAppLink(link) {
   }
   if (target.kind === 'augmented-home') { goToTab('augmented'); openAugmentedHomeDetail(target.id); return true; }
   if (target.kind === 'dev-project') { goToTab('findermine'); openProjectDetail(target.id); return true; }
+  if (target.kind === 'green-home') { goToTab('greenhomes'); openGreenHomeDetail(target.id); return true; }
   goToTab('marketplace');
   if (target.kind === 'pre-listing') openPreListingDetail(target.id);
   else openTransactionDetail(target.id);
@@ -1988,6 +2028,103 @@ async function openAugmentedHomeDetail(id) {
   } catch (e) { contentEl.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
 }
 
+/* ---------------- GreenHomes ---------------- */
+let greenDetail = null; // { id }
+
+function showGreenDetail() {
+  document.getElementById('greenListView').classList.add('hidden');
+  document.getElementById('greenDetailView').classList.remove('hidden');
+  document.getElementById('greenDetailView').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function backToGreenList() {
+  greenDetail = null;
+  document.getElementById('greenDetailView').classList.add('hidden');
+  document.getElementById('greenListView').classList.remove('hidden');
+  loadMyGreenHomes();
+  loadGreenBrowse();
+}
+
+function greenHomeCardHtml(h, { mine } = {}) {
+  return `
+    <div class="card">
+      <div class="card-head">
+        <h3>${escapeHtml(h.title || h.propertyType)}</h3>
+        <span class="badge ${h.status === 'active' ? 'badge-active' : 'badge-paused'}">${h.status.replace('_', ' ')}</span>
+      </div>
+      <div class="mini-block">${escapeHtml(h.propertyType)} · ${h.beds}bd/${h.baths}ba in ${escapeHtml(h.city)}, ${escapeHtml(h.state)}<br>${money(h.askingPrice)} asking</div>
+      <p class="tiny">${h.greenFeatures.map(k => `<span class="badge badge-gold">${escapeHtml(greenFeatureLabel(k))}</span>`).join(' ')}</p>
+      <div class="card-actions">
+        <button class="btn btn-primary btn-sm" data-action="open-green-home" data-id="${h.id}">View</button>
+        ${mine && h.status === 'active' ? `
+          <button class="btn btn-ghost btn-sm" data-action="green-set-status" data-id="${h.id}" data-status="under_contract">Mark Under Contract</button>
+          <button class="btn btn-ghost btn-sm" data-action="green-set-status" data-id="${h.id}" data-status="sold">Mark Sold</button>
+          <button class="btn btn-ghost btn-sm" data-action="green-set-status" data-id="${h.id}" data-status="withdrawn">Withdraw</button>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+async function loadMyGreenHomes() {
+  const el = document.getElementById('myGreenHomesList');
+  try {
+    const { homes } = await apiGet('/api/green-homes?mine=1');
+    el.innerHTML = homes.length ? homes.map(h => greenHomeCardHtml(h, { mine: true })).join('') : '<div class="empty-state">You haven\'t listed a home yet.</div>';
+  } catch (e) { el.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
+}
+
+async function loadGreenBrowse() {
+  const el = document.getElementById('greenBrowseList');
+  const city = document.getElementById('greenFilterCity').value.trim();
+  const state = document.getElementById('greenFilterState').value.trim();
+  const wanted = [...document.querySelectorAll('.green-filter-check:checked')].map(c => c.value);
+  const params = new URLSearchParams();
+  if (city) params.set('city', city);
+  if (state) params.set('state', state);
+  wanted.forEach(k => params.append('feature', k));
+  try {
+    const { homes } = await apiGet(`/api/green-homes?${params.toString()}`);
+    el.innerHTML = homes.length ? homes.map(h => greenHomeCardHtml(h, { mine: false })).join('') : '<div class="empty-state">Nothing matching right now.</div>';
+  } catch (e) { el.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
+}
+
+async function loadGreenTab() {
+  document.getElementById('greenDetailView').classList.add('hidden');
+  document.getElementById('greenListView').classList.remove('hidden');
+  fillTypeSelect(document.getElementById('greenPropertyType'), false);
+  document.getElementById('greenFeaturesFields').innerHTML = greenFeatureCheckboxesHtml([], 'green-create-check');
+  document.getElementById('greenFilterChips').innerHTML = greenFeatureCheckboxesHtml([], 'green-filter-check');
+  loadMyGreenHomes();
+  loadGreenBrowse();
+}
+
+async function openGreenHomeDetail(id) {
+  const contentEl = document.getElementById('greenDetailContent');
+  try {
+    const { home: h, isOwner } = await apiGet(`/api/green-homes/${id}`);
+    greenDetail = { id };
+    showGreenDetail();
+    const photosHtml = h.photoIds.length
+      ? `<div class="photo-gallery">${h.photoIds.map(pid => isOwner
+          ? `<div class="photo-thumb"><img src="/api/green-home-photos/${pid}" alt="" loading="lazy"><button type="button" class="photo-delete" data-action="delete-green-photo" data-id="${pid}">✕</button></div>`
+          : `<img src="/api/green-home-photos/${pid}" alt="" loading="lazy" class="media-thumb">`).join('')}</div>`
+      : '';
+    contentEl.innerHTML = `
+      <div class="card">
+        <div class="card-head"><h2>${escapeHtml(h.title || h.propertyType)}</h2><span class="badge ${h.status === 'active' ? 'badge-active' : 'badge-paused'}">${h.status.replace('_', ' ')}</span></div>
+        <div class="mini-block">${escapeHtml(h.propertyType)} · ${h.beds}bd/${h.baths}ba${h.sqft ? ` · ${h.sqft.toLocaleString('en-US')} sqft` : ''} in ${escapeHtml(h.neighborhood ? h.neighborhood + ', ' : '')}${escapeHtml(h.city)}, ${escapeHtml(h.state)} ${escapeHtml(h.zip)}<br>${money(h.askingPrice)} asking</div>
+        ${h.description ? `<p>${escapeHtml(h.description)}</p>` : ''}
+        ${photosHtml}
+        <h3>Green Features</h3>
+        <p class="tiny">${h.greenFeatures.map(k => `<span class="badge badge-gold">${escapeHtml(greenFeatureLabel(k))}</span>`).join(' ')}</p>
+        ${isOwner ? `<div class="form-actions"><button type="button" class="btn btn-danger btn-sm" data-action="delete-green-home" data-id="${h.id}">Delete Listing</button></div>` : ''}
+        ${h.featureNotes ? `<p class="tiny"><span class="label">Seller's notes</span> ${escapeHtml(h.featureNotes)}</p>` : ''}
+        ${!isOwner ? `<div class="form-actions"><button class="btn btn-primary btn-sm" data-action="message-user" data-id="${h.userId}" data-name="${escapeHtml(h.owner)}">Message Seller</button></div>` : ''}
+      </div>
+    `;
+  } catch (e) { contentEl.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
+}
+
 /* ---------------- FinderMine ---------------- */
 let findermineDetail = null; // { id }
 
@@ -2013,6 +2150,7 @@ function projectCardHtml(p, { mine } = {}) {
         <span class="badge ${p.status === 'open' ? 'badge-active' : 'badge-paused'}">${p.status}</span>
       </div>
       <div class="mini-block">${escapeHtml(PROJECT_TYPE_LABELS[p.projectType] || p.projectType)} · ${escapeHtml(PROJECT_STAGE_LABELS[p.stage] || p.stage)} in ${escapeHtml(p.city)}, ${escapeHtml(p.state)}<br>${p.fundingGoal ? `${money(p.fundingGoal)} funding sought` : 'Funding goal not set'}</div>
+      ${p.adaptations && p.adaptations.length ? `<p class="tiny">${p.adaptations.map(k => `<span class="badge badge-gold">${escapeHtml(adaptationLabel(k))}</span>`).join(' ')}</p>` : ''}
       <p class="tiny">${p.interestCount} investor${p.interestCount === 1 ? '' : 's'} interested</p>
       <div class="card-actions">
         <button class="btn btn-primary btn-sm" data-action="open-dev-project" data-id="${p.id}">View</button>
@@ -2038,11 +2176,13 @@ async function loadProjectsBrowse() {
   const state = document.getElementById('projectState').value.trim();
   const type = document.getElementById('projectTypeFilter').value;
   const stage = document.getElementById('projectStageFilter').value;
+  const wantedAdaptations = [...document.querySelectorAll('.project-adaptation-filter-check:checked')].map(c => c.value);
   const params = new URLSearchParams();
   if (city) params.set('city', city);
   if (state) params.set('state', state);
   if (type) params.set('type', type);
   if (stage) params.set('stage', stage);
+  wantedAdaptations.forEach(k => params.append('adaptation', k));
   try {
     const { projects } = await apiGet(`/api/dev-projects?${params.toString()}`);
     el.innerHTML = projects.length ? projects.map(p => projectCardHtml(p, { mine: false })).join('') : '<div class="empty-state">Nothing open right now.</div>';
@@ -2056,6 +2196,8 @@ async function loadFinderMineTab() {
   fillSelectFromLabels(document.getElementById('projStageSelect'), PROJECT_STAGE_LABELS, false);
   fillSelectFromLabels(document.getElementById('projectTypeFilter'), PROJECT_TYPE_LABELS, true);
   fillSelectFromLabels(document.getElementById('projectStageFilter'), PROJECT_STAGE_LABELS, true);
+  document.getElementById('projAdaptationsFields').innerHTML = adaptationCheckboxesHtml([], 'proj-create-check');
+  document.getElementById('projectAdaptationFilterChips').innerHTML = adaptationCheckboxesHtml([], 'project-adaptation-filter-check');
   loadMyProjects();
   loadProjectsBrowse();
 }
@@ -2085,6 +2227,7 @@ async function openProjectDetail(id) {
         </div>
         ${p.description ? `<p>${escapeHtml(p.description)}</p>` : ''}
         ${photosHtml}
+        ${p.adaptations && p.adaptations.length ? `<h3>Built For</h3><p class="tiny">${p.adaptations.map(k => `<span class="badge badge-gold">${escapeHtml(adaptationLabel(k))}</span>`).join(' ')}</p>` : ''}
         <p class="tiny">${p.interestCount} investor${p.interestCount === 1 ? '' : 's'} interested</p>
         ${!isOwner ? `
           <div class="form-actions">
@@ -2937,6 +3080,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         toast(btn.dataset.decision === 'accept' ? 'Offer accepted.' : 'Offer declined.');
         loadListingOffersInto(btn.dataset.listingId);
       } catch (err) { toast(err.message); }
+    } else if (btn.dataset.action === 'counter-offer') {
+      const offerId = btn.dataset.id;
+      const counterPrice = document.getElementById(`counterPrice-${offerId}`).value;
+      if (!counterPrice) { toast('Enter a counter-offer price.'); return; }
+      try {
+        await apiPut(`/api/listings/${btn.dataset.listingId}/offers/${offerId}`, {
+          action: 'counter', counterPrice, counterMessage: document.getElementById(`counterMsg-${offerId}`).value.trim(),
+        });
+        toast('Counter-offer sent.');
+        loadListingOffersInto(btn.dataset.listingId);
+      } catch (err) { toast(err.message); }
     } else if (btn.dataset.action === 'message-user') {
       try { await startConversationWith(btn.dataset.id, btn.dataset.name); } catch (err) { toast(err.message); }
     }
@@ -3446,6 +3600,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (e.key !== 'Escape') return;
     if (marketplaceDetail && !document.getElementById('marketplaceDetailView').classList.contains('hidden')) backToMarketplaceList();
     else if (augmentedDetail && !document.getElementById('augmentedDetailView').classList.contains('hidden')) backToAugmentedList();
+    else if (greenDetail && !document.getElementById('greenDetailView').classList.contains('hidden')) backToGreenList();
     else if (findermineDetail && !document.getElementById('findermineDetailView').classList.contains('hidden')) backToFinderMineList();
     else if (!document.getElementById('messageThread').classList.contains('hidden')) loadConversations();
   });
@@ -3741,6 +3896,82 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  /* ---------------- GreenHomes wiring ---------------- */
+  document.getElementById('createGreenHomeBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('createGreenHomeBtn');
+    btn.disabled = true;
+    try {
+      const greenFeatures = [...document.querySelectorAll('.green-create-check:checked')].map(c => c.value);
+      const { id } = await apiPost('/api/green-homes', {
+        title: document.getElementById('greenTitle').value.trim(),
+        askingPrice: document.getElementById('greenAskingPrice').value,
+        city: document.getElementById('greenCity').value.trim(),
+        state: document.getElementById('greenState').value.trim(),
+        zip: document.getElementById('greenZip').value.trim(),
+        neighborhood: document.getElementById('greenNeighborhood').value.trim(),
+        address: document.getElementById('greenAddress').value.trim(),
+        propertyType: document.getElementById('greenPropertyType').value,
+        beds: document.getElementById('greenBeds').value,
+        baths: document.getElementById('greenBaths').value,
+        sqft: document.getElementById('greenSqft').value || null,
+        description: document.getElementById('greenDescription').value.trim(),
+        greenFeatures,
+        featureNotes: document.getElementById('greenFeatureNotes').value.trim(),
+      });
+      const files = [...document.getElementById('greenPhotos').files];
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append('photo', file);
+        try { await apiUpload(`/api/green-homes/${id}/photos`, formData); }
+        catch (err) { toast(`Photo upload failed: ${err.message}`); }
+      }
+      toast('Listed on GreenHomes.');
+      document.getElementById('postGreenWrap').open = false;
+      ['greenTitle', 'greenAskingPrice', 'greenCity', 'greenState', 'greenZip', 'greenNeighborhood', 'greenAddress', 'greenSqft', 'greenDescription', 'greenFeatureNotes'].forEach(f => document.getElementById(f).value = '');
+      document.getElementById('greenBeds').value = '';
+      document.getElementById('greenBaths').value = '';
+      document.getElementById('greenPhotos').value = '';
+      document.querySelectorAll('.green-create-check').forEach(c => c.checked = false);
+      loadMyGreenHomes();
+      loadGreenBrowse();
+    } catch (err) { toast(err.message); } finally { btn.disabled = false; }
+  });
+
+  document.getElementById('greenFilters').addEventListener('input', () => loadGreenBrowse());
+  document.getElementById('greenFilterChips').addEventListener('change', () => loadGreenBrowse());
+
+  function wireGreenOpenButtons(containerId) {
+    document.getElementById(containerId).addEventListener('click', async e => {
+      const openBtn = e.target.closest('[data-action="open-green-home"]');
+      const statusBtn = e.target.closest('[data-action="green-set-status"]');
+      if (openBtn) openGreenHomeDetail(openBtn.dataset.id);
+      else if (statusBtn) {
+        try { await apiPut(`/api/green-homes/${statusBtn.dataset.id}`, { action: 'set-status', status: statusBtn.dataset.status }); loadMyGreenHomes(); }
+        catch (err) { toast(err.message); }
+      }
+    });
+  }
+  wireGreenOpenButtons('myGreenHomesList');
+  wireGreenOpenButtons('greenBrowseList');
+
+  document.getElementById('backToGreen').addEventListener('click', backToGreenList);
+
+  document.getElementById('greenDetailContent').addEventListener('click', async e => {
+    const msgBtn = e.target.closest('[data-action="message-user"]');
+    const deletePhotoBtn = e.target.closest('[data-action="delete-green-photo"]');
+    const deleteHomeBtn = e.target.closest('[data-action="delete-green-home"]');
+    if (msgBtn) { try { await startConversationWith(msgBtn.dataset.id, msgBtn.dataset.name); } catch (err) { toast(err.message); } }
+    else if (deletePhotoBtn) {
+      if (!confirm('Remove this photo?')) return;
+      try { await apiDelete(`/api/green-homes/${greenDetail.id}/photos/${deletePhotoBtn.dataset.id}`); openGreenHomeDetail(greenDetail.id); }
+      catch (err) { toast(err.message); }
+    } else if (deleteHomeBtn) {
+      if (!confirm('Permanently delete this listing? It cannot be recovered after this.')) return;
+      try { await apiDelete(`/api/green-homes/${deleteHomeBtn.dataset.id}`); toast('Listing deleted.'); backToGreenList(); }
+      catch (err) { toast(err.message); }
+    }
+  });
+
   /* ---------------- FinderMine wiring ---------------- */
   document.getElementById('createProjectBtn').addEventListener('click', async () => {
     const btn = document.getElementById('createProjectBtn');
@@ -3760,6 +3991,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         targetReturn: document.getElementById('projTargetReturn').value.trim(),
         timelineMonths: document.getElementById('projTimelineMonths').value || null,
         description: document.getElementById('projDescription').value.trim(),
+        adaptations: [...document.querySelectorAll('.proj-create-check:checked')].map(c => c.value),
       });
       const files = [...document.getElementById('projPhotos').files];
       for (const file of files) {
@@ -3772,6 +4004,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.getElementById('postProjectWrap').open = false;
       ['projTitle', 'projCity', 'projState', 'projZip', 'projNeighborhood', 'projAddress', 'projFundingGoal', 'projMinInvestment', 'projTargetReturn', 'projTimelineMonths', 'projDescription'].forEach(f => document.getElementById(f).value = '');
       document.getElementById('projPhotos').value = '';
+      document.querySelectorAll('.proj-create-check').forEach(c => c.checked = false);
       loadMyProjects();
       loadProjectsBrowse();
     } catch (err) { toast(err.message); } finally { btn.disabled = false; }
@@ -3780,6 +4013,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('projectFilters').addEventListener('input', () => loadProjectsBrowse());
   document.getElementById('projectTypeFilter').addEventListener('change', () => loadProjectsBrowse());
   document.getElementById('projectStageFilter').addEventListener('change', () => loadProjectsBrowse());
+  document.getElementById('projectAdaptationFilterChips').addEventListener('change', () => loadProjectsBrowse());
 
   function wireProjectOpenButtons(containerId) {
     document.getElementById(containerId).addEventListener('click', async e => {
@@ -3827,7 +4061,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // two runs, so the tab's data isn't fetched twice. The Feed loads when its tab is opened.
   const openedByLink = location.hash ? await openAppLink(location.hash) : false;
   if (!openedByLink) {
-    const VALID_TABS = ['marketplace', 'feed', 'listing', 'groups', 'matches', 'saved', 'messages', 'augmented', 'findermine'];
+    const VALID_TABS = ['marketplace', 'feed', 'listing', 'groups', 'matches', 'saved', 'messages', 'augmented', 'findermine', 'greenhomes'];
     let lastTab = 'marketplace';
     try { if (VALID_TABS.includes(localStorage.getItem('ah_last_tab'))) lastTab = localStorage.getItem('ah_last_tab'); } catch {}
     goToTab(lastTab);

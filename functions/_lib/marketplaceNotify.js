@@ -199,3 +199,33 @@ export async function notifyNewOffer(context, listingId, ownerUserId, buyerUserI
 export async function notifyOfferDecision(context, buyerUserId, listingId, accepted) {
   await notify(context.env.DB, buyerUserId, accepted ? 'Your offer was accepted!' : 'Your offer was not accepted this time.', `/listing/${listingId}`);
 }
+
+export async function notifyOfferCounter(context, listingId, buyerUserId, counterPrice) {
+  const price = '$' + Number(counterPrice).toLocaleString('en-US');
+  const db = context.env.DB;
+  const buyer = await db.prepare('SELECT id, email, email_frequency FROM users WHERE id = ?').bind(buyerUserId).first();
+  if (!buyer) return;
+  await notifyAndMaybeEmail(context, { userId: buyer.id, email: buyer.email, emailFrequency: buyer.email_frequency },
+    `The seller countered your offer at ${price}.`, `/listing/${listingId}`, 'Counter-offer on Amico Haus', 'see the details and respond');
+}
+
+export async function notifyCounterDecision(context, listingId, ownerUserId, accepted) {
+  await notify(context.env.DB, ownerUserId, accepted ? 'Your counter-offer was accepted!' : 'Your counter-offer was declined.', `/listing/${listingId}`);
+}
+
+// A listing someone favorited just got a new open house scheduled -- the one event on a regular listing
+// worth proactively telling a prospective buyer about, since they have no other way to find out short of
+// re-checking the page.
+export async function notifyOpenHouseScheduled(context, listingId, favoriterUserIds, startsAt) {
+  const db = context.env.DB;
+  if (!favoriterUserIds.length) return;
+  const when = new Date(startsAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+  const rows = await db.batch(favoriterUserIds.map(id => db.prepare('SELECT id, email, email_frequency FROM users WHERE id = ?').bind(id)));
+  const sends = rows.map(r => {
+    const u = r.results[0];
+    if (!u) return Promise.resolve();
+    return notifyAndMaybeEmail(context, { userId: u.id, email: u.email, emailFrequency: u.email_frequency },
+      `A new open house was scheduled for ${when} on a listing you saved.`, `/listing/${listingId}`, 'New open house on a saved listing', 'see the details');
+  });
+  await Promise.allSettled(sends);
+}

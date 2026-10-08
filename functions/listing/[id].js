@@ -151,6 +151,17 @@ async function renderListingPage(context) {
             <p><strong>${money(myOffer.offerPrice)}</strong> — ${myOffer.financingType === 'cash' ? 'Cash' : 'Financed'} <span class="badge">pending</span></p>
             <div class="card-actions"><button type="button" class="btn btn-ghost btn-sm" data-action="withdraw-offer" data-id="${myOffer.id}">Withdraw Offer</button></div>
           </div>`;
+      } else if (myOffer && myOffer.status === 'countered') {
+        offerHtml = `
+          <div class="card about-card">
+            <h2>Your Offer</h2>
+            <p><strong>${money(myOffer.offerPrice)}</strong> — ${myOffer.financingType === 'cash' ? 'Cash' : 'Financed'} <span class="badge">countered</span></p>
+            <p class="tiny"><span class="label">Seller's counter</span> ${money(myOffer.counterPrice)}${myOffer.counterMessage ? ` — "${escapeHtml(myOffer.counterMessage)}"` : ''}</p>
+            <div class="card-actions">
+              <button type="button" class="btn btn-primary btn-sm" data-action="respond-counter" data-id="${myOffer.id}" data-decision="accept_counter">Accept ${money(myOffer.counterPrice)}</button>
+              <button type="button" class="btn btn-ghost btn-sm" data-action="respond-counter" data-id="${myOffer.id}" data-decision="decline_counter">Decline</button>
+            </div>
+          </div>`;
       } else if (myOffer && myOffer.status !== 'pending') {
         offerHtml = `<div class="card about-card"><h2>Your Offer</h2><p><strong>${money(myOffer.offerPrice)}</strong> — <span class="badge">${myOffer.status}</span></p></div>`;
       } else {

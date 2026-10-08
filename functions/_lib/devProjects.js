@@ -1,5 +1,6 @@
 import { clampString } from './util.js';
 import { num } from './listings.js';
+import { validAdaptationKeys } from './adaptations.js';
 
 export const PROJECT_TYPES = ['flip', 'new_construction', 'multifamily', 'commercial', 'land', 'other'];
 export const PROJECT_TYPE_LABELS = {
@@ -44,6 +45,10 @@ export function validateDevProjectInput(body) {
       minInvestment: minInvestment || 0,
       targetReturn: clampString(body.targetReturn, 80),
       timelineMonths,
+      // Purely informational/filterable -- which accessibility adaptations this project is being built for,
+      // reusing the exact same taxonomy AugmentedHomes uses. Optional, unlike AugmentedHomes' own requirement
+      // of at least one, since most dev projects have nothing to do with accessibility at all.
+      adaptations: validAdaptationKeys(body.adaptations),
     },
   };
 }
@@ -51,11 +56,11 @@ export function validateDevProjectInput(body) {
 export async function insertDevProject(db, userId, d) {
   const result = await db.prepare(
     `INSERT INTO dev_projects (user_id, title, description, address, neighborhood, city, state, zip,
-       project_type, stage, funding_goal, min_investment, target_return, timeline_months)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       project_type, stage, funding_goal, min_investment, target_return, timeline_months, adaptations_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     userId, d.title, d.description, d.address, d.neighborhood, d.city, d.state, d.zip,
-    d.projectType, d.stage, d.fundingGoal, d.minInvestment, d.targetReturn, d.timelineMonths
+    d.projectType, d.stage, d.fundingGoal, d.minInvestment, d.targetReturn, d.timelineMonths, JSON.stringify(d.adaptations)
   ).run();
   return result.meta.last_row_id;
 }
@@ -64,11 +69,11 @@ export async function updateDevProject(db, id, d) {
   await db.prepare(
     `UPDATE dev_projects SET title = ?, description = ?, address = ?, neighborhood = ?, city = ?, state = ?, zip = ?,
        project_type = ?, stage = ?, funding_goal = ?, min_investment = ?, target_return = ?, timeline_months = ?,
-       updated_at = datetime('now')
+       adaptations_json = ?, updated_at = datetime('now')
      WHERE id = ?`
   ).bind(
     d.title, d.description, d.address, d.neighborhood, d.city, d.state, d.zip,
-    d.projectType, d.stage, d.fundingGoal, d.minInvestment, d.targetReturn, d.timelineMonths, id
+    d.projectType, d.stage, d.fundingGoal, d.minInvestment, d.targetReturn, d.timelineMonths, JSON.stringify(d.adaptations), id
   ).run();
 }
 

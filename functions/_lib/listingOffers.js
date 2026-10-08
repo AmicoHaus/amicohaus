@@ -48,10 +48,29 @@ function mapOfferRow(r) {
   return {
     id: r.id, listingId: r.listing_id, buyerUserId: r.buyer_user_id, buyerName: r.buyer_name,
     offerPrice: r.offer_price, financingType: r.financing_type, closingTimeline: r.closing_timeline,
-    contingencies: r.contingencies, message: r.message, status: r.status, createdAt: r.created_at,
+    contingencies: r.contingencies, message: r.message, status: r.status,
+    counterPrice: r.counter_price, counterMessage: r.counter_message, createdAt: r.created_at,
   };
 }
 
 export async function decideOffer(db, offerId, status) {
   await db.prepare("UPDATE listing_offers SET status = ?, updated_at = datetime('now') WHERE id = ?").bind(status, offerId).run();
+}
+
+export function validateCounterInput(body) {
+  const counterPrice = num(body.counterPrice, { min: 1, max: 500000000 });
+  if (counterPrice === null) return { error: 'Enter a counter-offer price.' };
+  return { data: { counterPrice, counterMessage: clampString(body.counterMessage, 1000) } };
+}
+
+// The owner proposes a different price; the buyer then accepts (offer_price becomes the counter_price) or
+// declines it, same one-round negotiation a quick back-and-forth call would have -- not unlimited rounds.
+export async function counterOffer(db, offerId, d) {
+  await db.prepare("UPDATE listing_offers SET status = 'countered', counter_price = ?, counter_message = ?, updated_at = datetime('now') WHERE id = ?")
+    .bind(d.counterPrice, d.counterMessage, offerId).run();
+}
+
+export async function acceptCounter(db, offerId, counterPrice) {
+  await db.prepare("UPDATE listing_offers SET status = 'accepted', offer_price = ?, updated_at = datetime('now') WHERE id = ?")
+    .bind(counterPrice, offerId).run();
 }

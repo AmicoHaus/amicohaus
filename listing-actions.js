@@ -9,6 +9,7 @@
     const rsvpBtn = e.target.closest('[data-action="rsvp-open-house"]');
     const submitOfferBtn = e.target.closest('[data-action="submit-offer"]');
     const withdrawOfferBtn = e.target.closest('[data-action="withdraw-offer"]');
+    const respondCounterBtn = e.target.closest('[data-action="respond-counter"]');
 
     if (rsvpBtn) {
       try {
@@ -44,6 +45,14 @@
       try {
         await apiPut(`/api/listings/${listingId}/offers/${withdrawOfferBtn.dataset.id}`, { action: 'withdraw' });
         toast('Offer withdrawn.');
+        window.location.reload();
+      } catch (err) { toast(err.message); }
+    } else if (respondCounterBtn) {
+      const decision = respondCounterBtn.dataset.decision;
+      if (decision === 'decline_counter' && !confirm('Decline the counter-offer?')) return;
+      try {
+        await apiPut(`/api/listings/${listingId}/offers/${respondCounterBtn.dataset.id}`, { action: decision });
+        toast(decision === 'accept_counter' ? 'Counter-offer accepted!' : 'Counter-offer declined.');
         window.location.reload();
       } catch (err) { toast(err.message); }
     }

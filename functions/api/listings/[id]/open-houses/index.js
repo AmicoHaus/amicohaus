@@ -1,6 +1,7 @@
 import { getSessionUser } from '../../../../_lib/auth.js';
 import { json, badRequest, unauthorized, forbidden, notFound } from '../../../../_lib/util.js';
 import { validateOpenHouseInput, createOpenHouse, fetchOpenHouses } from '../../../../_lib/openHouses.js';
+import { notifyOpenHouseScheduled } from '../../../../_lib/marketplaceNotify.js';
 
 // Public — same footing as the listing page itself; no sign-in needed to see when an open house is happening.
 export async function onRequestGet(context) {
@@ -26,5 +27,9 @@ export async function onRequestPost(context) {
   if (validated.error) return badRequest(validated.error);
 
   const openHouseId = await createOpenHouse(db, id, validated.data);
+
+  const favoriters = await db.prepare("SELECT user_id FROM listing_feedback WHERE listing_id = ? AND feedback = 'up'").bind(id).all();
+  context.waitUntil(notifyOpenHouseScheduled(context, id, favoriters.results.map(r => r.user_id), validated.data.startsAt));
+
   return json({ id: openHouseId }, { status: 201 });
 }

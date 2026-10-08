@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "amicohaus-local",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["wrangler", "pages", "dev", "dist", "--port", "8788", "--persist-to", "C:\\Users\\rudyp\\AppData\\Local\\Temp\\claude\\C--Users-rudyp-Desktop-Claude-App\\ff509ca9-90bd-499d-8977-31bd05722002\\scratchpad\\local-state"],
+      "port": 8788
+    }
+  ]
+}

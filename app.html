@@ -31,6 +31,7 @@
       <button class="tab" data-tab="messages">Messages <span id="messagesTabBadge" class="tab-badge hidden"></span></button>
       <button class="tab" data-tab="augmented">AugmentedHomes</button>
       <button class="tab" data-tab="findermine">FinderMine</button>
+      <button class="tab" data-tab="greenhomes">GreenHomes</button>
     </nav>
     <div class="auth-cta">
       <button class="btn btn-ghost btn-sm" id="notifBtn">🔔 <span id="notifBadge" class="hidden"></span></button>
@@ -615,6 +616,60 @@
       </div>
     </section>
 
+    <!-- GREEN HOMES -->
+    <section id="tab-greenhomes" class="tab-panel">
+      <h1>GreenHomes</h1>
+      <p class="section-sub">A marketplace for homes with real energy and sustainability features — solar, EV charging, high-efficiency HVAC, and more. List what your home has so the right buyer can find it and value it correctly.</p>
+
+      <div id="greenListView">
+        <details class="panel bulk-upload" id="postGreenWrap">
+          <summary>List a home with green features</summary>
+          <div class="form-row two-col">
+            <div class="field"><label>Title (optional)</label><input type="text" id="greenTitle" maxlength="120" placeholder="e.g. Solar-powered 4bd with EV charging"></div>
+            <div class="field"><label>Asking price ($) <span class="required-mark">*</span></label><input type="number" id="greenAskingPrice" min="1" max="500000000" step="1000"></div>
+          </div>
+          <div class="form-row three-col">
+            <div class="field"><label>City <span class="required-mark">*</span></label><input type="text" id="greenCity" maxlength="80"></div>
+            <div class="field"><label>State <span class="required-mark">*</span></label><input type="text" id="greenState" maxlength="20"></div>
+            <div class="field"><label>Zip <span class="required-mark">*</span></label><input type="text" id="greenZip" maxlength="10" placeholder="5-digit zip" inputmode="numeric"></div>
+          </div>
+          <div class="field"><label>Neighborhood (public)</label><input type="text" id="greenNeighborhood" maxlength="80"></div>
+          <div class="field"><label>Street address (private — only you can see it)</label><input type="text" id="greenAddress" maxlength="150"></div>
+          <div class="form-row three-col">
+            <div class="field"><label>Property type <span class="required-mark">*</span></label><select id="greenPropertyType"></select></div>
+            <div class="field"><label>Beds <span class="required-mark">*</span></label><input type="number" id="greenBeds" min="0" max="50"></div>
+            <div class="field"><label>Baths <span class="required-mark">*</span></label><input type="number" id="greenBaths" min="0" max="50" step="0.5"></div>
+          </div>
+          <div class="field"><label>Sq ft</label><input type="number" id="greenSqft" min="0" max="200000" step="50"></div>
+          <div class="field"><label>Description</label><textarea id="greenDescription" maxlength="2000" placeholder="Anything a buyer should know"></textarea></div>
+
+          <p class="tiny"><strong>Green features this home has <span class="required-mark">*</span> (check at least one):</strong></p>
+          <div id="greenFeaturesFields"></div>
+          <div class="field"><label>Notes about the features (optional)</label><textarea id="greenFeatureNotes" maxlength="1000" placeholder="e.g. 6kW solar system installed 2023, fully owned not leased"></textarea></div>
+
+          <div class="field"><label>Photos (up to 8, added after posting)</label><input type="file" id="greenPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple></div>
+          <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="createGreenHomeBtn">Post Listing</button></div>
+        </details>
+
+        <h2>My GreenHomes Listings</h2>
+        <div class="stack" id="myGreenHomesList"><div class="empty-state">Loading…</div></div>
+
+        <h2>Browse GreenHomes</h2>
+        <form id="greenFilters" class="form-row two-col">
+          <div class="field"><label>City</label><input type="text" id="greenFilterCity"></div>
+          <div class="field"><label>State</label><input type="text" id="greenFilterState"></div>
+        </form>
+        <p class="tiny"><strong>Filter by feature:</strong></p>
+        <div id="greenFilterChips"></div>
+        <div class="grid" id="greenBrowseList"><div class="empty-state">Loading…</div></div>
+      </div>
+
+      <div id="greenDetailView" class="hidden">
+        <button class="link-btn" id="backToGreen">← Back to GreenHomes</button>
+        <div id="greenDetailContent"></div>
+      </div>
+    </section>
+
     <!-- FINDERMINE -->
     <section id="tab-findermine" class="tab-panel">
       <h1>FinderMine</h1>
@@ -645,6 +700,10 @@
             <div class="field"><label>Timeline (months)</label><input type="number" id="projTimelineMonths" min="0" max="600"></div>
           </div>
           <div class="field"><label>Description</label><textarea id="projDescription" maxlength="3000" placeholder="Scope, numbers, what you're looking for in a partner…"></textarea></div>
+          <div class="field">
+            <label>Built for any accessibility adaptations? (optional)</label>
+            <div id="projAdaptationsFields"></div>
+          </div>
           <div class="field"><label>Photos / renderings (up to 8, added after posting)</label><input type="file" id="projPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple></div>
           <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="createProjectBtn">Post Project</button></div>
         </details>
@@ -661,6 +720,10 @@
           <div class="field"><label>Project type</label><select id="projectTypeFilter"></select></div>
           <div class="field"><label>Stage</label><select id="projectStageFilter"></select></div>
         </div>
+        <details class="panel">
+          <summary>Filter by accessibility adaptation (optional)</summary>
+          <div id="projectAdaptationFilterChips"></div>
+        </details>
         <div class="grid" id="projectsBrowseList"><div class="empty-state">Loading…</div></div>
       </div>
 

@@ -25,6 +25,10 @@ const MARK = {
   // Deliberately distinct from MARK.message: B legitimately owns this one (it's B's own offer message, read
   // back via B's own GET), so it can't share a value with the A<->C conversation secret B must never see.
   offerMessage: 'OFFERMSG' + RUN,
+  greenAddress: '654 GREENADDR' + RUN + ' Ct',
+  // The owner's counter-offer message to B -- B legitimately reads this back (it's addressed to them), but a
+  // stranger (C) or anonymous must never see it, same reasoning as offerMessage above.
+  counterMessage: 'COUNTERMSG' + RUN,
 };
 
 const results = [];
@@ -603,13 +607,45 @@ const denied = r => r.status >= 400 && r.status < 500;
   const alertsAfterOwn = (await B.call('GET', '/api/accessibility-needs-alerts')).json.alerts;
   record('augmented', 'the alert\'s own owner can delete it', !alertsAfterOwn.some(a => a.id === ALERT), JSON.stringify(alertsAfterOwn.map(a => a.id)));
 
+  // ---------- GreenHomes ----------
+  console.log('\n== green homes ==');
+  const greenBody = { title: 'AUTHZ Green Home', askingPrice: 710000, city: 'San Diego', state: 'CA', zip: '92104', address: MARK.greenAddress,
+    propertyType: 'Single Family Home', beds: 3, baths: 2, greenFeatures: ['solar_panels', 'ev_charger'], featureNotes: 'authz notes' };
+  const greenCreate = await A.call('POST', '/api/green-homes', greenBody);
+  const GREEN = greenCreate.json && greenCreate.json.id;
+  record('green', 'owner can create a listing with green features', greenCreate.status === 201, `status ${greenCreate.status} ${greenCreate.text.slice(0, 100)}`);
+  const greenNoFeature = await A.call('POST', '/api/green-homes', { ...greenBody, greenFeatures: [] });
+  record('green', 'creating with no green features checked is refused', greenNoFeature.status === 400, `status ${greenNoFeature.status}`);
+  const greenAsOwner = (await A.call('GET', `/api/green-homes/${GREEN}`)).json || {};
+  record('green', 'the owner sees the private street address', greenAsOwner.isOwner === true && greenAsOwner.home && greenAsOwner.home.address === MARK.greenAddress, JSON.stringify(greenAsOwner.home && Object.keys(greenAsOwner.home)));
+  const greenAsB = await B.call('GET', `/api/green-homes/${GREEN}`);
+  const greenB = (greenAsB.json && greenAsB.json.home) || {};
+  record('green', "a non-owner never sees the address, even in the raw response body", greenAsB.status === 200 && greenB.address === undefined && !greenAsB.text.includes(MARK.greenAddress), `keys=${Object.keys(greenB).join(',')}`);
+  await chk('green', "a non-owner can't change the listing status", 'PUT', `/api/green-homes/${GREEN}`, { action: 'set-status', status: 'sold' });
+  await chk('green', "a non-owner can't delete the listing", 'DELETE', `/api/green-homes/${GREEN}`);
+  { const f = new FormData(); f.append('photo', new Blob([PNG], { type: 'image/png' }), 'x.png'); const r = await B.call('POST', `/api/green-homes/${GREEN}/photos`, undefined, { form: f }); record('green', "a non-owner can't add photos", denied(r), `status ${r.status}`); }
+  const greenFilterHit = (await B.call('GET', '/api/green-homes?feature=solar_panels')).json.homes;
+  record('green', 'the feature filter includes a matching home', greenFilterHit.some(h => h.id === GREEN), JSON.stringify(greenFilterHit.map(h => h.id)));
+  const greenFilterMiss = (await B.call('GET', '/api/green-homes?feature=geothermal')).json.homes;
+  record('green', 'the feature filter excludes a non-matching home', !greenFilterMiss.some(h => h.id === GREEN), JSON.stringify(greenFilterMiss.map(h => h.id)));
+  const greenStatus = await A.call('PUT', `/api/green-homes/${GREEN}`, { action: 'set-status', status: 'under_contract' });
+  record('green', 'the owner can change their own listing status', greenStatus.status === 200 && sql(`SELECT status FROM green_homes WHERE id = ${GREEN}`)[0].status === 'under_contract', `status ${greenStatus.status}`);
+  const greenBrowseAfter = (await B.call('GET', '/api/green-homes')).json.homes;
+  record('green', 'a listing no longer active drops out of the public browse list', !greenBrowseAfter.some(h => h.id === GREEN), JSON.stringify(greenBrowseAfter.map(h => h.id)));
+
   // ---------- FinderMine ----------
   console.log('\n== findermine ==');
   const projBody = { title: 'AUTHZ Dev Project', city: 'San Diego', state: 'CA', address: MARK.projAddress, projectType: 'multifamily', stage: 'permitting',
-    fundingGoal: 900000, minInvestment: 25000, targetReturn: '14% IRR', timelineMonths: 14, description: 'authz project' };
+    fundingGoal: 900000, minInvestment: 25000, targetReturn: '14% IRR', timelineMonths: 14, description: 'authz project', adaptations: ['roll_in_shower', 'not_a_real_key'] };
   const projCreate = await C.call('POST', '/api/dev-projects', projBody);
   const PROJ = projCreate.json && projCreate.json.id;
   record('findermine', 'a developer can post a project', projCreate.status === 201, `status ${projCreate.status} ${projCreate.text.slice(0, 100)}`);
+  const projAdaptCheck = (await C.call('GET', `/api/dev-projects/${PROJ}`)).json;
+  record('findermine', 'adaptations are optional on a project; a bogus key is filtered, a valid one kept', JSON.stringify(projAdaptCheck.project.adaptations) === JSON.stringify(['roll_in_shower']), JSON.stringify(projAdaptCheck.project.adaptations));
+  const projAdaptFilterHit = (await B.call('GET', '/api/dev-projects?adaptation=roll_in_shower')).json.projects;
+  record('findermine', 'the adaptation filter includes a matching project', projAdaptFilterHit.some(p => p.id === PROJ), JSON.stringify(projAdaptFilterHit.map(p => p.id)));
+  const projAdaptFilterMiss = (await B.call('GET', '/api/dev-projects?adaptation=hearing_impairment_features')).json.projects;
+  record('findermine', 'the adaptation filter excludes a non-matching project', !projAdaptFilterMiss.some(p => p.id === PROJ), JSON.stringify(projAdaptFilterMiss.map(p => p.id)));
   const projBadType = await C.call('POST', '/api/dev-projects', { ...projBody, projectType: 'not-a-real-type' });
   record('findermine', 'an invalid project type is refused', projBadType.status === 400, `status ${projBadType.status}`);
   const projAsOwner = (await C.call('GET', `/api/dev-projects/${PROJ}`)).json || {};
@@ -676,6 +712,41 @@ const denied = r => r.status >= 400 && r.status < 500;
   const reDecide = await A.call('PUT', `/api/listings/${LA}/offers/${OFFER}`, { action: 'decline' });
   record('offers', "an already-decided offer can't be decided again", reDecide.status === 400, `status ${reDecide.status}`);
 
+  // ---------- offer counter-proposals ----------
+  console.log('\n== offer counter-proposals ==');
+  const offer2Create = await H.call('POST', `/api/listings/${LA}/offers`, { offerPrice: 560000, financingType: 'financed' });
+  const OFFER2 = offer2Create.json && offer2Create.json.id;
+  record('counter', 'a second buyer can submit a fresh offer', offer2Create.status === 201, `status ${offer2Create.status}`);
+  const counterByStranger = await C.call('PUT', `/api/listings/${LA}/offers/${OFFER2}`, { action: 'counter', counterPrice: 600000 });
+  record('counter', "a non-owner can't counter someone else's offer", denied(counterByStranger), `status ${counterByStranger.status}`);
+  const counterByBuyer = await H.call('PUT', `/api/listings/${LA}/offers/${OFFER2}`, { action: 'counter', counterPrice: 600000 });
+  record('counter', "the buyer can't counter their own offer (only the owner can)", denied(counterByBuyer), `status ${counterByBuyer.status}`);
+  const counterOk = await A.call('PUT', `/api/listings/${LA}/offers/${OFFER2}`, { action: 'counter', counterPrice: 600000, counterMessage: MARK.counterMessage });
+  record('counter', 'the owner can counter a pending offer', counterOk.status === 200 && sql(`SELECT status, counter_price FROM listing_offers WHERE id = ${OFFER2}`)[0].status === 'countered', `status ${counterOk.status}`);
+  const counterAgain = await A.call('PUT', `/api/listings/${LA}/offers/${OFFER2}`, { action: 'counter', counterPrice: 610000 });
+  record('counter', "the owner can't counter an already-countered offer", counterAgain.status === 400, `status ${counterAgain.status}`);
+  const acceptCounteredDirect = await A.call('PUT', `/api/listings/${LA}/offers/${OFFER2}`, { action: 'accept' });
+  record('counter', "the owner can't short-circuit their own counter with a plain accept", acceptCounteredDirect.status === 400, `status ${acceptCounteredDirect.status}`);
+  const acceptCounterByOwner = await A.call('PUT', `/api/listings/${LA}/offers/${OFFER2}`, { action: 'accept_counter' });
+  record('counter', "the owner can't accept_counter (that's the buyer's decision)", denied(acceptCounterByOwner), `status ${acceptCounterByOwner.status}`);
+  const acceptCounterByStranger = await C.call('PUT', `/api/listings/${LA}/offers/${OFFER2}`, { action: 'accept_counter' });
+  record('counter', "an unrelated user can't accept someone else's counter", denied(acceptCounterByStranger), `status ${acceptCounterByStranger.status}`);
+  const buyerSeesCounter = await H.call('GET', `/api/listings/${LA}/offers`);
+  record('counter', "the buyer's own view shows the counter price and message", buyerSeesCounter.json.myOffer && buyerSeesCounter.json.myOffer.status === 'countered' && buyerSeesCounter.json.myOffer.counterPrice === 600000 && buyerSeesCounter.json.myOffer.counterMessage === MARK.counterMessage, JSON.stringify(buyerSeesCounter.json.myOffer));
+  const acceptCounter = await H.call('PUT', `/api/listings/${LA}/offers/${OFFER2}`, { action: 'accept_counter' });
+  const offer2Row = sql(`SELECT status, offer_price, counter_price FROM listing_offers WHERE id = ${OFFER2}`)[0];
+  record('counter', 'the buyer can accept the counter, which sets offer_price to the counter price', acceptCounter.status === 200 && offer2Row.status === 'accepted' && offer2Row.offer_price === offer2Row.counter_price, `status ${acceptCounter.status} row=${JSON.stringify(offer2Row)}`);
+  const acceptCounterTwice = await H.call('PUT', `/api/listings/${LA}/offers/${OFFER2}`, { action: 'accept_counter' });
+  record('counter', "an already-accepted counter can't be accepted again", acceptCounterTwice.status === 400, `status ${acceptCounterTwice.status}`);
+
+  const offer3Create = await G.call('POST', `/api/listings/${LA}/offers`, { offerPrice: 540000 });
+  const OFFER3 = offer3Create.json && offer3Create.json.id;
+  await A.call('PUT', `/api/listings/${LA}/offers/${OFFER3}`, { action: 'counter', counterPrice: 555000, counterMessage: 'best I can do' });
+  const declineCounterByOwner = await A.call('PUT', `/api/listings/${LA}/offers/${OFFER3}`, { action: 'decline_counter' });
+  record('counter', "the owner can't decline_counter (that's the buyer's decision)", denied(declineCounterByOwner), `status ${declineCounterByOwner.status}`);
+  const declineCounter = await G.call('PUT', `/api/listings/${LA}/offers/${OFFER3}`, { action: 'decline_counter' });
+  record('counter', 'the buyer can decline the counter', declineCounter.status === 200 && sql(`SELECT status FROM listing_offers WHERE id = ${OFFER3}`)[0].status === 'declined', `status ${declineCounter.status}`);
+
   const ohCreateByStranger = await B.call('POST', `/api/listings/${LA}/open-houses`, { startsAt: new Date(Date.now() + 48 * 3600000).toISOString(), endsAt: new Date(Date.now() + 50 * 3600000).toISOString() });
   record('open-house', "a non-owner can't schedule an open house on someone else's listing", denied(ohCreateByStranger), `status ${ohCreateByStranger.status}`);
   const ohCreate = await A.call('POST', `/api/listings/${LA}/open-houses`, { startsAt: new Date(Date.now() + 48 * 3600000).toISOString(), endsAt: new Date(Date.now() + 50 * 3600000).toISOString(), note: 'AUTHZ open house' });
@@ -689,6 +760,16 @@ const denied = r => r.status >= 400 && r.status < 500;
   record('open-house', 'a signed-in user can RSVP', rsvpB.json && rsvpB.json.going === true, JSON.stringify(rsvpB.json));
   const ohDeleteByStranger = await B.call('DELETE', `/api/listings/${LA}/open-houses/${OH}`);
   record('open-house', "a non-owner can't cancel someone else's open house", denied(ohDeleteByStranger), `status ${ohDeleteByStranger.status}`);
+
+  const favoriteByC = await C.call('PUT', `/api/listings/${LA}/feedback`, { feedback: 'up' });
+  record('open-house', 'a user can favorite a listing', favoriteByC.status === 200, `status ${favoriteByC.status}`);
+  const oh2Create = await A.call('POST', `/api/listings/${LA}/open-houses`, { startsAt: new Date(Date.now() + 72 * 3600000).toISOString(), endsAt: new Date(Date.now() + 74 * 3600000).toISOString(), note: 'AUTHZ open house 2' });
+  record('open-house', 'the owner can schedule a second open house', oh2Create.status === 201, `status ${oh2Create.status}`);
+  await new Promise(r => setTimeout(r, 500));
+  const cNotifOpenHouse = sql(`SELECT body FROM notifications WHERE user_id = ${C.id} AND body LIKE '%open house%saved%'`);
+  record('open-house', 'a favoriter is notified when a new open house is scheduled', cNotifOpenHouse.length > 0, JSON.stringify(cNotifOpenHouse));
+  const bNotifOpenHouse2 = sql(`SELECT body FROM notifications WHERE user_id = ${B.id} AND body LIKE '%open house%saved%'`);
+  record('open-house', "a non-favoriter isn't notified about a new open house", bNotifOpenHouse2.length === 0, JSON.stringify(bNotifOpenHouse2));
 
   // ---------- pre-listing delete: awarded protection (PL is awarded from setup) ----------
   const deleteAwarded = await A.call('DELETE', `/api/pre-listings/${PL}`);
@@ -705,9 +786,10 @@ const denied = r => r.status >= 400 && r.status < 500;
     '/api/groups', '/api/groups/1', '/api/groups/2', '/api/posts', `/api/posts/${P}/comments`, '/api/conversations', '/api/notifications', '/api/favorites', '/api/hidden-listings',
     '/api/saved-searches', '/api/agent-search-alerts', '/api/referrals', '/api/demo-overview', '/api/broker/stats', '/api/agents/my-bids', '/api/agents/my-invites', '/api/agents/favorites', `/sitemap.xml`,
     '/api/augmented-homes', `/api/augmented-homes/${AUG}`, '/api/accessibility-needs-alerts', '/api/dev-projects', `/api/dev-projects/${PROJ}`,
+    '/api/green-homes', `/api/green-homes/${GREEN}`,
     `/profile/${G.id}`, `/profile/${A.id}`, `/api/listings/${LA}/offers`, `/api/listings/${LA}/open-houses`, `/listing/${LA}`];
   const secrets = [['client name', MARK.clientName], ['listing address', MARK.address], ['pre-listing address', MARK.preAddress], ['lockbox note (non-agent)', MARK.lockbox], ['private message', MARK.message],
-    ['augmented home address', MARK.augAddress], ['dev project address', MARK.projAddress],
+    ['augmented home address', MARK.augAddress], ['dev project address', MARK.projAddress], ['green home address', MARK.greenAddress], ['counter-offer message', MARK.counterMessage],
     ['A email', A.email], ['C email', C.email], ['password hash', 'password_hash'], ['verify token', 'verify_token'], ['reset token', 'reset_token'], ['R2 key', 'r2_key'], ['session', 'ah_session']];
   for (const who of [B, anon]) {
     for (const url of urls) {

@@ -135,6 +135,7 @@ function goToTab(name) {
   // (private browsing, blocked site data) and losing this is never worth breaking navigation over.
   try { localStorage.setItem('ah_last_tab', name); } catch {}
   if (name === 'feed') { loadFeed(); checkOnboarding(); }
+  if (name === 'marketpulse') loadMarketPulse();
   if (name === 'listing') { loadMyListing(); if (!editingListingId) checkForListingDraft(); }
   if (name === 'groups') loadGroups();
   if (name === 'matches') loadMatches();
@@ -367,6 +368,64 @@ async function loadFeed() {
     list.innerHTML = posts.map(renderPostCard).join('');
   } catch (e) {
     list.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+const MARKET_EVENT_TONE = {
+  new_listing: 'ticker-neutral', price_drop: 'ticker-down',
+  offer_accepted: 'ticker-up', open_house_scheduled: 'ticker-neutral',
+};
+const MARKET_EVENT_ARROW = { new_listing: '●', price_drop: '▼', offer_accepted: '▲', open_house_scheduled: '●' };
+
+function signedMoney(n) {
+  n = Number(n) || 0;
+  return (n > 0 ? '+' : n < 0 ? '−' : '') + money(Math.abs(n));
+}
+
+function renderTickerItem(e) {
+  const tone = MARKET_EVENT_TONE[e.eventType] || 'ticker-neutral';
+  const arrow = MARKET_EVENT_ARROW[e.eventType] || '●';
+  const figure = e.eventType === 'price_drop' ? signedMoney(e.delta) : e.amount ? money(e.amount) : '';
+  return `<span class="ticker-item"><span class="${tone}">${arrow}</span> ${escapeHtml(e.headline)}${figure ? ` <span class="${tone}">${figure}</span>` : ''}</span>`;
+}
+
+function renderMarketEventRow(e) {
+  const tone = MARKET_EVENT_TONE[e.eventType] || 'ticker-neutral';
+  const figure = e.eventType === 'price_drop' ? signedMoney(e.delta) : e.amount ? money(e.amount) : '';
+  return `
+    <div class="card market-event-row">
+      <div>
+        <strong>${escapeHtml(e.headline)}</strong>
+        <div class="tiny">${timeAgo(e.createdAt)}${e.city ? ` · ${escapeHtml(e.city)}, ${escapeHtml(e.state)}` : ''}</div>
+      </div>
+      ${figure ? `<span class="market-event-delta ${tone}">${figure}</span>` : ''}
+    </div>
+  `;
+}
+
+let marketPulseTimer = null;
+
+async function loadMarketPulse() {
+  clearTimeout(marketPulseTimer);
+  const trackEl = document.getElementById('marketTickerTrack');
+  const listEl = document.getElementById('marketEventsList');
+  try {
+    const { events } = await apiGet('/api/market-events?limit=50');
+    if (events.length === 0) {
+      trackEl.innerHTML = '<span class="ticker-item ticker-empty">No market activity yet — list a home, drop a price, or close a deal to kick off the feed.</span>';
+      listEl.innerHTML = '<div class="empty-state">No market activity yet.</div>';
+    } else {
+      const tickerHtml = events.map(renderTickerItem).join('');
+      // Rendered twice back-to-back so the CSS marquee's translateX(-50%) loop has no visible seam.
+      trackEl.innerHTML = tickerHtml + tickerHtml;
+      listEl.innerHTML = events.map(renderMarketEventRow).join('');
+    }
+  } catch (e) {
+    trackEl.innerHTML = `<span class="ticker-item ticker-empty">${escapeHtml(e.message)}</span>`;
+    listEl.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`;
+  }
+  if (document.getElementById('tab-marketpulse')?.classList.contains('active')) {
+    marketPulseTimer = setTimeout(loadMarketPulse, 20000);
   }
 }
 
@@ -2027,10 +2086,30 @@ async function loadAugmentedFavorites() {
   } catch (e) { el.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
 }
 
+// Always-open variant of renderPostCard's comments-block (no like/toggle/delete-post row — there's no
+// visible "post", just the thread). Reuses the exact ids renderComments()/wireFeedEvents() already expect.
+function dealThreadCardHtml(postId) {
+  return `
+    <div class="card about-card">
+      <h2>Discussion</h2>
+      <div class="comments-block" id="comments-${postId}">
+        <div class="comments-list" id="comments-list-${postId}"></div>
+        <form class="comment-form" data-post-id="${postId}">
+          <input type="text" maxlength="1000" placeholder="Write a comment…" required>
+          <button type="submit" class="btn btn-ghost btn-sm">Send</button>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
 async function openAugmentedHomeDetail(id) {
   const contentEl = document.getElementById('augmentedDetailContent');
   try {
-    const { home: h, isOwner } = await apiGet(`/api/augmented-homes/${id}`);
+    const [{ home: h, isOwner }, { postId }] = await Promise.all([
+      apiGet(`/api/augmented-homes/${id}`),
+      apiGet(`/api/augmented-homes/${id}/thread`),
+    ]);
     augmentedDetail = { id, isOwner };
     showAugmentedDetail();
     const photosHtml = h.photoIds.length
@@ -2075,9 +2154,12 @@ async function openAugmentedHomeDetail(id) {
         <h2>Offers</h2>
         <div id="augmentedOffers-${h.id}"><span class="tiny">Loading…</span></div>
       </div>
+
+      ${dealThreadCardHtml(postId)}
     `;
     loadAugmentedOpenHousesInto(h.id);
     loadAugmentedOffersInto(h.id, isOwner);
+    renderComments(postId);
   } catch (e) { contentEl.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
 }
 
@@ -2291,7 +2373,10 @@ async function loadGreenFavorites() {
 async function openGreenHomeDetail(id) {
   const contentEl = document.getElementById('greenDetailContent');
   try {
-    const { home: h, isOwner } = await apiGet(`/api/green-homes/${id}`);
+    const [{ home: h, isOwner }, { postId }] = await Promise.all([
+      apiGet(`/api/green-homes/${id}`),
+      apiGet(`/api/green-homes/${id}/thread`),
+    ]);
     greenDetail = { id, isOwner };
     showGreenDetail();
     const photosHtml = h.photoIds.length
@@ -2336,9 +2421,12 @@ async function openGreenHomeDetail(id) {
         <h2>Offers</h2>
         <div id="greenOffers-${h.id}"><span class="tiny">Loading…</span></div>
       </div>
+
+      ${dealThreadCardHtml(postId)}
     `;
     loadGreenOpenHousesInto(h.id);
     loadGreenOffersInto(h.id, isOwner);
+    renderComments(postId);
   } catch (e) { contentEl.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
 }
 
@@ -2559,7 +2647,10 @@ async function loadProjectFavorites() {
 async function openProjectDetail(id) {
   const contentEl = document.getElementById('findermineDetailContent');
   try {
-    const { project: p, isOwner, interestedInvestors, amInterested } = await apiGet(`/api/dev-projects/${id}`);
+    const [{ project: p, isOwner, interestedInvestors, amInterested }, { postId }] = await Promise.all([
+      apiGet(`/api/dev-projects/${id}`),
+      apiGet(`/api/dev-projects/${id}/thread`),
+    ]);
     findermineDetail = { id };
     showFinderMineDetail();
     const photosHtml = p.photoIds.length
@@ -2603,7 +2694,10 @@ async function openProjectDetail(id) {
           </div>
         `).join('') : '<div class="empty-state">No investors yet.</div>'}
       ` : ''}
+
+      ${dealThreadCardHtml(postId)}
     `;
+    renderComments(postId);
   } catch (e) { contentEl.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
 }
 
@@ -3245,6 +3339,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     } catch (err) { toast(err.message); }
   });
   wireFeedEvents(document.getElementById('feedList'));
+  // Deal-thread discussion cards on the 3 detail views reuse the same comment markup/ids, so one delegated
+  // listener per persistent container (wired once here, never re-wired on each open) covers them too.
+  wireFeedEvents(document.getElementById('augmentedDetailContent'));
+  wireFeedEvents(document.getElementById('greenDetailContent'));
+  wireFeedEvents(document.getElementById('findermineDetailContent'));
 
   document.getElementById('listingForm').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -4620,7 +4719,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // two runs, so the tab's data isn't fetched twice. The Feed loads when its tab is opened.
   const openedByLink = location.hash ? await openAppLink(location.hash) : false;
   if (!openedByLink) {
-    const VALID_TABS = ['marketplace', 'feed', 'listing', 'groups', 'matches', 'saved', 'messages', 'augmented', 'findermine', 'greenhomes'];
+    const VALID_TABS = ['marketplace', 'feed', 'marketpulse', 'listing', 'groups', 'matches', 'saved', 'messages', 'augmented', 'findermine', 'greenhomes'];
     let lastTab = 'marketplace';
     try { if (VALID_TABS.includes(localStorage.getItem('ah_last_tab'))) lastTab = localStorage.getItem('ah_last_tab'); } catch {}
     goToTab(lastTab);

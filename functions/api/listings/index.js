@@ -3,6 +3,7 @@ import { json, badRequest, unauthorized, parseJsonSafe } from '../../_lib/util.j
 import { validateListingInput, insertListing } from '../../_lib/listings.js';
 import { notifyNewMatches } from '../../_lib/matchNotify.js';
 import { fetchPortfolioMembers } from '../../_lib/portfolios.js';
+import { logMarketEventUnlessDemo } from '../../_lib/marketEvents.js';
 
 export async function onRequestGet(context) {
   const user = await getSessionUser(context);
@@ -48,5 +49,15 @@ export async function onRequestPost(context) {
   // surfaced as this endpoint returning a bare Cloudflare 1101 error instead
   // of the listing it had, in fact, already successfully created.
   context.waitUntil(notifyNewMatches(context, listingId));
+  // Buyer-only "profiles" and bundled portfolio members aren't a standalone property to list on the ticker.
+  if (!validated.data.isBuyerOnly) {
+    const price = '$' + Number(validated.data.estimatedValue).toLocaleString('en-US');
+    context.waitUntil(logMarketEventUnlessDemo(context.env.DB, user.id, {
+      eventType: 'new_listing', entityKind: 'listing', entityId: listingId,
+      city: validated.data.city, state: validated.data.state,
+      headline: `New listing: ${validated.data.propertyType || 'Home'} in ${validated.data.city}, ${validated.data.state} — ${price}`,
+      amount: validated.data.estimatedValue,
+    }));
+  }
   return json({ id: listingId }, { status: 201 });
 }

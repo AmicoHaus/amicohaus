@@ -841,3 +841,33 @@ main > .demo-section:first-of-type > [data-pills] { display: none; }
 /* Unread-message count on the Messages tab itself — distinct from the general notification bell, which mixes
    in matches/likes/comments too. */
 .tab-badge { background: var(--danger); color: #fff; border-radius: 999px; font-size: 0.7rem; padding: 1px 6px; margin-left: 2px; }
+
+/* Market Pulse ticker — a trading-terminal-style scrolling strip of real platform activity (never simulated
+   price ticks; every item is a real new listing, price drop, accepted offer, or open house). The track holds
+   two copies of the same content back to back and scrolls exactly 50% of its own width, so the loop seam is
+   invisible — standard seamless-marquee trick, not a timed reset. */
+.ticker-strip {
+  background: #10151c; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  overflow: hidden; white-space: nowrap; margin-bottom: 16px;
+}
+.ticker-track {
+  display: inline-flex; align-items: center; animation: tickerScroll 45s linear infinite;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 0.85rem;
+}
+.ticker-strip:hover .ticker-track { animation-play-state: paused; }
+.ticker-item { display: inline-flex; align-items: center; gap: 6px; padding: 10px 20px; color: #d8dde3; }
+.ticker-item .ticker-up { color: #4fd17a; }
+.ticker-item .ticker-down { color: #ef6a62; }
+.ticker-item .ticker-neutral { color: var(--gold-light); }
+.ticker-empty { padding: 10px 20px; color: #8993a1; font-size: 0.85rem; }
+@keyframes tickerScroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ticker-track { animation: none; overflow-x: auto; }
+}
+
+.market-event-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.market-event-delta.ticker-up { color: var(--success); font-weight: 600; }
+.market-event-delta.ticker-down { color: var(--danger); font-weight: 600; }

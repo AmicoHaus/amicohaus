@@ -24,6 +24,7 @@
     <nav class="tabs" id="tabs">
       <button class="tab active" data-tab="marketplace">Agent Strategy</button>
       <button class="tab" data-tab="feed">Feed</button>
+      <button class="tab" data-tab="marketpulse">Market Pulse</button>
       <button class="tab" data-tab="listing">My Listing</button>
       <button class="tab" data-tab="groups">Groups</button>
       <button class="tab" data-tab="matches">Matches</button>
@@ -56,6 +57,16 @@
         <button type="submit" class="btn btn-primary btn-sm">Post</button>
       </form>
       <div class="stack" id="feedList"><div class="empty-state">Loading…</div></div>
+    </section>
+
+    <!-- MARKET PULSE -->
+    <section id="tab-marketpulse" class="tab-panel">
+      <h1>Market Pulse</h1>
+      <p class="section-sub">Live activity across every Amico Haus marketplace — new listings, price drops, accepted deals, and open houses, as they actually happen. Nothing here is simulated; every line is a real event.</p>
+      <div class="ticker-strip" id="marketTicker">
+        <div class="ticker-track" id="marketTickerTrack"><span class="ticker-item ticker-empty">Loading market activity…</span></div>
+      </div>
+      <div class="stack" id="marketEventsList"><div class="empty-state">Loading…</div></div>
     </section>
 
     <!-- MY LISTING -->

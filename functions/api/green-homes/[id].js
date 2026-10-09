@@ -3,6 +3,7 @@ import { json, badRequest, unauthorized, forbidden, notFound } from '../../_lib/
 import { validateGreenHomeInput, updateGreenHome, fetchGreenHomePhotos, setGreenHomeStatus } from '../../_lib/greenHomes.js';
 import { isFavorited, fetchFavoriterIds } from '../../_lib/greenHomeFavorites.js';
 import { notifyPriceDrop } from '../../_lib/marketplaceNotify.js';
+import { logMarketEventUnlessDemo } from '../../_lib/marketEvents.js';
 
 export async function onRequestGet(context) {
   const id = context.params.id;
@@ -42,7 +43,7 @@ export async function onRequestPut(context) {
   if (!user) return unauthorized();
 
   const db = context.env.DB;
-  const existing = await db.prepare('SELECT user_id, status, asking_price FROM green_homes WHERE id = ?').bind(id).first();
+  const existing = await db.prepare('SELECT user_id, status, asking_price, city, state FROM green_homes WHERE id = ?').bind(id).first();
   if (!existing) return notFound('Listing not found.');
   if (existing.user_id !== user.id) return forbidden();
 
@@ -64,6 +65,16 @@ export async function onRequestPut(context) {
       .bind(id, existing.asking_price, validated.data.askingPrice).run();
     const favoriters = await fetchFavoriterIds(db, id);
     context.waitUntil(notifyPriceDrop(context, `/app#green-home-${id}`, favoriters, existing.asking_price, validated.data.askingPrice));
+    if (Number(validated.data.askingPrice) < Number(existing.asking_price)) {
+      const oldPrice = '$' + Number(existing.asking_price).toLocaleString('en-US');
+      const newPrice = '$' + Number(validated.data.askingPrice).toLocaleString('en-US');
+      context.waitUntil(logMarketEventUnlessDemo(context.env.DB, existing.user_id, {
+        eventType: 'price_drop', entityKind: 'green_home', entityId: id,
+        city: existing.city, state: existing.state,
+        headline: `Price drop in ${existing.city}, ${existing.state}: ${oldPrice} → ${newPrice}`,
+        amount: validated.data.askingPrice, delta: validated.data.askingPrice - existing.asking_price,
+      }));
+    }
   }
   return json({ ok: true });
 }

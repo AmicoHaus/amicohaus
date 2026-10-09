@@ -6,6 +6,7 @@ import { validateListingEdit, updateListing } from '../../_lib/listings.js';
 import { notifyNewMatches } from '../../_lib/matchNotify.js';
 import { snapshotListingForTrash } from '../../_lib/trash.js';
 import { DEMO_EMAIL_PATTERN } from '../../_lib/util.js';
+import { logMarketEventUnlessDemo } from '../../_lib/marketEvents.js';
 
 async function loadListing(db, id) {
   return db.prepare(
@@ -51,7 +52,7 @@ export async function onRequestPut(context) {
   if (!user) return unauthorized();
 
   const db = context.env.DB;
-  const existing = await db.prepare('SELECT user_id, is_buyer_only, is_rental, is_portfolio FROM listings WHERE id = ?').bind(id).first();
+  const existing = await db.prepare('SELECT user_id, is_buyer_only, is_rental, is_portfolio, estimated_value FROM listings WHERE id = ?').bind(id).first();
   if (!existing) return notFound('Listing not found.');
   if (existing.user_id !== user.id && user.role !== 'admin') return forbidden();
 
@@ -76,6 +77,16 @@ export async function onRequestPut(context) {
       const validated = validateListingEdit(!!existing.is_buyer_only, !!existing.is_rental, body);
       if (validated.error) return badRequest(validated.error);
       await updateListing(db, id, existing.user_id, validated.data);
+      if (!existing.is_buyer_only && Number(validated.data.estimatedValue) < Number(existing.estimated_value)) {
+        const oldPrice = '$' + Number(existing.estimated_value).toLocaleString('en-US');
+        const newPrice = '$' + Number(validated.data.estimatedValue).toLocaleString('en-US');
+        context.waitUntil(logMarketEventUnlessDemo(context.env.DB, existing.user_id, {
+          eventType: 'price_drop', entityKind: 'listing', entityId: id,
+          city: validated.data.city, state: validated.data.state,
+          headline: `Price drop in ${validated.data.city}, ${validated.data.state}: ${oldPrice} → ${newPrice}`,
+          amount: validated.data.estimatedValue, delta: validated.data.estimatedValue - existing.estimated_value,
+        }));
+      }
     }
     // Backgrounded, same reasoning as creating a listing — an edit that
     // widens a price range or drops a beds/baths minimum can surface a wave

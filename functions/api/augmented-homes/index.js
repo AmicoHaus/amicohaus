@@ -3,6 +3,7 @@ import { json, badRequest, unauthorized } from '../../_lib/util.js';
 import { validateAugmentedHomeInput, insertAugmentedHome, fetchAugmentedHomePhotos } from '../../_lib/augmentedHomes.js';
 import { checkAlertsForNewHome } from '../../_lib/accessibilityAlerts.js';
 import { fetchMyFavoriteHomeIds } from '../../_lib/augmentedHomeFavorites.js';
+import { logMarketEventUnlessDemo } from '../../_lib/marketEvents.js';
 
 const LIST_FIELDS = `augmented_homes.id, augmented_homes.user_id, augmented_homes.title, augmented_homes.city,
   augmented_homes.state, augmented_homes.zip, augmented_homes.property_type, augmented_homes.beds,
@@ -77,5 +78,12 @@ export async function onRequestPost(context) {
 
   const id = await insertAugmentedHome(context.env.DB, user.id, validated.data);
   context.waitUntil(checkAlertsForNewHome(context.env.DB, id));
+  const price = '$' + Number(validated.data.askingPrice).toLocaleString('en-US');
+  context.waitUntil(logMarketEventUnlessDemo(context.env.DB, user.id, {
+    eventType: 'new_listing', entityKind: 'augmented_home', entityId: id,
+    city: validated.data.city, state: validated.data.state,
+    headline: `New AugmentedHomes listing in ${validated.data.city}, ${validated.data.state} — ${price}`,
+    amount: validated.data.askingPrice,
+  }));
   return json({ id }, { status: 201 });
 }

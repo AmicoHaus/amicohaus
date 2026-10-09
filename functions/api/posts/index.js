@@ -30,7 +30,11 @@ export async function onRequestGet(context) {
   const query = groupId
     ? db.prepare(`${baseSelect} WHERE posts.group_id = ? AND users.email NOT LIKE ? ${blockClause} ORDER BY posts.created_at DESC LIMIT ?`)
         .bind(groupId, DEMO_EMAIL_PATTERN, ...blockParams, limit)
-    : db.prepare(`${baseSelect} WHERE posts.group_id IS NULL AND users.email NOT LIKE ? ${blockClause} ORDER BY posts.created_at DESC LIMIT ?`)
+    // Deal-thread anchor posts (listing_id/augmented_home_id/green_home_id/dev_project_id set) are reachable
+    // only through their entity's own thread view, never the general feed -- exclude them here.
+    : db.prepare(`${baseSelect} WHERE posts.group_id IS NULL AND posts.listing_id IS NULL
+          AND posts.augmented_home_id IS NULL AND posts.green_home_id IS NULL AND posts.dev_project_id IS NULL
+          AND users.email NOT LIKE ? ${blockClause} ORDER BY posts.created_at DESC LIMIT ?`)
         .bind(DEMO_EMAIL_PATTERN, ...blockParams, limit);
 
   const rows = await query.all();

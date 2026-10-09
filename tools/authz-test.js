@@ -972,6 +972,54 @@ const denied = r => r.status >= 400 && r.status < 500;
   const deletePL2 = await A.call('DELETE', `/api/pre-listings/${PL2}`);
   record('owner', 'the owner can delete their own closed pre-listing', deletePL2.status === 200 && sql(`SELECT COUNT(*) AS n FROM pre_listings WHERE id = ${PL2}`)[0].n === 0, `status ${deletePL2.status}`);
 
+  // ---------- deal threads (per-listing discussion, the Reddit/BiggerPockets-style comment thread) ----------
+  console.log('\n== deal threads ==');
+  const threadAnon = await anon.call('GET', `/api/listings/${LA}/thread`);
+  record('deal-thread', "anonymous can read a listing's deal thread (public like the listing page itself)", threadAnon.status === 200 && Number.isInteger(threadAnon.json.postId), JSON.stringify(threadAnon.json));
+  const THREAD_POST = threadAnon.json.postId;
+  const threadAgain = await B.call('GET', `/api/listings/${LA}/thread`);
+  record('deal-thread', 'fetching the same thread again returns the same anchor post, not a duplicate', threadAgain.json.postId === THREAD_POST, JSON.stringify(threadAgain.json));
+
+  const threadAugAnon = await anon.call('GET', `/api/augmented-homes/${AUG}/thread`);
+  record('deal-thread', "anonymous can't read an AugmentedHome's thread (no public offer UI for this vertical either, sign-in required)", threadAugAnon.status === 401, `status ${threadAugAnon.status}`);
+  const threadAugB = await B.call('GET', `/api/augmented-homes/${AUG}/thread`);
+  record('deal-thread', "a signed-in stranger CAN read an AugmentedHome's thread", threadAugB.status === 200 && Number.isInteger(threadAugB.json.postId), JSON.stringify(threadAugB.json));
+  const threadGreenAnon = await anon.call('GET', `/api/green-homes/${GREEN}/thread`);
+  record('deal-thread', "anonymous can't read a GreenHome's thread", threadGreenAnon.status === 401, `status ${threadGreenAnon.status}`);
+  const threadProjAnon = await anon.call('GET', `/api/dev-projects/${PROJ}/thread`);
+  record('deal-thread', "anonymous can't read a FinderMine project's thread", threadProjAnon.status === 401, `status ${threadProjAnon.status}`);
+
+  const commentAnonPost = await anon.call('POST', `/api/posts/${THREAD_POST}/comments`, { body: 'anon trying to post' });
+  record('deal-thread', "anonymous can't post a comment on a deal thread", commentAnonPost.status === 401, `status ${commentAnonPost.status}`);
+  // B, not C: A already blocked C in the "blocks" section above, so C can't post on A's thread at all (checked
+  // separately below) -- B is unblocked and is the right actor for the generic "can post" / "anon can read" checks.
+  const commentB = await B.call('POST', `/api/posts/${THREAD_POST}/comments`, { body: MARK.comment + '-thread' });
+  record('deal-thread', 'a signed-in user can post a comment on the deal thread', commentB.status === 201, `status ${commentB.status}`);
+  const THREAD_COMMENT = commentB.json && commentB.json.id;
+  const threadCommentsAnon = await anon.call('GET', `/api/posts/${THREAD_POST}/comments`);
+  record('deal-thread', 'anonymous can read the comment back', threadCommentsAnon.status === 200 && threadCommentsAnon.json.comments.some(c => c.id === THREAD_COMMENT), JSON.stringify(threadCommentsAnon.json));
+  // A already blocked C (see the "blocks" section above) -- a deal-thread comment is a comment like any other,
+  // so that same existing block-enforcement must carry over to the new entity-linked posts without new logic:
+  // C can't even post on A's thread (comments.js refuses the party, same as it would on any other post of A's).
+  const commentCBlocked = await C.call('POST', `/api/posts/${THREAD_POST}/comments`, { body: 'should never land' });
+  record('deal-thread', "a user A has blocked can't comment on A's deal thread at all", denied(commentCBlocked), `status ${commentCBlocked.status}`);
+
+  // The anchor post (empty body, entity FK set) must never leak into the general feed -- it's reachable
+  // only through its entity's own thread.
+  const feedCheck = await A.call('GET', '/api/posts');
+  record('deal-thread', "the deal-thread anchor post never appears in the general feed", !feedCheck.json.posts.some(p => p.id === THREAD_POST), JSON.stringify(feedCheck.json.posts.map(p => p.id)));
+
+  // ---------- market pulse (real-event ticker) ----------
+  console.log('\n== market pulse ==');
+  const eventsAnon = await anon.call('GET', '/api/market-events');
+  record('market-pulse', "anonymous can't read market events (signed-in only, like the rest of the app)", eventsAnon.status === 401, `status ${eventsAnon.status}`);
+  const priceDrop = await A.call('PUT', `/api/listings/${LA}`, { action: 'edit', ...listingBody({ estimatedValue: 575000 }) });
+  record('market-pulse', 'the owner can edit their listing to a lower price (triggers a price_drop event)', priceDrop.status === 200, `status ${priceDrop.status}`);
+  await new Promise(r => setTimeout(r, 500));
+  const eventsB = await B.call('GET', '/api/market-events?limit=50');
+  const dropEvent = eventsB.json && eventsB.json.events && eventsB.json.events.find(e => e.entityKind === 'listing' && e.entityId === LA && e.eventType === 'price_drop');
+  record('market-pulse', 'a real price drop shows up in the market-events feed for any signed-in user, with the right delta', eventsB.status === 200 && !!dropEvent && dropEvent.delta === -25000, JSON.stringify(dropEvent));
+
   // ---------- 5. leak scan: everything B, H and anonymous can GET, grepped for planted secrets ----------
   console.log('\n== leak scan ==');
   const urls = ['/api/me', '/api/directory', '/api/matches', '/api/listings', `/api/listings/${LA}`, `/api/users/${A.id}`, `/api/users/${C.id}`, '/api/pre-listings', `/api/pre-listings/${PL}`,
@@ -980,7 +1028,8 @@ const denied = r => r.status >= 400 && r.status < 500;
     '/api/saved-searches', '/api/agent-search-alerts', '/api/referrals', '/api/demo-overview', '/api/broker/stats', '/api/agents/my-bids', '/api/agents/my-invites', '/api/agents/favorites', `/sitemap.xml`,
     '/api/augmented-homes', `/api/augmented-homes/${AUG}`, '/api/accessibility-needs-alerts', '/api/dev-projects', `/api/dev-projects/${PROJ}`,
     '/api/green-homes', `/api/green-homes/${GREEN}`,
-    `/profile/${G.id}`, `/profile/${A.id}`, `/api/listings/${LA}/offers`, `/api/listings/${LA}/open-houses`, `/listing/${LA}`];
+    `/profile/${G.id}`, `/profile/${A.id}`, `/api/listings/${LA}/offers`, `/api/listings/${LA}/open-houses`, `/listing/${LA}`,
+    `/api/listings/${LA}/thread`, `/api/posts/${THREAD_POST}/comments`, '/api/market-events'];
   const secrets = [['client name', MARK.clientName], ['listing address', MARK.address], ['pre-listing address', MARK.preAddress], ['lockbox note (non-agent)', MARK.lockbox], ['private message', MARK.message],
     ['augmented home address', MARK.augAddress], ['dev project address', MARK.projAddress], ['green home address', MARK.greenAddress], ['counter-offer message', MARK.counterMessage],
     ['A email', A.email], ['C email', C.email], ['password hash', 'password_hash'], ['verify token', 'verify_token'], ['reset token', 'reset_token'], ['R2 key', 'r2_key'], ['session', 'ah_session']];

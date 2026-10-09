@@ -5,12 +5,34 @@
 (function () {
   const listingId = window.location.pathname.split('/').filter(Boolean).pop();
 
+  // Same shape as main.js's renderComment(), duplicated here since this page doesn't load main.js.
+  function renderComment(c) {
+    return `
+      <div class="side" data-comment-id="${c.id}">
+        <strong><a class="profile-link" href="/profile/${c.user_id}">${escapeHtml(c.author_name)}</a></strong> <span class="tiny">${timeAgo(c.created_at)}</span>
+        <p class="tiny">${escapeHtml(c.body)}</p>
+        ${c.isMine
+          ? `<button type="button" class="link-btn danger" data-action="delete-comment" data-id="${c.id}">Delete</button>`
+          : `<button type="button" class="link-btn" data-action="report-comment" data-id="${c.id}">Report</button>`}
+      </div>
+    `;
+  }
+
+  async function refreshComments(postId) {
+    const { comments } = await apiGet(`/api/posts/${postId}/comments`);
+    const me = await fetchCurrentUser();
+    document.getElementById(`comments-list-${postId}`).innerHTML =
+      comments.map(c => renderComment({ ...c, isMine: me && me.id === c.user_id })).join('') || '<p class="tiny">No comments yet.</p>';
+  }
+
   document.addEventListener('click', async e => {
     const rsvpBtn = e.target.closest('[data-action="rsvp-open-house"]');
     const submitOfferBtn = e.target.closest('[data-action="submit-offer"]');
     const withdrawOfferBtn = e.target.closest('[data-action="withdraw-offer"]');
     const respondCounterBtn = e.target.closest('[data-action="respond-counter"]');
     const counterBackBtn = e.target.closest('[data-action="counter-back"]');
+    const reportCommentBtn = e.target.closest('[data-action="report-comment"]');
+    const deleteCommentBtn = e.target.closest('[data-action="delete-comment"]');
 
     if (rsvpBtn) {
       try {
@@ -66,6 +88,32 @@
         toast('Counter-offer sent.');
         window.location.reload();
       } catch (err) { toast(err.message); }
+    } else if (reportCommentBtn) {
+      const reason = prompt('Why are you reporting this comment?');
+      if (!reason || !reason.trim()) return;
+      try {
+        await apiPost('/api/reports', { targetType: 'comment', targetId: Number(reportCommentBtn.dataset.id), reason: reason.trim() });
+        toast('Report submitted. Thank you.');
+      } catch (err) { toast(err.message); }
+    } else if (deleteCommentBtn) {
+      if (!confirm('Delete this comment?')) return;
+      try {
+        await apiDelete(`/api/comments/${deleteCommentBtn.dataset.id}`);
+        deleteCommentBtn.closest('[data-comment-id]').remove();
+      } catch (err) { toast(err.message); }
     }
+  });
+
+  document.addEventListener('submit', async e => {
+    const form = e.target.closest('.comment-form');
+    if (!form) return;
+    e.preventDefault();
+    const input = form.querySelector('input');
+    const postId = form.dataset.postId;
+    try {
+      await apiPost(`/api/posts/${postId}/comments`, { body: input.value.trim() });
+      input.value = '';
+      await refreshComments(postId);
+    } catch (err) { toast(err.message); }
   });
 })();

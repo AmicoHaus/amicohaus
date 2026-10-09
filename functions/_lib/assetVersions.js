@@ -2,8 +2,8 @@
 // Server-rendered pages use these to link the same content-hashed URLs the
 // static pages get, so a deploy never leaves them on a stale stylesheet.
 export const ASSET_VERSIONS = {
-  '/styles.css': 'f9e77a03',
+  '/styles.css': 'c29b266f',
   '/client.js': '5422aaef',
-  '/listing-actions.js': '0d47d396',
+  '/listing-actions.js': 'fba1adea',
   '/profile-actions.js': '26b547c1',
 };

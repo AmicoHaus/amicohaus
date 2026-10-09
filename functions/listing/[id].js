@@ -8,12 +8,25 @@ import { withSecurityHeaders } from '../_lib/withSecurityHeaders.js';
 import { LIFE_EVENT_ITEMS } from '../_lib/lifeEvents.js';
 import { fetchOpenHouses } from '../_lib/openHouses.js';
 import { fetchMyOffer } from '../_lib/listingOffers.js';
+import { findOrCreateThreadPost } from '../_lib/dealThreads.js';
 
 const LIFE_EVENT_LABELS = Object.fromEntries(LIFE_EVENT_ITEMS.map(i => [i.key, i.label]));
 
 function money(n) {
   n = Number(n) || 0;
   return '$' + n.toLocaleString('en-US');
+}
+
+// Duplicated from client.js's timeAgo() on purpose -- this runs server-side at render time, the client
+// copy runs in the browser after a comment is posted/deleted. Same tiny function, two environments.
+function timeAgo(isoString) {
+  const seconds = Math.floor((Date.now() - new Date(isoString + 'Z').getTime()) / 1000);
+  const units = [['year', 31536000], ['month', 2592000], ['day', 86400], ['hour', 3600], ['minute', 60]];
+  for (const [name, secs] of units) {
+    const n = Math.floor(seconds / secs);
+    if (n >= 1) return `${n} ${name}${n > 1 ? 's' : ''} ago`;
+  }
+  return 'just now';
 }
 
 function notFoundPage() {
@@ -195,6 +208,46 @@ async function renderListingPage(context) {
     }
   }
 
+  // Public discussion thread -- readable by anyone, same as the listing page itself; posting requires
+  // sign-in. Reuses the same posts/comments API the SPA's deal threads use, no new comment logic here.
+  const threadPostId = await findOrCreateThreadPost(db, 'listing', id, listing.owner_id);
+  const blockClause = viewer
+    ? `AND NOT EXISTS (
+         SELECT 1 FROM user_blocks
+         WHERE (user_blocks.blocker_id = ? AND user_blocks.blocked_id = comments.user_id)
+            OR (user_blocks.blocker_id = comments.user_id AND user_blocks.blocked_id = ?)
+       )`
+    : '';
+  const commentRows = await db.prepare(
+    `SELECT comments.id, comments.user_id, comments.body, comments.created_at, users.display_name AS author_name
+     FROM comments JOIN users ON users.id = comments.user_id
+     WHERE comments.post_id = ? ${blockClause}
+     ORDER BY comments.created_at ASC LIMIT 200`
+  ).bind(threadPostId, ...(viewer ? [viewer.id, viewer.id] : [])).all();
+  const commentHtml = (c) => `
+    <div class="side" data-comment-id="${c.id}">
+      <strong><a class="profile-link" href="/profile/${c.user_id}">${escapeHtml(c.author_name)}</a></strong> <span class="tiny">${timeAgo(c.created_at)}</span>
+      <p class="tiny">${escapeHtml(c.body)}</p>
+      ${viewer && viewer.id === c.user_id
+        ? `<button type="button" class="link-btn danger" data-action="delete-comment" data-id="${c.id}">Delete</button>`
+        : viewer ? `<button type="button" class="link-btn" data-action="report-comment" data-id="${c.id}">Report</button>` : ''}
+    </div>
+  `;
+  const discussionHtml = `
+    <div class="card about-card">
+      <h2>Discussion</h2>
+      <div class="comments-list" id="comments-list-${threadPostId}">
+        ${commentRows.results.map(commentHtml).join('') || '<p class="tiny">No comments yet.</p>'}
+      </div>
+      ${viewer
+        ? `<form class="comment-form" data-post-id="${threadPostId}">
+             <input type="text" maxlength="1000" placeholder="Write a comment…" required>
+             <button type="submit" class="btn btn-ghost btn-sm">Send</button>
+           </form>`
+        : `<p class="tiny"><a href="/login">Sign in</a> to join the discussion.</p>`}
+    </div>
+  `;
+
   const externalLinks = parseJsonSafe(listing.external_links, []);
   const virtualTour = externalLinks.find(l => l.label === 'Virtual Tour');
   const otherLinks = externalLinks.filter(l => l.label !== 'Virtual Tour');
@@ -257,6 +310,7 @@ async function renderListingPage(context) {
 
     ${openHousesHtml}
     ${offerHtml}
+    ${discussionHtml}
 
     <div class="form-actions">
       <a class="btn btn-primary" href="/signup">Create Your Own Profile to Connect</a>

@@ -3,6 +3,7 @@ import { json, badRequest, unauthorized, forbidden, notFound } from '../../../..
 import { validateOpenHouseInput, createOpenHouse, fetchOpenHouses } from '../../../../_lib/greenHomeOpenHouses.js';
 import { notifyOpenHouseScheduled } from '../../../../_lib/marketplaceNotify.js';
 import { fetchFavoriterIds } from '../../../../_lib/greenHomeFavorites.js';
+import { logMarketEventUnlessDemo } from '../../../../_lib/marketEvents.js';
 
 // Mirrors functions/api/listings/[id]/open-houses/index.js exactly.
 export async function onRequestGet(context) {
@@ -18,7 +19,7 @@ export async function onRequestPost(context) {
   if (!user) return unauthorized();
 
   const db = context.env.DB;
-  const home = await db.prepare('SELECT user_id FROM green_homes WHERE id = ?').bind(id).first();
+  const home = await db.prepare('SELECT user_id, city, state FROM green_homes WHERE id = ?').bind(id).first();
   if (!home) return notFound('Listing not found.');
   if (home.user_id !== user.id) return forbidden();
 
@@ -31,6 +32,11 @@ export async function onRequestPost(context) {
 
   const favoriters = await fetchFavoriterIds(db, id);
   context.waitUntil(notifyOpenHouseScheduled(context, `/app#green-home-${id}`, favoriters, validated.data.startsAt));
+  context.waitUntil(logMarketEventUnlessDemo(context.env.DB, home.user_id, {
+    eventType: 'open_house_scheduled', entityKind: 'green_home', entityId: id,
+    city: home.city, state: home.state,
+    headline: `Open house scheduled in ${home.city}, ${home.state}`,
+  }));
 
   return json({ id: openHouseId }, { status: 201 });
 }

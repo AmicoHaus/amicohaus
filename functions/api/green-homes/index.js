@@ -3,6 +3,7 @@ import { json, badRequest, unauthorized } from '../../_lib/util.js';
 import { validateGreenHomeInput, insertGreenHome, fetchGreenHomePhotos } from '../../_lib/greenHomes.js';
 import { checkGreenAlertsForNewHome } from '../../_lib/greenNeedsAlerts.js';
 import { fetchMyFavoriteHomeIds } from '../../_lib/greenHomeFavorites.js';
+import { logMarketEventUnlessDemo } from '../../_lib/marketEvents.js';
 
 const LIST_FIELDS = `green_homes.id, green_homes.user_id, green_homes.title, green_homes.city,
   green_homes.state, green_homes.zip, green_homes.property_type, green_homes.beds,
@@ -76,5 +77,12 @@ export async function onRequestPost(context) {
 
   const id = await insertGreenHome(context.env.DB, user.id, validated.data);
   context.waitUntil(checkGreenAlertsForNewHome(context.env.DB, id));
+  const price = '$' + Number(validated.data.askingPrice).toLocaleString('en-US');
+  context.waitUntil(logMarketEventUnlessDemo(context.env.DB, user.id, {
+    eventType: 'new_listing', entityKind: 'green_home', entityId: id,
+    city: validated.data.city, state: validated.data.state,
+    headline: `New GreenHomes listing in ${validated.data.city}, ${validated.data.state} — ${price}`,
+    amount: validated.data.askingPrice,
+  }));
   return json({ id }, { status: 201 });
 }

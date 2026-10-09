@@ -3,6 +3,8 @@ import { json, badRequest, unauthorized } from '../../_lib/util.js';
 import { validateDevProjectInput, insertDevProject, fetchDevProjectPhotos, fetchInterestCount } from '../../_lib/devProjects.js';
 import { fetchMyFavoriteProjectIds } from '../../_lib/devProjectFavorites.js';
 import { checkAlertsForNewProject } from '../../_lib/devProjectNeedsAlerts.js';
+import { logMarketEventUnlessDemo } from '../../_lib/marketEvents.js';
+import { PROJECT_TYPE_LABELS } from '../../_lib/devProjects.js';
 
 const LIST_FIELDS = `dev_projects.id, dev_projects.user_id, dev_projects.title, dev_projects.city, dev_projects.state,
   dev_projects.project_type, dev_projects.stage, dev_projects.funding_goal, dev_projects.min_investment,
@@ -85,5 +87,13 @@ export async function onRequestPost(context) {
 
   const id = await insertDevProject(context.env.DB, user.id, validated.data);
   context.waitUntil(checkAlertsForNewProject(context.env.DB, id));
+  const typeLabel = PROJECT_TYPE_LABELS[validated.data.projectType] || validated.data.projectType;
+  const goal = validated.data.fundingGoal ? ` — ${'$' + Number(validated.data.fundingGoal).toLocaleString('en-US')} sought` : '';
+  context.waitUntil(logMarketEventUnlessDemo(context.env.DB, user.id, {
+    eventType: 'new_listing', entityKind: 'dev_project', entityId: id,
+    city: validated.data.city, state: validated.data.state,
+    headline: `New FinderMine project in ${validated.data.city}, ${validated.data.state}: ${typeLabel}${goal}`,
+    amount: validated.data.fundingGoal || null,
+  }));
   return json({ id }, { status: 201 });
 }

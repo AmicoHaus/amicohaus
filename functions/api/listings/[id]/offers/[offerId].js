@@ -2,6 +2,7 @@ import { getSessionUser } from '../../../../_lib/auth.js';
 import { json, badRequest, unauthorized, forbidden, notFound } from '../../../../_lib/util.js';
 import { decideOffer, validateCounterInput, counterOffer, acceptCounter } from '../../../../_lib/listingOffers.js';
 import { notifyOfferDecision, notifyOfferCounter, notifyCounterDecision } from '../../../../_lib/marketplaceNotify.js';
+import { logMarketEventUnlessDemo } from '../../../../_lib/marketEvents.js';
 
 const VALID_ACTIONS = ['accept', 'decline', 'withdraw', 'counter', 'accept_counter', 'decline_counter'];
 
@@ -15,9 +16,9 @@ export async function onRequestPut(context) {
   if (!VALID_ACTIONS.includes(body.action)) return badRequest('Invalid action.');
 
   const db = context.env.DB;
-  const listing = await db.prepare('SELECT user_id FROM listings WHERE id = ?').bind(listingId).first();
+  const listing = await db.prepare('SELECT user_id, city, state FROM listings WHERE id = ?').bind(listingId).first();
   if (!listing) return notFound('Listing not found.');
-  const offer = await db.prepare('SELECT id, buyer_user_id, status, counter_price, countered_by FROM listing_offers WHERE id = ? AND listing_id = ?').bind(offerId, listingId).first();
+  const offer = await db.prepare('SELECT id, buyer_user_id, status, offer_price, counter_price, countered_by FROM listing_offers WHERE id = ? AND listing_id = ?').bind(offerId, listingId).first();
   if (!offer) return notFound('Offer not found.');
   const isOwner = listing.user_id === user.id;
   const isBuyer = offer.buyer_user_id === user.id;
@@ -60,6 +61,14 @@ export async function onRequestPut(context) {
     // Notify whoever proposed the counter being responded to -- the other side of this exchange.
     const notifyUserId = responderIsBuyer ? listing.user_id : offer.buyer_user_id;
     context.waitUntil(notifyCounterDecision(context, link, notifyUserId, accepted));
+    if (accepted) {
+      context.waitUntil(logMarketEventUnlessDemo(context.env.DB, listing.user_id, {
+        eventType: 'offer_accepted', entityKind: 'listing', entityId: listingId,
+        city: listing.city, state: listing.state,
+        headline: `Deal closed in ${listing.city}, ${listing.state}: ${'$' + Number(offer.counter_price).toLocaleString('en-US')}`,
+        amount: offer.counter_price,
+      }));
+    }
     return json({ ok: true });
   }
 
@@ -69,5 +78,13 @@ export async function onRequestPut(context) {
   if (offer.status !== 'pending') return badRequest('This offer has already been decided.');
   await decideOffer(db, offerId, body.action === 'accept' ? 'accepted' : 'declined');
   context.waitUntil(notifyOfferDecision(context, offer.buyer_user_id, link, body.action === 'accept'));
+  if (body.action === 'accept') {
+    context.waitUntil(logMarketEventUnlessDemo(context.env.DB, listing.user_id, {
+      eventType: 'offer_accepted', entityKind: 'listing', entityId: listingId,
+      city: listing.city, state: listing.state,
+      headline: `Deal closed in ${listing.city}, ${listing.state}: ${'$' + Number(offer.offer_price).toLocaleString('en-US')}`,
+      amount: offer.offer_price,
+    }));
+  }
   return json({ ok: true });
 }

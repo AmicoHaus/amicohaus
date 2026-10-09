@@ -605,6 +605,9 @@
         <h2>My Saved Alerts</h2>
         <div class="stack" id="accessibilityAlertsList"><div class="empty-state">Loading…</div></div>
 
+        <h2>My Favorites</h2>
+        <div class="grid" id="augmentedFavoritesList"><div class="empty-state">Loading…</div></div>
+
         <h2>Browse AugmentedHomes</h2>
         <form id="augmentedFilters" class="form-row two-col">
           <div class="field"><label>City</label><input type="text" id="augmentedCity"></div>
@@ -678,6 +681,9 @@
         <h2>My Saved Alerts</h2>
         <div class="stack" id="greenAlertsList"><div class="empty-state">Loading…</div></div>
 
+        <h2>My Favorites</h2>
+        <div class="grid" id="greenFavoritesList"><div class="empty-state">Loading…</div></div>
+
         <h2>Browse GreenHomes</h2>
         <form id="greenFilters" class="form-row two-col">
           <div class="field"><label>City</label><input type="text" id="greenFilterCity"></div>
@@ -738,6 +744,23 @@
 
         <h2>My Projects</h2>
         <div class="stack" id="myProjectsList"><div class="empty-state">Loading…</div></div>
+
+        <details class="panel bulk-upload" id="projectAlertWrap">
+          <summary>Save what you're looking for — get notified</summary>
+          <p class="section-sub">Pick a project type and, optionally, a city/state — you'll be notified the moment a newly-posted project matches.</p>
+          <div class="field"><label>Name this alert (optional)</label><input type="text" id="projectAlertLabel" maxlength="80" placeholder="e.g. Multi-family in San Diego"></div>
+          <div class="field"><label>Project type (optional)</label><select id="projectAlertType"><option value="">Any type</option></select></div>
+          <div class="form-row two-col">
+            <div class="field"><label>City (optional)</label><input type="text" id="projectAlertCity" maxlength="80"></div>
+            <div class="field"><label>State (optional)</label><input type="text" id="projectAlertState" maxlength="20"></div>
+          </div>
+          <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="saveProjectAlertBtn">Save Alert</button></div>
+        </details>
+        <h2>My Saved Alerts</h2>
+        <div class="stack" id="projectAlertsList"><div class="empty-state">Loading…</div></div>
+
+        <h2>My Favorites</h2>
+        <div class="grid" id="projectFavoritesList"><div class="empty-state">Loading…</div></div>
 
         <h2>Browse Projects</h2>
         <form id="projectFilters" class="form-row two-col">

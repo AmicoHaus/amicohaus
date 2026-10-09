@@ -2,6 +2,7 @@ import { getSessionUser } from '../../_lib/auth.js';
 import { json, badRequest, unauthorized } from '../../_lib/util.js';
 import { validateGreenHomeInput, insertGreenHome, fetchGreenHomePhotos } from '../../_lib/greenHomes.js';
 import { checkGreenAlertsForNewHome } from '../../_lib/greenNeedsAlerts.js';
+import { fetchMyFavoriteHomeIds } from '../../_lib/greenHomeFavorites.js';
 
 const LIST_FIELDS = `green_homes.id, green_homes.user_id, green_homes.title, green_homes.city,
   green_homes.state, green_homes.zip, green_homes.property_type, green_homes.beds,
@@ -22,6 +23,13 @@ export async function onRequestGet(context) {
       `SELECT ${LIST_FIELDS} FROM green_homes JOIN users ON users.id = green_homes.user_id
        WHERE green_homes.user_id = ? ORDER BY green_homes.created_at DESC`
     ).bind(user.id).all();
+  } else if (url.searchParams.get('favorites') === '1') {
+    const favoriteIds = await fetchMyFavoriteHomeIds(db, user.id);
+    if (!favoriteIds.length) return json({ homes: [] });
+    rows = await db.prepare(
+      `SELECT ${LIST_FIELDS} FROM green_homes JOIN users ON users.id = green_homes.user_id
+       WHERE green_homes.id IN (${favoriteIds.map(() => '?').join(',')}) ORDER BY green_homes.created_at DESC`
+    ).bind(...favoriteIds).all();
   } else {
     const city = (url.searchParams.get('city') || '').trim();
     const state = (url.searchParams.get('state') || '').trim();
@@ -37,17 +45,20 @@ export async function onRequestGet(context) {
   }
 
   const wantedFeatures = url.searchParams.getAll('feature');
-  const mine = url.searchParams.get('mine') === '1';
+  const favoritesMode = url.searchParams.get('favorites') === '1';
+  const skipFilter = url.searchParams.get('mine') === '1' || favoritesMode;
+  const myFavoriteIds = favoritesMode ? null : new Set(await fetchMyFavoriteHomeIds(db, user.id));
   const homes = [];
   for (const r of rows.results) {
     const greenFeatures = JSON.parse(r.green_features_json || '[]');
-    if (!mine && wantedFeatures.length && !wantedFeatures.some(k => greenFeatures.includes(k))) continue;
+    if (!skipFilter && wantedFeatures.length && !wantedFeatures.some(k => greenFeatures.includes(k))) continue;
     const photos = await fetchGreenHomePhotos(db, r.id);
     homes.push({
       id: r.id, userId: r.user_id, owner: r.owner_name, title: r.title, city: r.city, state: r.state, zip: r.zip,
       propertyType: r.property_type, beds: r.beds, baths: r.baths, askingPrice: r.asking_price,
       greenFeatures, lifeEventTags: JSON.parse(r.life_event_tags_json || '[]'),
       status: r.status, createdAt: r.created_at, photoIds: photos.map(p => p.id),
+      isFavorited: favoritesMode ? true : myFavoriteIds.has(r.id),
     });
   }
   return json({ homes });

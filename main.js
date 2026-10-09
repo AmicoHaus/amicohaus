@@ -1936,6 +1936,7 @@ function backToAugmentedList() {
   document.getElementById('augmentedDetailView').classList.add('hidden');
   document.getElementById('augmentedListView').classList.remove('hidden');
   loadMyAugmentedHomes();
+  loadAugmentedFavorites();
   loadAugmentedBrowse();
 }
 
@@ -2014,14 +2015,23 @@ async function loadAugmentedTab() {
   `).join('');
   loadMyAugmentedHomes();
   loadMyAccessibilityAlerts();
+  loadAugmentedFavorites();
   loadAugmentedBrowse();
+}
+
+async function loadAugmentedFavorites() {
+  const el = document.getElementById('augmentedFavoritesList');
+  try {
+    const { homes } = await apiGet('/api/augmented-homes?favorites=1');
+    el.innerHTML = homes.length ? homes.map(h => augmentedHomeCardHtml(h, { mine: false })).join('') : '<div class="empty-state">No favorites saved yet.</div>';
+  } catch (e) { el.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
 }
 
 async function openAugmentedHomeDetail(id) {
   const contentEl = document.getElementById('augmentedDetailContent');
   try {
     const { home: h, isOwner } = await apiGet(`/api/augmented-homes/${id}`);
-    augmentedDetail = { id };
+    augmentedDetail = { id, isOwner };
     showAugmentedDetail();
     const photosHtml = h.photoIds.length
       ? `<div class="photo-gallery">${h.photoIds.map(pid => isOwner
@@ -2040,11 +2050,142 @@ async function openAugmentedHomeDetail(id) {
         ${isOwner ? `<div class="form-actions"><button type="button" class="btn btn-danger btn-sm" data-action="delete-augmented-home" data-id="${h.id}">Delete Listing</button></div>` : ''}
         ${h.adaptationNotes ? `<p class="tiny"><span class="label">Seller's notes</span> ${escapeHtml(h.adaptationNotes)}</p>` : ''}
         ${renderPriceHistory(h.priceHistory)}
-        ${!isOwner ? `<div class="form-actions"><button class="btn btn-primary btn-sm" data-action="message-user" data-id="${h.userId}" data-name="${escapeHtml(h.owner)}">Message Seller</button></div>` : ''}
+        ${!isOwner ? `
+          <div class="card-actions">
+            <button class="btn btn-primary btn-sm" data-action="message-user" data-id="${h.userId}" data-name="${escapeHtml(h.owner)}">Message Seller</button>
+            <button class="btn ${h.isFavorited ? 'btn-ghost' : 'btn-primary'} btn-sm" data-action="toggle-augmented-favorite" data-id="${h.id}">${h.isFavorited ? '♥ Saved' : '♡ Save'}</button>
+          </div>` : ''}
         ${h.status === 'active' ? `<p class="tiny"><a href="/augmented-home/${h.id}" target="_blank" rel="noopener noreferrer">View Public Page ↗</a></p>` : ''}
       </div>
+
+      <div class="card about-card">
+        <h2>Open Houses</h2>
+        <div id="augmentedOpenHouses-${h.id}"><span class="tiny">Loading…</span></div>
+        ${isOwner ? `
+          <div class="form-row two-col">
+            <input type="datetime-local" id="augOhStart-${h.id}">
+            <input type="datetime-local" id="augOhEnd-${h.id}">
+          </div>
+          <div class="field"><input type="text" id="augOhNote-${h.id}" maxlength="300" placeholder="Note (optional)"></div>
+          <div class="form-actions"><button type="button" class="btn btn-ghost btn-sm" data-action="add-augmented-open-house" data-id="${h.id}">Schedule</button></div>
+        ` : ''}
+      </div>
+
+      <div class="card about-card">
+        <h2>Offers</h2>
+        <div id="augmentedOffers-${h.id}"><span class="tiny">Loading…</span></div>
+      </div>
     `;
+    loadAugmentedOpenHousesInto(h.id);
+    loadAugmentedOffersInto(h.id, isOwner);
   } catch (e) { contentEl.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
+}
+
+async function loadAugmentedOpenHousesInto(homeId) {
+  const el = document.getElementById(`augmentedOpenHouses-${homeId}`);
+  if (!el) return;
+  try {
+    const { openHouses } = await apiGet(`/api/augmented-homes/${homeId}/open-houses`);
+    el.innerHTML = openHouses.length ? openHouses.map(oh => `
+      <div class="side" data-open-house-id="${oh.id}">
+        <strong>${new Date(oh.startsAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</strong>
+        <span class="tiny" data-rsvp-count>${oh.rsvpCount} ${oh.rsvpCount === 1 ? 'person is' : 'people are'} going${oh.note ? ` — ${escapeHtml(oh.note)}` : ''}</span>
+        <div class="card-actions">
+          <button type="button" class="btn ${oh.imGoing ? 'btn-ghost' : 'btn-primary'} btn-sm" data-action="rsvp-augmented-open-house" data-home-id="${homeId}" data-id="${oh.id}">${oh.imGoing ? "I'm Going ✓" : "I'm Going"}</button>
+          <button type="button" class="link-btn" data-action="delete-augmented-open-house" data-home-id="${homeId}" data-id="${oh.id}">Cancel</button>
+        </div>
+      </div>
+    `).join('') : '<span class="tiny">None scheduled.</span>';
+  } catch { el.innerHTML = '<span class="tiny">Could not load open houses.</span>'; }
+}
+
+async function loadAugmentedOffersInto(homeId, isOwner) {
+  const el = document.getElementById(`augmentedOffers-${homeId}`);
+  if (!el) return;
+  try {
+    const { offers, myOffer } = await apiGet(`/api/augmented-homes/${homeId}/offers`);
+    if (isOwner) {
+      el.innerHTML = offers.length ? offers.map(o => `
+        <div class="side">
+          <strong>${money(o.offerPrice)} — ${o.financingType === 'cash' ? 'Cash' : 'Financed'}</strong>
+          <span class="tiny">From <a class="profile-link" href="/profile/${o.buyerUserId}">${escapeHtml(o.buyerName)}</a> · <span class="badge ${o.status === 'accepted' ? 'badge-active' : o.status === 'declined' || o.status === 'withdrawn' ? 'badge-paused' : ''}">${o.status}</span></span>
+          ${o.closingTimeline ? `<p class="tiny"><span class="label">Timeline</span> ${escapeHtml(o.closingTimeline)}</p>` : ''}
+          ${o.contingencies ? `<p class="tiny"><span class="label">Contingencies</span> ${escapeHtml(o.contingencies)}</p>` : ''}
+          ${o.message ? `<p class="tiny">"${escapeHtml(o.message)}"</p>` : ''}
+          ${o.status === 'pending' ? `
+            <div class="card-actions">
+              <button type="button" class="btn btn-primary btn-sm" data-action="decide-augmented-offer" data-home-id="${homeId}" data-id="${o.id}" data-decision="accept">Accept</button>
+              <button type="button" class="btn btn-ghost btn-sm" data-action="decide-augmented-offer" data-home-id="${homeId}" data-id="${o.id}" data-decision="decline">Decline</button>
+              <button type="button" class="btn btn-ghost btn-sm" data-action="message-user" data-id="${o.buyerUserId}" data-name="${escapeHtml(o.buyerName)}">Message</button>
+            </div>
+            <details class="panel">
+              <summary>Counter this offer</summary>
+              <div class="field"><label>Counter price ($)</label><input type="number" id="augCounterPrice-${o.id}" min="1" max="500000000" step="1000"></div>
+              <div class="field"><label>Message (optional)</label><textarea id="augCounterMsg-${o.id}" maxlength="1000"></textarea></div>
+              <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="counter-augmented-offer" data-home-id="${homeId}" data-id="${o.id}">Send Counter</button></div>
+            </details>` : ''}
+          ${o.status === 'countered' && o.counteredBy === 'owner' ? `<p class="tiny"><span class="label">Your counter</span> ${money(o.counterPrice)}${o.counterMessage ? ` — "${escapeHtml(o.counterMessage)}"` : ''} · waiting on buyer</p>` : ''}
+          ${o.status === 'countered' && o.counteredBy === 'buyer' ? `
+            <p class="tiny"><span class="label">Buyer countered</span> ${money(o.counterPrice)}${o.counterMessage ? ` — "${escapeHtml(o.counterMessage)}"` : ''}</p>
+            <div class="card-actions">
+              <button type="button" class="btn btn-primary btn-sm" data-action="decide-augmented-offer" data-home-id="${homeId}" data-id="${o.id}" data-decision="accept_counter">Accept ${money(o.counterPrice)}</button>
+              <button type="button" class="btn btn-ghost btn-sm" data-action="decide-augmented-offer" data-home-id="${homeId}" data-id="${o.id}" data-decision="decline_counter">Decline</button>
+            </div>
+            <details class="panel">
+              <summary>Counter again</summary>
+              <div class="field"><label>Counter price ($)</label><input type="number" id="augCounterPrice-${o.id}" min="1" max="500000000" step="1000"></div>
+              <div class="field"><label>Message (optional)</label><textarea id="augCounterMsg-${o.id}" maxlength="1000"></textarea></div>
+              <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="counter-augmented-offer" data-home-id="${homeId}" data-id="${o.id}">Send Counter</button></div>
+            </details>` : ''}
+        </div>
+      `).join('') : '<span class="tiny">No offers yet.</span>';
+      return;
+    }
+
+    // Buyer's own view
+    if (myOffer && myOffer.status === 'pending') {
+      el.innerHTML = `
+        <div class="side">
+          <strong>${money(myOffer.offerPrice)}</strong> — ${myOffer.financingType === 'cash' ? 'Cash' : 'Financed'} <span class="badge">pending</span>
+          <div class="card-actions"><button type="button" class="btn btn-ghost btn-sm" data-action="withdraw-augmented-offer" data-home-id="${homeId}" data-id="${myOffer.id}">Withdraw Offer</button></div>
+        </div>`;
+    } else if (myOffer && myOffer.status === 'countered' && myOffer.counteredBy === 'owner') {
+      el.innerHTML = `
+        <div class="side">
+          <strong>${money(myOffer.offerPrice)}</strong> — ${myOffer.financingType === 'cash' ? 'Cash' : 'Financed'} <span class="badge">countered</span>
+          <p class="tiny"><span class="label">Seller's counter</span> ${money(myOffer.counterPrice)}${myOffer.counterMessage ? ` — "${escapeHtml(myOffer.counterMessage)}"` : ''}</p>
+          <div class="card-actions">
+            <button type="button" class="btn btn-primary btn-sm" data-action="decide-augmented-offer" data-home-id="${homeId}" data-id="${myOffer.id}" data-decision="accept_counter">Accept ${money(myOffer.counterPrice)}</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-action="decide-augmented-offer" data-home-id="${homeId}" data-id="${myOffer.id}" data-decision="decline_counter">Decline</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-action="withdraw-augmented-offer" data-home-id="${homeId}" data-id="${myOffer.id}">Withdraw</button>
+          </div>
+          <details class="panel">
+            <summary>Counter back</summary>
+            <div class="field"><label>Counter price ($)</label><input type="number" id="augCounterBackPrice-${myOffer.id}" min="1" max="500000000" step="1000"></div>
+            <div class="field"><label>Message (optional)</label><textarea id="augCounterBackMsg-${myOffer.id}" maxlength="1000"></textarea></div>
+            <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="counter-augmented-offer" data-home-id="${homeId}" data-id="${myOffer.id}">Send Counter</button></div>
+          </details>
+        </div>`;
+    } else if (myOffer && myOffer.status === 'countered' && myOffer.counteredBy === 'buyer') {
+      el.innerHTML = `
+        <div class="side">
+          <strong>${money(myOffer.counterPrice)}</strong>${myOffer.counterMessage ? ` — "${escapeHtml(myOffer.counterMessage)}"` : ''} <span class="badge">countered</span>
+          <p class="tiny">Waiting on the seller to respond.</p>
+          <div class="card-actions"><button type="button" class="btn btn-ghost btn-sm" data-action="withdraw-augmented-offer" data-home-id="${homeId}" data-id="${myOffer.id}">Withdraw Offer</button></div>
+        </div>`;
+    } else if (myOffer && myOffer.status !== 'pending') {
+      el.innerHTML = `<div class="side"><strong>${money(myOffer.offerPrice)}</strong> — <span class="badge">${myOffer.status}</span></div>`;
+    } else {
+      el.innerHTML = `
+        <div class="field"><label>Offer price ($)</label><input type="number" id="augOfferPrice-${homeId}" min="1" max="500000000" step="1000"></div>
+        <div class="field"><label>Financing</label><select id="augOfferFinancingType-${homeId}"><option value="financed">Financed</option><option value="cash">Cash</option></select></div>
+        <div class="field"><label>Proposed closing timeline</label><input type="text" id="augOfferClosingTimeline-${homeId}" maxlength="100" placeholder="e.g. 30 days"></div>
+        <div class="field"><label>Contingencies</label><input type="text" id="augOfferContingencies-${homeId}" maxlength="500" placeholder="e.g. subject to inspection, financing approval"></div>
+        <div class="field"><label>Message to the seller</label><textarea id="augOfferMessage-${homeId}" maxlength="1000"></textarea></div>
+        <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="submit-augmented-offer" data-home-id="${homeId}">Submit Offer</button></div>
+      `;
+    }
+  } catch { el.innerHTML = '<span class="tiny">Could not load offers.</span>'; }
 }
 
 /* ---------------- GreenHomes ---------------- */
@@ -2061,6 +2202,7 @@ function backToGreenList() {
   document.getElementById('greenDetailView').classList.add('hidden');
   document.getElementById('greenListView').classList.remove('hidden');
   loadMyGreenHomes();
+  loadGreenFavorites();
   loadGreenBrowse();
 }
 
@@ -2134,14 +2276,23 @@ async function loadGreenTab() {
   `).join('');
   loadMyGreenHomes();
   loadMyGreenAlerts();
+  loadGreenFavorites();
   loadGreenBrowse();
+}
+
+async function loadGreenFavorites() {
+  const el = document.getElementById('greenFavoritesList');
+  try {
+    const { homes } = await apiGet('/api/green-homes?favorites=1');
+    el.innerHTML = homes.length ? homes.map(h => greenHomeCardHtml(h, { mine: false })).join('') : '<div class="empty-state">No favorites saved yet.</div>';
+  } catch (e) { el.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
 }
 
 async function openGreenHomeDetail(id) {
   const contentEl = document.getElementById('greenDetailContent');
   try {
     const { home: h, isOwner } = await apiGet(`/api/green-homes/${id}`);
-    greenDetail = { id };
+    greenDetail = { id, isOwner };
     showGreenDetail();
     const photosHtml = h.photoIds.length
       ? `<div class="photo-gallery">${h.photoIds.map(pid => isOwner
@@ -2160,11 +2311,141 @@ async function openGreenHomeDetail(id) {
         ${isOwner ? `<div class="form-actions"><button type="button" class="btn btn-danger btn-sm" data-action="delete-green-home" data-id="${h.id}">Delete Listing</button></div>` : ''}
         ${h.featureNotes ? `<p class="tiny"><span class="label">Seller's notes</span> ${escapeHtml(h.featureNotes)}</p>` : ''}
         ${renderPriceHistory(h.priceHistory)}
-        ${!isOwner ? `<div class="form-actions"><button class="btn btn-primary btn-sm" data-action="message-user" data-id="${h.userId}" data-name="${escapeHtml(h.owner)}">Message Seller</button></div>` : ''}
+        ${!isOwner ? `
+          <div class="card-actions">
+            <button class="btn btn-primary btn-sm" data-action="message-user" data-id="${h.userId}" data-name="${escapeHtml(h.owner)}">Message Seller</button>
+            <button class="btn ${h.isFavorited ? 'btn-ghost' : 'btn-primary'} btn-sm" data-action="toggle-green-favorite" data-id="${h.id}">${h.isFavorited ? '♥ Saved' : '♡ Save'}</button>
+          </div>` : ''}
         ${h.status === 'active' ? `<p class="tiny"><a href="/green-home/${h.id}" target="_blank" rel="noopener noreferrer">View Public Page ↗</a></p>` : ''}
       </div>
+
+      <div class="card about-card">
+        <h2>Open Houses</h2>
+        <div id="greenOpenHouses-${h.id}"><span class="tiny">Loading…</span></div>
+        ${isOwner ? `
+          <div class="form-row two-col">
+            <input type="datetime-local" id="greenOhStart-${h.id}">
+            <input type="datetime-local" id="greenOhEnd-${h.id}">
+          </div>
+          <div class="field"><input type="text" id="greenOhNote-${h.id}" maxlength="300" placeholder="Note (optional)"></div>
+          <div class="form-actions"><button type="button" class="btn btn-ghost btn-sm" data-action="add-green-open-house" data-id="${h.id}">Schedule</button></div>
+        ` : ''}
+      </div>
+
+      <div class="card about-card">
+        <h2>Offers</h2>
+        <div id="greenOffers-${h.id}"><span class="tiny">Loading…</span></div>
+      </div>
     `;
+    loadGreenOpenHousesInto(h.id);
+    loadGreenOffersInto(h.id, isOwner);
   } catch (e) { contentEl.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
+}
+
+async function loadGreenOpenHousesInto(homeId) {
+  const el = document.getElementById(`greenOpenHouses-${homeId}`);
+  if (!el) return;
+  try {
+    const { openHouses } = await apiGet(`/api/green-homes/${homeId}/open-houses`);
+    el.innerHTML = openHouses.length ? openHouses.map(oh => `
+      <div class="side" data-open-house-id="${oh.id}">
+        <strong>${new Date(oh.startsAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</strong>
+        <span class="tiny" data-rsvp-count>${oh.rsvpCount} ${oh.rsvpCount === 1 ? 'person is' : 'people are'} going${oh.note ? ` — ${escapeHtml(oh.note)}` : ''}</span>
+        <div class="card-actions">
+          <button type="button" class="btn ${oh.imGoing ? 'btn-ghost' : 'btn-primary'} btn-sm" data-action="rsvp-green-open-house" data-home-id="${homeId}" data-id="${oh.id}">${oh.imGoing ? "I'm Going ✓" : "I'm Going"}</button>
+          <button type="button" class="link-btn" data-action="delete-green-open-house" data-home-id="${homeId}" data-id="${oh.id}">Cancel</button>
+        </div>
+      </div>
+    `).join('') : '<span class="tiny">None scheduled.</span>';
+  } catch { el.innerHTML = '<span class="tiny">Could not load open houses.</span>'; }
+}
+
+async function loadGreenOffersInto(homeId, isOwner) {
+  const el = document.getElementById(`greenOffers-${homeId}`);
+  if (!el) return;
+  try {
+    const { offers, myOffer } = await apiGet(`/api/green-homes/${homeId}/offers`);
+    if (isOwner) {
+      el.innerHTML = offers.length ? offers.map(o => `
+        <div class="side">
+          <strong>${money(o.offerPrice)} — ${o.financingType === 'cash' ? 'Cash' : 'Financed'}</strong>
+          <span class="tiny">From <a class="profile-link" href="/profile/${o.buyerUserId}">${escapeHtml(o.buyerName)}</a> · <span class="badge ${o.status === 'accepted' ? 'badge-active' : o.status === 'declined' || o.status === 'withdrawn' ? 'badge-paused' : ''}">${o.status}</span></span>
+          ${o.closingTimeline ? `<p class="tiny"><span class="label">Timeline</span> ${escapeHtml(o.closingTimeline)}</p>` : ''}
+          ${o.contingencies ? `<p class="tiny"><span class="label">Contingencies</span> ${escapeHtml(o.contingencies)}</p>` : ''}
+          ${o.message ? `<p class="tiny">"${escapeHtml(o.message)}"</p>` : ''}
+          ${o.status === 'pending' ? `
+            <div class="card-actions">
+              <button type="button" class="btn btn-primary btn-sm" data-action="decide-green-offer" data-home-id="${homeId}" data-id="${o.id}" data-decision="accept">Accept</button>
+              <button type="button" class="btn btn-ghost btn-sm" data-action="decide-green-offer" data-home-id="${homeId}" data-id="${o.id}" data-decision="decline">Decline</button>
+              <button type="button" class="btn btn-ghost btn-sm" data-action="message-user" data-id="${o.buyerUserId}" data-name="${escapeHtml(o.buyerName)}">Message</button>
+            </div>
+            <details class="panel">
+              <summary>Counter this offer</summary>
+              <div class="field"><label>Counter price ($)</label><input type="number" id="greenCounterPrice-${o.id}" min="1" max="500000000" step="1000"></div>
+              <div class="field"><label>Message (optional)</label><textarea id="greenCounterMsg-${o.id}" maxlength="1000"></textarea></div>
+              <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="counter-green-offer" data-home-id="${homeId}" data-id="${o.id}">Send Counter</button></div>
+            </details>` : ''}
+          ${o.status === 'countered' && o.counteredBy === 'owner' ? `<p class="tiny"><span class="label">Your counter</span> ${money(o.counterPrice)}${o.counterMessage ? ` — "${escapeHtml(o.counterMessage)}"` : ''} · waiting on buyer</p>` : ''}
+          ${o.status === 'countered' && o.counteredBy === 'buyer' ? `
+            <p class="tiny"><span class="label">Buyer countered</span> ${money(o.counterPrice)}${o.counterMessage ? ` — "${escapeHtml(o.counterMessage)}"` : ''}</p>
+            <div class="card-actions">
+              <button type="button" class="btn btn-primary btn-sm" data-action="decide-green-offer" data-home-id="${homeId}" data-id="${o.id}" data-decision="accept_counter">Accept ${money(o.counterPrice)}</button>
+              <button type="button" class="btn btn-ghost btn-sm" data-action="decide-green-offer" data-home-id="${homeId}" data-id="${o.id}" data-decision="decline_counter">Decline</button>
+            </div>
+            <details class="panel">
+              <summary>Counter again</summary>
+              <div class="field"><label>Counter price ($)</label><input type="number" id="greenCounterPrice-${o.id}" min="1" max="500000000" step="1000"></div>
+              <div class="field"><label>Message (optional)</label><textarea id="greenCounterMsg-${o.id}" maxlength="1000"></textarea></div>
+              <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="counter-green-offer" data-home-id="${homeId}" data-id="${o.id}">Send Counter</button></div>
+            </details>` : ''}
+        </div>
+      `).join('') : '<span class="tiny">No offers yet.</span>';
+      return;
+    }
+
+    if (myOffer && myOffer.status === 'pending') {
+      el.innerHTML = `
+        <div class="side">
+          <strong>${money(myOffer.offerPrice)}</strong> — ${myOffer.financingType === 'cash' ? 'Cash' : 'Financed'} <span class="badge">pending</span>
+          <div class="card-actions"><button type="button" class="btn btn-ghost btn-sm" data-action="withdraw-green-offer" data-home-id="${homeId}" data-id="${myOffer.id}">Withdraw Offer</button></div>
+        </div>`;
+    } else if (myOffer && myOffer.status === 'countered' && myOffer.counteredBy === 'owner') {
+      el.innerHTML = `
+        <div class="side">
+          <strong>${money(myOffer.offerPrice)}</strong> — ${myOffer.financingType === 'cash' ? 'Cash' : 'Financed'} <span class="badge">countered</span>
+          <p class="tiny"><span class="label">Seller's counter</span> ${money(myOffer.counterPrice)}${myOffer.counterMessage ? ` — "${escapeHtml(myOffer.counterMessage)}"` : ''}</p>
+          <div class="card-actions">
+            <button type="button" class="btn btn-primary btn-sm" data-action="decide-green-offer" data-home-id="${homeId}" data-id="${myOffer.id}" data-decision="accept_counter">Accept ${money(myOffer.counterPrice)}</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-action="decide-green-offer" data-home-id="${homeId}" data-id="${myOffer.id}" data-decision="decline_counter">Decline</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-action="withdraw-green-offer" data-home-id="${homeId}" data-id="${myOffer.id}">Withdraw</button>
+          </div>
+          <details class="panel">
+            <summary>Counter back</summary>
+            <div class="field"><label>Counter price ($)</label><input type="number" id="greenCounterBackPrice-${myOffer.id}" min="1" max="500000000" step="1000"></div>
+            <div class="field"><label>Message (optional)</label><textarea id="greenCounterBackMsg-${myOffer.id}" maxlength="1000"></textarea></div>
+            <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="counter-green-offer" data-home-id="${homeId}" data-id="${myOffer.id}">Send Counter</button></div>
+          </details>
+        </div>`;
+    } else if (myOffer && myOffer.status === 'countered' && myOffer.counteredBy === 'buyer') {
+      el.innerHTML = `
+        <div class="side">
+          <strong>${money(myOffer.counterPrice)}</strong>${myOffer.counterMessage ? ` — "${escapeHtml(myOffer.counterMessage)}"` : ''} <span class="badge">countered</span>
+          <p class="tiny">Waiting on the seller to respond.</p>
+          <div class="card-actions"><button type="button" class="btn btn-ghost btn-sm" data-action="withdraw-green-offer" data-home-id="${homeId}" data-id="${myOffer.id}">Withdraw Offer</button></div>
+        </div>`;
+    } else if (myOffer && myOffer.status !== 'pending') {
+      el.innerHTML = `<div class="side"><strong>${money(myOffer.offerPrice)}</strong> — <span class="badge">${myOffer.status}</span></div>`;
+    } else {
+      el.innerHTML = `
+        <div class="field"><label>Offer price ($)</label><input type="number" id="greenOfferPrice-${homeId}" min="1" max="500000000" step="1000"></div>
+        <div class="field"><label>Financing</label><select id="greenOfferFinancingType-${homeId}"><option value="financed">Financed</option><option value="cash">Cash</option></select></div>
+        <div class="field"><label>Proposed closing timeline</label><input type="text" id="greenOfferClosingTimeline-${homeId}" maxlength="100" placeholder="e.g. 30 days"></div>
+        <div class="field"><label>Contingencies</label><input type="text" id="greenOfferContingencies-${homeId}" maxlength="500" placeholder="e.g. subject to inspection, financing approval"></div>
+        <div class="field"><label>Message to the seller</label><textarea id="greenOfferMessage-${homeId}" maxlength="1000"></textarea></div>
+        <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="submit-green-offer" data-home-id="${homeId}">Submit Offer</button></div>
+      `;
+    }
+  } catch { el.innerHTML = '<span class="tiny">Could not load offers.</span>'; }
 }
 
 /* ---------------- FinderMine ---------------- */
@@ -2181,6 +2462,7 @@ function backToFinderMineList() {
   document.getElementById('findermineDetailView').classList.add('hidden');
   document.getElementById('findermineListView').classList.remove('hidden');
   loadMyProjects();
+  loadProjectFavorites();
   loadProjectsBrowse();
 }
 
@@ -2245,8 +2527,33 @@ async function loadFinderMineTab() {
   document.getElementById('projectAdaptationFilterChips').innerHTML = adaptationCheckboxesHtml([], 'project-adaptation-filter-check');
   document.getElementById('projGreenFeaturesFields').innerHTML = greenFeatureCheckboxesHtml([], 'proj-green-create-check');
   document.getElementById('projectGreenFeatureFilterChips').innerHTML = greenFeatureCheckboxesHtml([], 'project-green-feature-filter-check');
+  fillSelectFromLabels(document.getElementById('projectAlertType'), PROJECT_TYPE_LABELS, true);
   loadMyProjects();
+  loadMyProjectAlerts();
+  loadProjectFavorites();
   loadProjectsBrowse();
+}
+
+async function loadMyProjectAlerts() {
+  const el = document.getElementById('projectAlertsList');
+  try {
+    const { alerts } = await apiGet('/api/dev-project-needs-alerts');
+    el.innerHTML = alerts.length ? alerts.map(a => `
+      <div class="side">
+        <strong>${escapeHtml(a.label)}</strong>
+        <span class="tiny">${a.projectType ? escapeHtml(PROJECT_TYPE_LABELS[a.projectType] || a.projectType) : 'Any type'}${a.city || a.state ? ` · ${escapeHtml(a.city)}${a.city && a.state ? ', ' : ''}${escapeHtml(a.state)}` : ''}</span>
+        <button class="link-btn" data-action="delete-project-alert" data-id="${a.id}">Remove</button>
+      </div>
+    `).join('') : '<span class="tiny">No saved alerts yet.</span>';
+  } catch (e) { el.innerHTML = `<span class="tiny">${escapeHtml(e.message)}</span>`; }
+}
+
+async function loadProjectFavorites() {
+  const el = document.getElementById('projectFavoritesList');
+  try {
+    const { projects } = await apiGet('/api/dev-projects?favorites=1');
+    el.innerHTML = projects.length ? projects.map(p => projectCardHtml(p, { mine: false })).join('') : '<div class="empty-state">No favorites saved yet.</div>';
+  } catch (e) { el.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
 }
 
 async function openProjectDetail(id) {
@@ -2281,6 +2588,7 @@ async function openProjectDetail(id) {
           <div class="form-actions">
             <button class="btn ${amInterested ? 'btn-ghost' : 'btn-primary'} btn-sm" data-action="toggle-project-interest" data-id="${p.id}">${amInterested ? 'Interest Noted — Withdraw' : 'Express Interest'}</button>
             <button class="btn btn-ghost btn-sm" data-action="message-user" data-id="${p.userId}" data-name="${escapeHtml(p.owner)}">Message</button>
+            <button class="btn ${p.isFavorited ? 'btn-ghost' : 'btn-primary'} btn-sm" data-action="toggle-project-favorite" data-id="${p.id}">${p.isFavorited ? '♥ Saved' : '♡ Save'}</button>
           </div>` : ''}
         ${isOwner ? `<div class="form-actions"><button type="button" class="btn btn-danger btn-sm" data-action="delete-project" data-id="${p.id}">Delete Project</button></div>` : ''}
         ${p.status === 'open' ? `<p class="tiny"><a href="/project/${p.id}" target="_blank" rel="noopener noreferrer">View Public Page ↗</a></p>` : ''}
@@ -3929,6 +4237,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   wireAugmentedOpenButtons('myAugmentedHomesList');
   wireAugmentedOpenButtons('augmentedBrowseList');
+  wireAugmentedOpenButtons('augmentedFavoritesList');
 
   document.getElementById('backToAugmented').addEventListener('click', backToAugmentedList);
 
@@ -3936,6 +4245,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     const msgBtn = e.target.closest('[data-action="message-user"]');
     const deletePhotoBtn = e.target.closest('[data-action="delete-augmented-photo"]');
     const deleteHomeBtn = e.target.closest('[data-action="delete-augmented-home"]');
+    const favBtn = e.target.closest('[data-action="toggle-augmented-favorite"]');
+    const addOhBtn = e.target.closest('[data-action="add-augmented-open-house"]');
+    const deleteOhBtn = e.target.closest('[data-action="delete-augmented-open-house"]');
+    const rsvpBtn = e.target.closest('[data-action="rsvp-augmented-open-house"]');
+    const decideBtn = e.target.closest('[data-action="decide-augmented-offer"]');
+    const counterBtn = e.target.closest('[data-action="counter-augmented-offer"]');
+    const withdrawBtn = e.target.closest('[data-action="withdraw-augmented-offer"]');
+    const submitOfferBtn = e.target.closest('[data-action="submit-augmented-offer"]');
+
     if (msgBtn) { try { await startConversationWith(msgBtn.dataset.id, msgBtn.dataset.name); } catch (err) { toast(err.message); } }
     else if (deletePhotoBtn) {
       if (!confirm('Remove this photo?')) return;
@@ -3945,6 +4263,66 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (!confirm('Permanently delete this listing? It cannot be recovered after this.')) return;
       try { await apiDelete(`/api/augmented-homes/${deleteHomeBtn.dataset.id}`); toast('Listing deleted.'); backToAugmentedList(); }
       catch (err) { toast(err.message); }
+    } else if (favBtn) {
+      try { await apiPut(`/api/augmented-homes/${favBtn.dataset.id}/favorite`, {}); openAugmentedHomeDetail(favBtn.dataset.id); }
+      catch (err) { toast(err.message); }
+    } else if (addOhBtn) {
+      const homeId = addOhBtn.dataset.id;
+      const start = document.getElementById(`augOhStart-${homeId}`).value;
+      const end = document.getElementById(`augOhEnd-${homeId}`).value;
+      if (!start || !end) { toast('Pick a start and end time.'); return; }
+      try {
+        await apiPost(`/api/augmented-homes/${homeId}/open-houses`, {
+          startsAt: new Date(start).toISOString(), endsAt: new Date(end).toISOString(),
+          note: document.getElementById(`augOhNote-${homeId}`).value.trim(),
+        });
+        toast('Open house scheduled.');
+        loadAugmentedOpenHousesInto(homeId);
+      } catch (err) { toast(err.message); }
+    } else if (deleteOhBtn) {
+      try { await apiDelete(`/api/augmented-homes/${deleteOhBtn.dataset.homeId}/open-houses/${deleteOhBtn.dataset.id}`); loadAugmentedOpenHousesInto(deleteOhBtn.dataset.homeId); }
+      catch (err) { toast(err.message); }
+    } else if (rsvpBtn) {
+      try { await apiPost(`/api/augmented-homes/${rsvpBtn.dataset.homeId}/open-houses/${rsvpBtn.dataset.id}/rsvp`, {}); loadAugmentedOpenHousesInto(rsvpBtn.dataset.homeId); }
+      catch (err) { toast(err.message); }
+    } else if (decideBtn) {
+      try {
+        await apiPut(`/api/augmented-homes/${decideBtn.dataset.homeId}/offers/${decideBtn.dataset.id}`, { action: decideBtn.dataset.decision });
+        loadAugmentedOffersInto(decideBtn.dataset.homeId, true);
+      } catch (err) { toast(err.message); }
+    } else if (counterBtn) {
+      const offerId = counterBtn.dataset.id;
+      const priceEl = document.getElementById(`augCounterPrice-${offerId}`) || document.getElementById(`augCounterBackPrice-${offerId}`);
+      const msgEl = document.getElementById(`augCounterMsg-${offerId}`) || document.getElementById(`augCounterBackMsg-${offerId}`);
+      const counterPrice = priceEl.value;
+      if (!counterPrice) { toast('Enter a counter-offer price.'); return; }
+      try {
+        await apiPut(`/api/augmented-homes/${counterBtn.dataset.homeId}/offers/${offerId}`, { action: 'counter', counterPrice, counterMessage: msgEl.value.trim() });
+        toast('Counter-offer sent.');
+        loadAugmentedOffersInto(counterBtn.dataset.homeId, augmentedDetail.isOwner);
+      } catch (err) { toast(err.message); }
+    } else if (withdrawBtn) {
+      if (!confirm('Withdraw your offer?')) return;
+      try {
+        await apiPut(`/api/augmented-homes/${withdrawBtn.dataset.homeId}/offers/${withdrawBtn.dataset.id}`, { action: 'withdraw' });
+        toast('Offer withdrawn.');
+        loadAugmentedOffersInto(withdrawBtn.dataset.homeId, false);
+      } catch (err) { toast(err.message); }
+    } else if (submitOfferBtn) {
+      const homeId = submitOfferBtn.dataset.homeId;
+      const price = document.getElementById(`augOfferPrice-${homeId}`).value;
+      if (!price) { toast('Enter an offer price.'); return; }
+      try {
+        await apiPost(`/api/augmented-homes/${homeId}/offers`, {
+          offerPrice: price,
+          financingType: document.getElementById(`augOfferFinancingType-${homeId}`).value,
+          closingTimeline: document.getElementById(`augOfferClosingTimeline-${homeId}`).value.trim(),
+          contingencies: document.getElementById(`augOfferContingencies-${homeId}`).value.trim(),
+          message: document.getElementById(`augOfferMessage-${homeId}`).value.trim(),
+        });
+        toast('Offer submitted!');
+        loadAugmentedOffersInto(homeId, false);
+      } catch (err) { toast(err.message); }
     }
   });
 
@@ -4032,6 +4410,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   wireGreenOpenButtons('myGreenHomesList');
   wireGreenOpenButtons('greenBrowseList');
+  wireGreenOpenButtons('greenFavoritesList');
 
   document.getElementById('backToGreen').addEventListener('click', backToGreenList);
 
@@ -4039,6 +4418,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     const msgBtn = e.target.closest('[data-action="message-user"]');
     const deletePhotoBtn = e.target.closest('[data-action="delete-green-photo"]');
     const deleteHomeBtn = e.target.closest('[data-action="delete-green-home"]');
+    const favBtn = e.target.closest('[data-action="toggle-green-favorite"]');
+    const addOhBtn = e.target.closest('[data-action="add-green-open-house"]');
+    const deleteOhBtn = e.target.closest('[data-action="delete-green-open-house"]');
+    const rsvpBtn = e.target.closest('[data-action="rsvp-green-open-house"]');
+    const decideBtn = e.target.closest('[data-action="decide-green-offer"]');
+    const counterBtn = e.target.closest('[data-action="counter-green-offer"]');
+    const withdrawBtn = e.target.closest('[data-action="withdraw-green-offer"]');
+    const submitOfferBtn = e.target.closest('[data-action="submit-green-offer"]');
+
     if (msgBtn) { try { await startConversationWith(msgBtn.dataset.id, msgBtn.dataset.name); } catch (err) { toast(err.message); } }
     else if (deletePhotoBtn) {
       if (!confirm('Remove this photo?')) return;
@@ -4048,6 +4436,66 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (!confirm('Permanently delete this listing? It cannot be recovered after this.')) return;
       try { await apiDelete(`/api/green-homes/${deleteHomeBtn.dataset.id}`); toast('Listing deleted.'); backToGreenList(); }
       catch (err) { toast(err.message); }
+    } else if (favBtn) {
+      try { await apiPut(`/api/green-homes/${favBtn.dataset.id}/favorite`, {}); openGreenHomeDetail(favBtn.dataset.id); }
+      catch (err) { toast(err.message); }
+    } else if (addOhBtn) {
+      const homeId = addOhBtn.dataset.id;
+      const start = document.getElementById(`greenOhStart-${homeId}`).value;
+      const end = document.getElementById(`greenOhEnd-${homeId}`).value;
+      if (!start || !end) { toast('Pick a start and end time.'); return; }
+      try {
+        await apiPost(`/api/green-homes/${homeId}/open-houses`, {
+          startsAt: new Date(start).toISOString(), endsAt: new Date(end).toISOString(),
+          note: document.getElementById(`greenOhNote-${homeId}`).value.trim(),
+        });
+        toast('Open house scheduled.');
+        loadGreenOpenHousesInto(homeId);
+      } catch (err) { toast(err.message); }
+    } else if (deleteOhBtn) {
+      try { await apiDelete(`/api/green-homes/${deleteOhBtn.dataset.homeId}/open-houses/${deleteOhBtn.dataset.id}`); loadGreenOpenHousesInto(deleteOhBtn.dataset.homeId); }
+      catch (err) { toast(err.message); }
+    } else if (rsvpBtn) {
+      try { await apiPost(`/api/green-homes/${rsvpBtn.dataset.homeId}/open-houses/${rsvpBtn.dataset.id}/rsvp`, {}); loadGreenOpenHousesInto(rsvpBtn.dataset.homeId); }
+      catch (err) { toast(err.message); }
+    } else if (decideBtn) {
+      try {
+        await apiPut(`/api/green-homes/${decideBtn.dataset.homeId}/offers/${decideBtn.dataset.id}`, { action: decideBtn.dataset.decision });
+        loadGreenOffersInto(decideBtn.dataset.homeId, true);
+      } catch (err) { toast(err.message); }
+    } else if (counterBtn) {
+      const offerId = counterBtn.dataset.id;
+      const priceEl = document.getElementById(`greenCounterPrice-${offerId}`) || document.getElementById(`greenCounterBackPrice-${offerId}`);
+      const msgEl = document.getElementById(`greenCounterMsg-${offerId}`) || document.getElementById(`greenCounterBackMsg-${offerId}`);
+      const counterPrice = priceEl.value;
+      if (!counterPrice) { toast('Enter a counter-offer price.'); return; }
+      try {
+        await apiPut(`/api/green-homes/${counterBtn.dataset.homeId}/offers/${offerId}`, { action: 'counter', counterPrice, counterMessage: msgEl.value.trim() });
+        toast('Counter-offer sent.');
+        loadGreenOffersInto(counterBtn.dataset.homeId, greenDetail.isOwner);
+      } catch (err) { toast(err.message); }
+    } else if (withdrawBtn) {
+      if (!confirm('Withdraw your offer?')) return;
+      try {
+        await apiPut(`/api/green-homes/${withdrawBtn.dataset.homeId}/offers/${withdrawBtn.dataset.id}`, { action: 'withdraw' });
+        toast('Offer withdrawn.');
+        loadGreenOffersInto(withdrawBtn.dataset.homeId, false);
+      } catch (err) { toast(err.message); }
+    } else if (submitOfferBtn) {
+      const homeId = submitOfferBtn.dataset.homeId;
+      const price = document.getElementById(`greenOfferPrice-${homeId}`).value;
+      if (!price) { toast('Enter an offer price.'); return; }
+      try {
+        await apiPost(`/api/green-homes/${homeId}/offers`, {
+          offerPrice: price,
+          financingType: document.getElementById(`greenOfferFinancingType-${homeId}`).value,
+          closingTimeline: document.getElementById(`greenOfferClosingTimeline-${homeId}`).value.trim(),
+          contingencies: document.getElementById(`greenOfferContingencies-${homeId}`).value.trim(),
+          message: document.getElementById(`greenOfferMessage-${homeId}`).value.trim(),
+        });
+        toast('Offer submitted!');
+        loadGreenOffersInto(homeId, false);
+      } catch (err) { toast(err.message); }
     }
   });
 
@@ -4110,6 +4558,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   wireProjectOpenButtons('myProjectsList');
   wireProjectOpenButtons('projectsBrowseList');
+  wireProjectOpenButtons('projectFavoritesList');
 
   document.getElementById('backToFinderMine').addEventListener('click', backToFinderMineList);
 
@@ -4118,6 +4567,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const interestBtn = e.target.closest('[data-action="toggle-project-interest"]');
     const deletePhotoBtn = e.target.closest('[data-action="delete-project-photo"]');
     const deleteProjectBtn = e.target.closest('[data-action="delete-project"]');
+    const favBtn = e.target.closest('[data-action="toggle-project-favorite"]');
     if (msgBtn) { try { await startConversationWith(msgBtn.dataset.id, msgBtn.dataset.name); } catch (err) { toast(err.message); } }
     else if (interestBtn) {
       try {
@@ -4133,7 +4583,34 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (!confirm('Permanently delete this project? It cannot be recovered after this.')) return;
       try { await apiDelete(`/api/dev-projects/${deleteProjectBtn.dataset.id}`); toast('Project deleted.'); backToFinderMineList(); }
       catch (err) { toast(err.message); }
+    } else if (favBtn) {
+      try { await apiPut(`/api/dev-projects/${favBtn.dataset.id}/favorite`, {}); openProjectDetail(favBtn.dataset.id); }
+      catch (err) { toast(err.message); }
     }
+  });
+
+  document.getElementById('saveProjectAlertBtn').addEventListener('click', async () => {
+    try {
+      await apiPost('/api/dev-project-needs-alerts', {
+        label: document.getElementById('projectAlertLabel').value.trim(),
+        projectType: document.getElementById('projectAlertType').value,
+        city: document.getElementById('projectAlertCity').value.trim(),
+        state: document.getElementById('projectAlertState').value.trim(),
+      });
+      document.getElementById('projectAlertLabel').value = '';
+      document.getElementById('projectAlertType').value = '';
+      document.getElementById('projectAlertCity').value = '';
+      document.getElementById('projectAlertState').value = '';
+      loadMyProjectAlerts();
+      toast("Saved — we'll notify you when a match is posted.");
+    } catch (err) { toast(err.message); }
+  });
+
+  document.getElementById('projectAlertsList').addEventListener('click', async e => {
+    const btn = e.target.closest('[data-action="delete-project-alert"]');
+    if (!btn) return;
+    try { await apiDelete(`/api/dev-project-needs-alerts/${btn.dataset.id}`); loadMyProjectAlerts(); }
+    catch (err) { toast(err.message); }
   });
 
   // The Agent Strategy tab is where the app opens, unless a deep link

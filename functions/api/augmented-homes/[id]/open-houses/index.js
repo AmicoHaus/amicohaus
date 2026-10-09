@@ -1,9 +1,10 @@
 import { getSessionUser } from '../../../../_lib/auth.js';
 import { json, badRequest, unauthorized, forbidden, notFound } from '../../../../_lib/util.js';
-import { validateOpenHouseInput, createOpenHouse, fetchOpenHouses } from '../../../../_lib/openHouses.js';
+import { validateOpenHouseInput, createOpenHouse, fetchOpenHouses } from '../../../../_lib/augmentedHomeOpenHouses.js';
 import { notifyOpenHouseScheduled } from '../../../../_lib/marketplaceNotify.js';
+import { fetchFavoriterIds } from '../../../../_lib/augmentedHomeFavorites.js';
 
-// Public — same footing as the listing page itself; no sign-in needed to see when an open house is happening.
+// Mirrors functions/api/listings/[id]/open-houses/index.js exactly.
 export async function onRequestGet(context) {
   const id = context.params.id;
   const viewer = await getSessionUser(context);
@@ -17,9 +18,9 @@ export async function onRequestPost(context) {
   if (!user) return unauthorized();
 
   const db = context.env.DB;
-  const listing = await db.prepare('SELECT user_id FROM listings WHERE id = ?').bind(id).first();
-  if (!listing) return notFound('Listing not found.');
-  if (listing.user_id !== user.id) return forbidden();
+  const home = await db.prepare('SELECT user_id FROM augmented_homes WHERE id = ?').bind(id).first();
+  if (!home) return notFound('Listing not found.');
+  if (home.user_id !== user.id) return forbidden();
 
   let body;
   try { body = await context.request.json(); } catch { return badRequest('Invalid request body.'); }
@@ -28,8 +29,8 @@ export async function onRequestPost(context) {
 
   const openHouseId = await createOpenHouse(db, id, validated.data);
 
-  const favoriters = await db.prepare("SELECT user_id FROM listing_feedback WHERE listing_id = ? AND feedback = 'up'").bind(id).all();
-  context.waitUntil(notifyOpenHouseScheduled(context, `/listing/${id}`, favoriters.results.map(r => r.user_id), validated.data.startsAt));
+  const favoriters = await fetchFavoriterIds(db, id);
+  context.waitUntil(notifyOpenHouseScheduled(context, `/app#augmented-home-${id}`, favoriters, validated.data.startsAt));
 
   return json({ id: openHouseId }, { status: 201 });
 }

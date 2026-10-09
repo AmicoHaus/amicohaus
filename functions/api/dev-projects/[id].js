@@ -1,6 +1,7 @@
 import { getSessionUser } from '../../_lib/auth.js';
 import { json, badRequest, unauthorized, forbidden, notFound } from '../../_lib/util.js';
 import { validateDevProjectInput, updateDevProject, fetchDevProjectPhotos, setDevProjectStatus, fetchInterestCount, fetchInterestedInvestors, hasExpressedInterest } from '../../_lib/devProjects.js';
+import { isFavorited } from '../../_lib/devProjectFavorites.js';
 
 export async function onRequestGet(context) {
   const id = context.params.id;
@@ -25,6 +26,7 @@ export async function onRequestGet(context) {
     targetReturn: row.target_return, timelineMonths: row.timeline_months, status: row.status, createdAt: row.created_at,
     photoIds: photos.map(p => p.id), interestCount, adaptations: JSON.parse(row.adaptations_json || '[]'),
     greenFeatures: JSON.parse(row.green_features_json || '[]'),
+    isFavorited: isOwner ? false : await isFavorited(db, user.id, id),
   };
 
   const interestedInvestors = isOwner ? await fetchInterestedInvestors(db, id) : null;

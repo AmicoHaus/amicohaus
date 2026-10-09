@@ -46,6 +46,6 @@ export async function onRequestPost(context) {
   if (validated.error) return badRequest(validated.error);
 
   const offerId = await insertOffer(db, id, user.id, validated.data);
-  context.waitUntil(notifyNewOffer(context, id, listing.user_id, user.id));
+  context.waitUntil(notifyNewOffer(context, `/listing/${id}`, listing.user_id, user.id));
   return json({ id: offerId }, { status: 201 });
 }

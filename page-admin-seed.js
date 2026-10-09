@@ -31,6 +31,7 @@ async function loadOverview() {
     statsEl.innerHTML = [
       ['Total Users', stats.users], ['Active Listings', stats.activeListings],
       ['Mutual Matches', stats.matches], ['Daisy Chains', stats.chains], ['Posts', stats.posts],
+      ['AugmentedHomes', stats.augmentedHomes], ['GreenHomes', stats.greenHomes], ['FinderMine Projects', stats.devProjects],
     ].map(([label, value]) => `<div class="stat-tile"><span class="stat-value">${value}</span><span class="stat-label">${label}</span></div>`).join('');
 
     matchesEl.innerHTML = matches.length ? matches.map(m => `

@@ -1,6 +1,8 @@
 import { getSessionUser } from '../../_lib/auth.js';
 import { json, badRequest, unauthorized, forbidden, notFound } from '../../_lib/util.js';
 import { validateAugmentedHomeInput, updateAugmentedHome, fetchAugmentedHomePhotos, setAugmentedHomeStatus } from '../../_lib/augmentedHomes.js';
+import { isFavorited, fetchFavoriterIds } from '../../_lib/augmentedHomeFavorites.js';
+import { notifyPriceDrop } from '../../_lib/marketplaceNotify.js';
 
 export async function onRequestGet(context) {
   const id = context.params.id;
@@ -28,6 +30,7 @@ export async function onRequestGet(context) {
     lifeEventTags: JSON.parse(row.life_event_tags_json || '[]'),
     status: row.status, createdAt: row.created_at, photoIds: photos.map(p => p.id),
     priceHistory: priceHistoryRows.results.map(r => ({ oldPrice: r.old_price, newPrice: r.new_price, changedAt: r.changed_at })),
+    isFavorited: isOwner ? false : await isFavorited(db, user.id, id),
   };
 
   return json({ home, isOwner: !!isOwner });
@@ -59,6 +62,8 @@ export async function onRequestPut(context) {
   if (Number(validated.data.askingPrice) !== Number(existing.asking_price)) {
     await db.prepare('INSERT INTO augmented_home_price_history (augmented_home_id, old_price, new_price) VALUES (?, ?, ?)')
       .bind(id, existing.asking_price, validated.data.askingPrice).run();
+    const favoriters = await fetchFavoriterIds(db, id);
+    context.waitUntil(notifyPriceDrop(context, `/app#augmented-home-${id}`, favoriters, existing.asking_price, validated.data.askingPrice));
   }
   return json({ ok: true });
 }

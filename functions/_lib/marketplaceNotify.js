@@ -186,41 +186,42 @@ export async function notifyAgentsNewRequest(context, requestType, requestId, zi
 
 // A structured offer on a regular trade listing — the clearest "someone wants to make a deal" event on that
 // side of the site, so it gets the same email treatment as a new pre-listing proposal.
-export async function notifyNewOffer(context, listingId, ownerUserId, buyerUserId) {
+// `link` is wherever the owner reviews the offer -- /listing/{id} for a regular listing, /app#augmented-home-{id}
+// or /app#green-home-{id} for those verticals (no public offer UI there, so it routes back into the app).
+export async function notifyNewOffer(context, link, ownerUserId, buyerUserId) {
   const db = context.env.DB;
   const buyer = await db.prepare('SELECT display_name FROM users WHERE id = ?').bind(buyerUserId).first();
   const owner = await db.prepare('SELECT id, email, email_frequency FROM users WHERE id = ?').bind(ownerUserId).first();
   if (!owner) return;
   const body = `${buyer ? buyer.display_name : 'Someone'} made an offer on your listing.`;
   await notifyAndMaybeEmail(context, { userId: owner.id, email: owner.email, emailFrequency: owner.email_frequency }, body,
-    `/listing/${listingId}`, 'New offer on Amico Haus', 'see the details');
+    link, 'New offer on Amico Haus', 'see the details');
 }
 
-export async function notifyOfferDecision(context, buyerUserId, listingId, accepted) {
-  await notify(context.env.DB, buyerUserId, accepted ? 'Your offer was accepted!' : 'Your offer was not accepted this time.', `/listing/${listingId}`);
+export async function notifyOfferDecision(context, buyerUserId, link, accepted) {
+  await notify(context.env.DB, buyerUserId, accepted ? 'Your offer was accepted!' : 'Your offer was not accepted this time.', link);
 }
 
 // proposedBy is who JUST made this counter ('owner' or 'buyer'), so the recipient (the other side) gets the
 // right phrasing -- a buyer hearing from the seller reads differently than a seller hearing back from a buyer
 // who countered their counter. Supports any number of back-and-forth rounds, not just the seller's first one.
-export async function notifyOfferCounter(context, listingId, notifyUserId, counterPrice, proposedBy) {
+export async function notifyOfferCounter(context, link, notifyUserId, counterPrice, proposedBy) {
   const price = '$' + Number(counterPrice).toLocaleString('en-US');
   const db = context.env.DB;
   const recipient = await db.prepare('SELECT id, email, email_frequency FROM users WHERE id = ?').bind(notifyUserId).first();
   if (!recipient) return;
   const body = proposedBy === 'owner' ? `The seller countered your offer at ${price}.` : `The buyer countered back at ${price}.`;
   await notifyAndMaybeEmail(context, { userId: recipient.id, email: recipient.email, emailFrequency: recipient.email_frequency },
-    body, `/listing/${listingId}`, 'Counter-offer on Amico Haus', 'see the details and respond');
+    body, link, 'Counter-offer on Amico Haus', 'see the details and respond');
 }
 
-export async function notifyCounterDecision(context, listingId, notifyUserId, accepted) {
-  await notify(context.env.DB, notifyUserId, accepted ? 'Your counter-offer was accepted!' : 'Your counter-offer was declined.', `/listing/${listingId}`);
+export async function notifyCounterDecision(context, link, notifyUserId, accepted) {
+  await notify(context.env.DB, notifyUserId, accepted ? 'Your counter-offer was accepted!' : 'Your counter-offer was declined.', link);
 }
 
-// A listing someone favorited just got a new open house scheduled -- the one event on a regular listing
-// worth proactively telling a prospective buyer about, since they have no other way to find out short of
-// re-checking the page.
-export async function notifyOpenHouseScheduled(context, listingId, favoriterUserIds, startsAt) {
+// A listing someone favorited just got a new open house scheduled -- the one event worth proactively telling
+// a prospective buyer about, since they have no other way to find out short of re-checking the page.
+export async function notifyOpenHouseScheduled(context, link, favoriterUserIds, startsAt) {
   const db = context.env.DB;
   if (!favoriterUserIds.length) return;
   const when = new Date(startsAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
@@ -229,7 +230,24 @@ export async function notifyOpenHouseScheduled(context, listingId, favoriterUser
     const u = r.results[0];
     if (!u) return Promise.resolve();
     return notifyAndMaybeEmail(context, { userId: u.id, email: u.email, emailFrequency: u.email_frequency },
-      `A new open house was scheduled for ${when} on a listing you saved.`, `/listing/${listingId}`, 'New open house on a saved listing', 'see the details');
+      `A new open house was scheduled for ${when} on a listing you saved.`, link, 'New open house on a saved listing', 'see the details');
+  });
+  await Promise.allSettled(sends);
+}
+
+// A listing someone favorited just dropped in price -- the other event worth proactively surfacing to a
+// saver, same reasoning as the open-house notify above. Used by AugmentedHomes/GreenHomes, the two verticals
+// with both price history and a favorites list; a raise isn't notified, only a drop (the news a saver wants).
+export async function notifyPriceDrop(context, link, favoriterUserIds, oldPrice, newPrice) {
+  const db = context.env.DB;
+  if (!favoriterUserIds.length || newPrice >= oldPrice) return;
+  const price = '$' + Number(newPrice).toLocaleString('en-US');
+  const rows = await db.batch(favoriterUserIds.map(id => db.prepare('SELECT id, email, email_frequency FROM users WHERE id = ?').bind(id)));
+  const sends = rows.map(r => {
+    const u = r.results[0];
+    if (!u) return Promise.resolve();
+    return notifyAndMaybeEmail(context, { userId: u.id, email: u.email, emailFrequency: u.email_frequency },
+      `A listing you saved dropped in price to ${price}.`, link, 'Price drop on a saved listing', 'see the details');
   });
   await Promise.allSettled(sends);
 }

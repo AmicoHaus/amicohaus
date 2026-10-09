@@ -21,6 +21,9 @@ export async function onRequestGet(context) {
   const userCount = await db.prepare('SELECT COUNT(*) AS n FROM users').first();
   const listingCount = await db.prepare("SELECT COUNT(*) AS n FROM listings WHERE status = 'active'").first();
   const postCount = await db.prepare('SELECT COUNT(*) AS n FROM posts').first();
+  const augmentedHomeCount = await db.prepare("SELECT COUNT(*) AS n FROM augmented_homes WHERE status = 'active'").first();
+  const greenHomeCount = await db.prepare("SELECT COUNT(*) AS n FROM green_homes WHERE status = 'active'").first();
+  const devProjectCount = await db.prepare("SELECT COUNT(*) AS n FROM dev_projects WHERE status = 'open'").first();
 
   // LEFT JOIN, not JOIN — a rental listing has no desired_criteria row at all,
   // and an inner join would silently drop every rental out of this view.
@@ -75,6 +78,7 @@ export async function onRequestGet(context) {
       matches: Math.min(matches.length, MAX_SURFACED), chains: Math.min(chains.length, MAX_SURFACED),
       buyerMatches: Math.min(buyerHits.length, MAX_SURFACED),
       rentalMatches: Math.min(rentalHits.length, MAX_SURFACED),
+      augmentedHomes: augmentedHomeCount.n, greenHomes: greenHomeCount.n, devProjects: devProjectCount.n,
     },
     matches: matches.slice(0, 100).map(m => ({ a: summaryById.get(m.a), b: summaryById.get(m.b), scoreAWantsB: m.scoreAWantsB, scoreBWantsA: m.scoreBWantsA })),
     chains: chains.slice(0, 100).map(c => ({ avg: c.avg, path: c.path.map(id => summaryById.get(id)) })),

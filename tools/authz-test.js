@@ -602,6 +602,46 @@ const denied = r => r.status >= 400 && r.status < 500;
   const augPublic404 = await anon.call('GET', '/augmented-home/999999999');
   record('augmented', 'the public share page 404s for a bogus id', augPublic404.status === 404, `status ${augPublic404.status}`);
 
+  // ---------- AugmentedHomes: offers, multi-round counters, open houses, favorites, price-drop ----------
+  const augOfferByOwner = await A.call('POST', `/api/augmented-homes/${AUG}/offers`, { offerPrice: 500000 });
+  record('augmented', "owner can't offer on their own listing", augOfferByOwner.status === 400, `status ${augOfferByOwner.status}`);
+  const augOffer = await B.call('POST', `/api/augmented-homes/${AUG}/offers`, { offerPrice: 550000, message: MARK.offerMessage });
+  const AUG_OFFER = augOffer.json && augOffer.json.id;
+  record('augmented', 'buyer can submit an offer', augOffer.status === 201, `status ${augOffer.status}`);
+  const augDupeOffer = await B.call('POST', `/api/augmented-homes/${AUG}/offers`, { offerPrice: 560000 });
+  record('augmented', "buyer can't submit a 2nd offer while one is live", augDupeOffer.status === 400, `status ${augDupeOffer.status}`);
+  const augCounterByStranger = await C.call('PUT', `/api/augmented-homes/${AUG}/offers/${AUG_OFFER}`, { action: 'counter', counterPrice: 580000 });
+  record('augmented', "a stranger can't counter someone else's offer", denied(augCounterByStranger), `status ${augCounterByStranger.status}`);
+  const augCounter1 = await A.call('PUT', `/api/augmented-homes/${AUG}/offers/${AUG_OFFER}`, { action: 'counter', counterPrice: 580000, counterMessage: 'r1' });
+  record('augmented', 'round 1: owner counters the pending offer', augCounter1.status === 200, `status ${augCounter1.status}`);
+  const augCounter2 = await B.call('PUT', `/api/augmented-homes/${AUG}/offers/${AUG_OFFER}`, { action: 'counter', counterPrice: 560000, counterMessage: 'r2' });
+  record('augmented', 'round 2: buyer counters back', augCounter2.status === 200, `status ${augCounter2.status}`);
+  let augOfferRow = sql(`SELECT status, countered_by, counter_price FROM augmented_home_offers WHERE id = ${AUG_OFFER}`)[0];
+  record('augmented', 'after round 2: countered_by=buyer, price updated', augOfferRow.countered_by === 'buyer' && augOfferRow.counter_price === 560000, JSON.stringify(augOfferRow));
+  const augAcceptCounter = await A.call('PUT', `/api/augmented-homes/${AUG}/offers/${AUG_OFFER}`, { action: 'accept_counter' });
+  record('augmented', 'owner accepts the counter', augAcceptCounter.status === 200, `status ${augAcceptCounter.status}`);
+  augOfferRow = sql(`SELECT status, offer_price, counter_price FROM augmented_home_offers WHERE id = ${AUG_OFFER}`)[0];
+  record('augmented', 'final: accepted at the counter price', augOfferRow.status === 'accepted' && augOfferRow.offer_price === 560000, JSON.stringify(augOfferRow));
+
+  const augOhByStranger = await C.call('POST', `/api/augmented-homes/${AUG}/open-houses`, { startsAt: new Date(Date.now() + 48 * 3600000).toISOString(), endsAt: new Date(Date.now() + 50 * 3600000).toISOString() });
+  record('augmented', "a non-owner can't schedule an open house", denied(augOhByStranger), `status ${augOhByStranger.status}`);
+  const augOhCreate = await A.call('POST', `/api/augmented-homes/${AUG}/open-houses`, { startsAt: new Date(Date.now() + 48 * 3600000).toISOString(), endsAt: new Date(Date.now() + 50 * 3600000).toISOString(), note: 'AUTHZ open house' });
+  record('augmented', 'owner can schedule an open house', augOhCreate.status === 201, `status ${augOhCreate.status}`);
+  const AUG_OH = augOhCreate.json && augOhCreate.json.id;
+  const augRsvp = await B.call('POST', `/api/augmented-homes/${AUG}/open-houses/${AUG_OH}/rsvp`, {});
+  record('augmented', 'a signed-in user can RSVP', augRsvp.json && augRsvp.json.going === true, JSON.stringify(augRsvp.json));
+  const augOhDeleteByStranger = await C.call('DELETE', `/api/augmented-homes/${AUG}/open-houses/${AUG_OH}`);
+  record('augmented', "a non-owner can't cancel someone else's open house", denied(augOhDeleteByStranger), `status ${augOhDeleteByStranger.status}`);
+
+  const augFavOn = await C.call('PUT', `/api/augmented-homes/${AUG}/favorite`, {});
+  record('augmented', 'a user can favorite the listing', augFavOn.json && augFavOn.json.favorited === true, JSON.stringify(augFavOn.json));
+  const augFavList = (await C.call('GET', '/api/augmented-homes?favorites=1')).json.homes;
+  record('augmented', 'favorited home shows up in favorites list', augFavList.some(h => h.id === AUG), JSON.stringify(augFavList.map(h => h.id)));
+  const augPriceDrop = await A.call('PUT', `/api/augmented-homes/${AUG}`, { ...augBody, askingPrice: 575000, lifeEventTags: ['downsizing'] });
+  record('augmented', 'owner can drop the price again', augPriceDrop.status === 200, `status ${augPriceDrop.status}`);
+  const cNotifPriceDrop = sql(`SELECT body FROM notifications WHERE user_id = ${C.id} AND body LIKE '%dropped in price%'`);
+  record('augmented', 'favoriter is notified of the price drop', cNotifPriceDrop.length > 0, JSON.stringify(cNotifPriceDrop));
+
   const augStatus = await A.call('PUT', `/api/augmented-homes/${AUG}`, { action: 'set-status', status: 'under_contract' });
   record('augmented', 'the owner can change their own listing status', augStatus.status === 200 && sql(`SELECT status FROM augmented_homes WHERE id = ${AUG}`)[0].status === 'under_contract', `status ${augStatus.status}`);
   const augPublicAfter = await anon.call('GET', `/augmented-home/${AUG}`);
@@ -673,6 +713,46 @@ const denied = r => r.status >= 400 && r.status < 500;
   const greenPublic404 = await anon.call('GET', '/green-home/999999999');
   record('green', 'the public share page 404s for a bogus id', greenPublic404.status === 404, `status ${greenPublic404.status}`);
 
+  // ---------- GreenHomes: offers, multi-round counters, open houses, favorites, price-drop ----------
+  const greenOfferByOwner = await A.call('POST', `/api/green-homes/${GREEN}/offers`, { offerPrice: 500000 });
+  record('green', "owner can't offer on their own listing", greenOfferByOwner.status === 400, `status ${greenOfferByOwner.status}`);
+  const greenOffer = await B.call('POST', `/api/green-homes/${GREEN}/offers`, { offerPrice: 650000, message: MARK.offerMessage });
+  const GREEN_OFFER = greenOffer.json && greenOffer.json.id;
+  record('green', 'buyer can submit an offer', greenOffer.status === 201, `status ${greenOffer.status}`);
+  const greenDupeOffer = await B.call('POST', `/api/green-homes/${GREEN}/offers`, { offerPrice: 660000 });
+  record('green', "buyer can't submit a 2nd offer while one is live", greenDupeOffer.status === 400, `status ${greenDupeOffer.status}`);
+  const greenCounterByStranger = await C.call('PUT', `/api/green-homes/${GREEN}/offers/${GREEN_OFFER}`, { action: 'counter', counterPrice: 670000 });
+  record('green', "a stranger can't counter someone else's offer", denied(greenCounterByStranger), `status ${greenCounterByStranger.status}`);
+  const greenCounter1 = await A.call('PUT', `/api/green-homes/${GREEN}/offers/${GREEN_OFFER}`, { action: 'counter', counterPrice: 670000, counterMessage: 'r1' });
+  record('green', 'round 1: owner counters the pending offer', greenCounter1.status === 200, `status ${greenCounter1.status}`);
+  const greenCounter2 = await B.call('PUT', `/api/green-homes/${GREEN}/offers/${GREEN_OFFER}`, { action: 'counter', counterPrice: 655000, counterMessage: 'r2' });
+  record('green', 'round 2: buyer counters back', greenCounter2.status === 200, `status ${greenCounter2.status}`);
+  let greenOfferRow = sql(`SELECT status, countered_by, counter_price FROM green_home_offers WHERE id = ${GREEN_OFFER}`)[0];
+  record('green', 'after round 2: countered_by=buyer, price updated', greenOfferRow.countered_by === 'buyer' && greenOfferRow.counter_price === 655000, JSON.stringify(greenOfferRow));
+  const greenDeclineCounter = await A.call('PUT', `/api/green-homes/${GREEN}/offers/${GREEN_OFFER}`, { action: 'decline_counter' });
+  record('green', 'owner can decline the counter', greenDeclineCounter.status === 200, `status ${greenDeclineCounter.status}`);
+  greenOfferRow = sql(`SELECT status FROM green_home_offers WHERE id = ${GREEN_OFFER}`)[0];
+  record('green', 'declined counter sets status=declined', greenOfferRow.status === 'declined', JSON.stringify(greenOfferRow));
+
+  const greenOhByStranger = await C.call('POST', `/api/green-homes/${GREEN}/open-houses`, { startsAt: new Date(Date.now() + 48 * 3600000).toISOString(), endsAt: new Date(Date.now() + 50 * 3600000).toISOString() });
+  record('green', "a non-owner can't schedule an open house", denied(greenOhByStranger), `status ${greenOhByStranger.status}`);
+  const greenOhCreate = await A.call('POST', `/api/green-homes/${GREEN}/open-houses`, { startsAt: new Date(Date.now() + 48 * 3600000).toISOString(), endsAt: new Date(Date.now() + 50 * 3600000).toISOString(), note: 'AUTHZ open house' });
+  record('green', 'owner can schedule an open house', greenOhCreate.status === 201, `status ${greenOhCreate.status}`);
+  const GREEN_OH = greenOhCreate.json && greenOhCreate.json.id;
+  const greenRsvp = await B.call('POST', `/api/green-homes/${GREEN}/open-houses/${GREEN_OH}/rsvp`, {});
+  record('green', 'a signed-in user can RSVP', greenRsvp.json && greenRsvp.json.going === true, JSON.stringify(greenRsvp.json));
+  const greenOhDeleteByStranger = await C.call('DELETE', `/api/green-homes/${GREEN}/open-houses/${GREEN_OH}`);
+  record('green', "a non-owner can't cancel someone else's open house", denied(greenOhDeleteByStranger), `status ${greenOhDeleteByStranger.status}`);
+
+  const greenFavOn = await C.call('PUT', `/api/green-homes/${GREEN}/favorite`, {});
+  record('green', 'a user can favorite the listing', greenFavOn.json && greenFavOn.json.favorited === true, JSON.stringify(greenFavOn.json));
+  const greenFavList = (await C.call('GET', '/api/green-homes?favorites=1')).json.homes;
+  record('green', 'favorited home shows up in favorites list', greenFavList.some(h => h.id === GREEN), JSON.stringify(greenFavList.map(h => h.id)));
+  const greenPriceDrop = await A.call('PUT', `/api/green-homes/${GREEN}`, { ...greenBody, askingPrice: 660000, lifeEventTags: ['relocation'] });
+  record('green', 'owner can drop the price again', greenPriceDrop.status === 200, `status ${greenPriceDrop.status}`);
+  const cNotifGreenPriceDrop = sql(`SELECT body FROM notifications WHERE user_id = ${C.id} AND body LIKE '%dropped in price%'`);
+  record('green', 'favoriter is notified of the price drop', cNotifGreenPriceDrop.length > 0, JSON.stringify(cNotifGreenPriceDrop));
+
   const greenStatus = await A.call('PUT', `/api/green-homes/${GREEN}`, { action: 'set-status', status: 'under_contract' });
   record('green', 'the owner can change their own listing status', greenStatus.status === 200 && sql(`SELECT status FROM green_homes WHERE id = ${GREEN}`)[0].status === 'under_contract', `status ${greenStatus.status}`);
   const greenPublicAfter = await anon.call('GET', `/green-home/${GREEN}`);
@@ -726,6 +806,29 @@ const denied = r => r.status >= 400 && r.status < 500;
   record('findermine', "the public share page never leaks the street address", !projPublicPage.text.includes(MARK.projAddress), '');
   const projPublic404 = await anon.call('GET', '/project/999999999');
   record('findermine', 'the public share page 404s for a bogus id', projPublic404.status === 404, `status ${projPublic404.status}`);
+
+  // ---------- FinderMine: favorites + needs-alerts ----------
+  const projFavOn = await B.call('PUT', `/api/dev-projects/${PROJ}/favorite`, {});
+  record('findermine', 'a user can favorite a project', projFavOn.json && projFavOn.json.favorited === true, JSON.stringify(projFavOn.json));
+  const projFavList = (await B.call('GET', '/api/dev-projects?favorites=1')).json.projects;
+  record('findermine', 'favorited project shows up in favorites list', projFavList.some(p => p.id === PROJ), JSON.stringify(projFavList.map(p => p.id)));
+  const projFavOff = await B.call('PUT', `/api/dev-projects/${PROJ}/favorite`, {});
+  record('findermine', 'toggling favorite again removes it', projFavOff.json && projFavOff.json.favorited === false, JSON.stringify(projFavOff.json));
+
+  const projAlertNoCriteria = await H.call('POST', '/api/dev-project-needs-alerts', { label: 'x' });
+  record('findermine', 'an alert with no type/city/state is refused', projAlertNoCriteria.status === 400, `status ${projAlertNoCriteria.status}`);
+  const projAlertCreate = await H.call('POST', '/api/dev-project-needs-alerts', { label: 'AUTHZ project alert', projectType: 'multifamily', city: 'San Diego', state: 'CA' });
+  const PROJ_ALERT = projAlertCreate.json && projAlertCreate.json.id;
+  record('findermine', 'a user can save a project needs-alert', projAlertCreate.status === 201, `status ${projAlertCreate.status}`);
+  const projMatch = await C.call('POST', '/api/dev-projects', { ...projBody, title: 'AUTHZ Dev Project 2', address: '' });
+  const hNotifAfterProjMatch = sql(`SELECT body FROM notifications WHERE user_id = ${H.id} AND body LIKE 'A new FinderMine project%AUTHZ project alert%'`);
+  record('findermine', "posting a newly-matching project notifies the saved alert's owner", hNotifAfterProjMatch.length > 0, JSON.stringify(hNotifAfterProjMatch));
+  await C.call('DELETE', `/api/dev-project-needs-alerts/${PROJ_ALERT}`);
+  const projAlertsAfterAttempt = (await H.call('GET', '/api/dev-project-needs-alerts')).json.alerts;
+  record('findermine', "another user cannot delete someone else's project alert", projAlertsAfterAttempt.some(a => a.id === PROJ_ALERT), JSON.stringify(projAlertsAfterAttempt.map(a => a.id)));
+  await H.call('DELETE', `/api/dev-project-needs-alerts/${PROJ_ALERT}`);
+  const projAlertsAfterOwn = (await H.call('GET', '/api/dev-project-needs-alerts')).json.alerts;
+  record('findermine', "the alert's own owner can delete it", !projAlertsAfterOwn.some(a => a.id === PROJ_ALERT), JSON.stringify(projAlertsAfterOwn.map(a => a.id)));
 
   const projStatus = await C.call('PUT', `/api/dev-projects/${PROJ}`, { action: 'set-status', status: 'funded' });
   record('findermine', 'the owner can mark their own project funded', projStatus.status === 200 && sql(`SELECT status FROM dev_projects WHERE id = ${PROJ}`)[0].status === 'funded', `status ${projStatus.status}`);

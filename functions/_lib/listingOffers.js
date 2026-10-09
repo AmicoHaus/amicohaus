@@ -39,8 +39,14 @@ export async function fetchOffersForOwner(db, listingId) {
   return rows.results.map(mapOfferRow);
 }
 
+// A buyer can have several historical rows on the same listing (declined, withdrawn, from a prior round) --
+// a live one (pending/countered) always wins over stale history, same reasoning as the dedupe check in
+// offers/index.js; among ties, the most recent.
 export async function fetchMyOffer(db, listingId, buyerUserId) {
-  const row = await db.prepare('SELECT * FROM listing_offers WHERE listing_id = ? AND buyer_user_id = ?').bind(listingId, buyerUserId).first();
+  const row = await db.prepare(
+    `SELECT * FROM listing_offers WHERE listing_id = ? AND buyer_user_id = ?
+     ORDER BY CASE WHEN status IN ('pending', 'countered') THEN 0 ELSE 1 END, created_at DESC LIMIT 1`
+  ).bind(listingId, buyerUserId).first();
   return row ? mapOfferRow(row) : null;
 }
 

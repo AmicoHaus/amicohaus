@@ -1099,6 +1099,25 @@ const denied = r => r.status >= 400 && r.status < 500;
     record('matches', 'no mutual match existed to shape-check this run (not a failure, just nothing to assert)', true, '');
   }
 
+  // ---------- public market trends / leaderboard (momentum banners, no sign-in needed) ----------
+  const trendsAnon = await anon.call('GET', '/api/market-trends');
+  record('market-trends', 'anonymous can read aggregate market trends (public, like public-stats)', trendsAnon.status === 200 && trendsAnon.json && 'trends' in trendsAnon.json && 'leaderboard' in trendsAnon.json, JSON.stringify(trendsAnon.json));
+  const trendsScoped = await anon.call('GET', '/api/market-trends?entityKind=listing&city=Bonita&state=CA');
+  record('market-trends', 'scoping by entityKind/city/state returns only that scope\'s counts', trendsScoped.status === 200 && Object.values(trendsScoped.json.trends.eventCounts7d || {}).every(n => typeof n === 'number'), JSON.stringify(trendsScoped.json.trends));
+  record('market-trends', "a city-scoped request skips the (now redundant) top-cities breakdown", trendsScoped.json.trends.topCities7d.length === 0, JSON.stringify(trendsScoped.json.trends.topCities7d));
+
+  // ---------- Market Pulse tab's own city/state filter scopes the ticker + trends + leaderboard together ----------
+  // LA (the suite's own test listing) is in San Diego, and already has real price-drop events logged against
+  // it earlier in this run -- a real, non-vacuous city to filter by, not an empty scope.
+  const marketEventsSD = await B.call('GET', '/api/market-events?city=San Diego&state=CA&limit=50');
+  record('market-pulse', "the Market Pulse tab's own city filter scopes the ticker to that city only, and finds real events there", marketEventsSD.status === 200 && marketEventsSD.json.events.length > 0 && marketEventsSD.json.events.every(e => (e.city || '').toLowerCase() === 'san diego'), JSON.stringify(marketEventsSD.json.events.map(e => e.city)));
+
+  // ---------- weekly digest preview (admin-only, manual trigger, always sends to the admin's own address) ----------
+  const digestAnon = await anon.call('POST', '/api/admin/send-digest-preview', {});
+  record('weekly-digest', "anonymous can't trigger a digest preview", digestAnon.status === 401, `status ${digestAnon.status}`);
+  const digestNonAdmin = await B.call('POST', '/api/admin/send-digest-preview', {});
+  record('weekly-digest', "an ordinary signed-in user can't trigger a digest preview", digestNonAdmin.status === 403, `status ${digestNonAdmin.status}`);
+
   // ---------- 5. leak scan: everything B, H and anonymous can GET, grepped for planted secrets ----------
   console.log('\n== leak scan ==');
   const urls = ['/api/me', '/api/directory', '/api/matches', '/api/listings', `/api/listings/${LA}`, `/api/users/${A.id}`, `/api/users/${C.id}`, '/api/pre-listings', `/api/pre-listings/${PL}`,
@@ -1108,7 +1127,7 @@ const denied = r => r.status >= 400 && r.status < 500;
     '/api/augmented-homes', `/api/augmented-homes/${AUG}`, '/api/accessibility-needs-alerts', '/api/dev-projects', `/api/dev-projects/${PROJ}`,
     '/api/green-homes', `/api/green-homes/${GREEN}`,
     `/profile/${G.id}`, `/profile/${A.id}`, `/api/listings/${LA}/offers`, `/api/listings/${LA}/open-houses`, `/listing/${LA}`,
-    `/api/listings/${LA}/thread`, `/api/posts/${THREAD_POST}/comments`, '/api/market-events', '/api/market-pulse-alerts'];
+    `/api/listings/${LA}/thread`, `/api/posts/${THREAD_POST}/comments`, '/api/market-events', '/api/market-pulse-alerts', '/api/market-trends'];
   const secrets = [['client name', MARK.clientName], ['listing address', MARK.address], ['pre-listing address', MARK.preAddress], ['lockbox note (non-agent)', MARK.lockbox], ['private message', MARK.message],
     ['augmented home address', MARK.augAddress], ['dev project address', MARK.projAddress], ['green home address', MARK.greenAddress], ['counter-offer message', MARK.counterMessage],
     ['A email', A.email], ['C email', C.email], ['password hash', 'password_hash'], ['verify token', 'verify_token'], ['reset token', 'reset_token'], ['R2 key', 'r2_key'], ['session', 'ah_session']];

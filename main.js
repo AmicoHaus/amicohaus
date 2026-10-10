@@ -421,7 +421,7 @@ function renderMarketEventRow(e) {
   return `
     <div class="card market-event-row">
       <div>
-        <strong>${escapeHtml(e.headline)}</strong>
+        <strong><a href="${marketEntityHref(e.entityKind, e.entityId)}" data-action="open-market-entity" data-link="${escapeHtml(marketEntityHref(e.entityKind, e.entityId))}">${escapeHtml(e.headline)}</a></strong>
         <div class="tiny">${timeAgo(e.createdAt)}${e.city ? ` · ${escapeHtml(e.city)}, ${escapeHtml(e.state)}` : ''}</div>
       </div>
       ${figure ? `<span class="market-event-delta ${tone}">${figure}</span>` : ''}
@@ -477,13 +477,127 @@ async function checkUnseenMarketPulse() {
   } catch { /* non-critical */ }
 }
 
+function leaderboardCardHtml(entry, label) {
+  if (!entry) return '';
+  const tone = label === 'Biggest price drop this week' ? 'ticker-down' : 'ticker-up';
+  const figure = entry.delta !== undefined && entry.delta !== null ? signedMoney(entry.delta) : entry.event_count ? `${entry.event_count} events` : '';
+  return `
+    <div class="card market-event-row">
+      <div>
+        <span class="tiny label">${escapeHtml(label)}</span>
+        <div><a href="${marketEntityHref(entry.entity_kind, entry.entity_id)}" data-action="open-market-entity" data-link="${escapeHtml(marketEntityHref(entry.entity_kind, entry.entity_id))}"><strong>${escapeHtml(entry.headline)}</strong></a></div>
+        <div class="tiny">${entry.city ? `${escapeHtml(entry.city)}, ${escapeHtml(entry.state)}` : ''}</div>
+      </div>
+      ${figure ? `<span class="market-event-delta ${tone}">${figure}</span>` : ''}
+    </div>
+  `;
+}
+
+function renderMarketLeaderboard(leaderboard) {
+  const el = document.getElementById('marketLeaderboard');
+  if (!el || !leaderboard) return;
+  const cards = [
+    leaderboardCardHtml(leaderboard.biggestDrop, 'Biggest price drop this week'),
+    leaderboardCardHtml(leaderboard.hottest, 'Hottest listing this week'),
+  ].filter(Boolean);
+  el.innerHTML = cards.join('');
+}
+
+/* ---------------- Compare mode (AugmentedHomes / GreenHomes) ---------------- */
+// Client-side only -- every field the comparison needs is already in the browse-list data each card was
+// rendered from (cached here by vertical), so there's no second fetch, just a lookup by id.
+const MAX_COMPARE = 3;
+let compareTray = [];
+const compareBrowseCache = { augmented_home: [], green_home: [] };
+
+function isInCompareTray(kind, id) {
+  return compareTray.some(c => c.compareKind === kind && c.id === id);
+}
+
+function toggleCompare(kind, id) {
+  const idx = compareTray.findIndex(c => c.compareKind === kind && c.id === id);
+  if (idx >= 0) {
+    compareTray.splice(idx, 1);
+  } else {
+    if (compareTray.length >= MAX_COMPARE) { toast(`You can compare up to ${MAX_COMPARE} at a time.`); return; }
+    const item = (compareBrowseCache[kind] || []).find(h => h.id === id);
+    if (!item) return;
+    compareTray.push({ ...item, compareKind: kind });
+  }
+  const btn = document.querySelector(`[data-action="toggle-compare"][data-kind="${kind}"][data-id="${id}"]`);
+  if (btn) btn.textContent = isInCompareTray(kind, id) ? '✓ Comparing' : '⚖ Compare';
+  renderCompareTrayBar();
+}
+
+function renderCompareTrayBar() {
+  const bar = document.getElementById('compareTrayBar');
+  if (!bar) return;
+  if (!compareTray.length) { bar.classList.add('hidden'); bar.innerHTML = ''; return; }
+  bar.classList.remove('hidden');
+  bar.innerHTML = `
+    <span>${compareTray.length} selected to compare</span>
+    <button type="button" class="btn btn-primary btn-sm" id="openCompareBtn">View Comparison</button>
+    <button type="button" class="btn btn-ghost btn-sm" id="clearCompareBtn">Clear</button>
+  `;
+  document.getElementById('openCompareBtn').addEventListener('click', openCompareOverlay);
+  document.getElementById('clearCompareBtn').addEventListener('click', clearCompareTray);
+}
+
+function clearCompareTray() {
+  document.querySelectorAll('[data-action="toggle-compare"]').forEach(btn => { btn.textContent = '⚖ Compare'; });
+  compareTray = [];
+  renderCompareTrayBar();
+  closeCompareOverlay();
+}
+
+const COMPARE_PHOTO_ROUTE = { augmented_home: 'augmented-home-photos', green_home: 'green-home-photos' };
+
+function compareColumnHtml(item) {
+  const photoId = item.photoIds && item.photoIds[0];
+  const imgSrc = photoId ? `/api/${COMPARE_PHOTO_ROUTE[item.compareKind]}/${photoId}` : propertyArtUrl(item.propertyType, item.id);
+  const features = item.compareKind === 'augmented_home'
+    ? (item.adaptations || []).map(adaptationLabel)
+    : (item.greenFeatures || []).map(greenFeatureLabel);
+  return `
+    <div class="compare-column">
+      <button type="button" class="link-btn danger" data-action="remove-compare" data-kind="${item.compareKind}" data-id="${item.id}">✕ Remove</button>
+      <img class="directory-thumb" src="${imgSrc}" alt="" loading="lazy">
+      <h4>${escapeHtml(item.title || item.propertyType)}</h4>
+      <p class="tiny">${escapeHtml(item.city)}, ${escapeHtml(item.state)}</p>
+      <p><strong>${money(item.askingPrice)}</strong>${pricePerSqftLabel(item.askingPrice, item.sqft)}</p>
+      ${sparklineHtml(item.priceSeries)}
+      <p class="tiny">${item.beds}bd/${item.baths}ba${item.sqft ? ` · ${item.sqft.toLocaleString('en-US')} sqft` : ''}</p>
+      <p class="tiny">${daysOnMarketLabel(item.createdAt)}</p>
+      <p class="tiny">${features.map(l => `<span class="badge badge-gold">${escapeHtml(l)}</span>`).join(' ')}</p>
+    </div>
+  `;
+}
+
+function openCompareOverlay() {
+  const grid = document.getElementById('compareGrid');
+  grid.innerHTML = compareTray.length
+    ? compareTray.map(compareColumnHtml).join('')
+    : '<div class="empty-state">Nothing to compare yet.</div>';
+  document.getElementById('compareOverlay').classList.remove('hidden');
+}
+
+function closeCompareOverlay() {
+  document.getElementById('compareOverlay')?.classList.add('hidden');
+}
+
 async function loadMarketPulse() {
   clearTimeout(marketPulseTimer);
   const trackEl = document.getElementById('marketTickerTrack');
   const listEl = document.getElementById('marketEventsList');
+  const city = document.getElementById('marketPulseFilterCity')?.value.trim();
+  const state = document.getElementById('marketPulseFilterState')?.value.trim();
+  const params = new URLSearchParams({ limit: '50' });
+  if (city) params.set('city', city);
+  if (state) params.set('state', state);
   try {
-    const { events, trends } = await apiGet('/api/market-events?limit=50');
+    const { events, trends, leaderboard } = await apiGet(`/api/market-events?${params.toString()}`);
     renderMarketTrends(trends);
+    renderMarketLeaderboard(leaderboard);
     if (events.length === 0) {
       trackEl.innerHTML = '<span class="ticker-item ticker-empty">No market activity yet — list a home, drop a price, or close a deal to kick off the feed.</span>';
       listEl.innerHTML = '<div class="empty-state">No market activity yet.</div>';
@@ -492,8 +606,12 @@ async function loadMarketPulse() {
       // Rendered twice back-to-back so the CSS marquee's translateX(-50%) loop has no visible seam.
       trackEl.innerHTML = tickerHtml + tickerHtml;
       listEl.innerHTML = events.map(renderMarketEventRow).join('');
-      try { localStorage.setItem(MARKET_PULSE_SEEN_KEY, events[0].createdAt); } catch {}
-      document.getElementById('marketPulseUnseenDot')?.classList.add('hidden');
+      // Only count as "seen" when looking at everything -- a city-filtered view shouldn't silently clear
+      // the unseen flag for activity elsewhere that this device never actually looked at.
+      if (!city && !state) {
+        try { localStorage.setItem(MARKET_PULSE_SEEN_KEY, events[0].createdAt); } catch {}
+        document.getElementById('marketPulseUnseenDot')?.classList.add('hidden');
+      }
     }
   } catch (e) {
     trackEl.innerHTML = `<span class="ticker-item ticker-empty">${escapeHtml(e.message)}</span>`;
@@ -2124,6 +2242,7 @@ function augmentedHomeCardHtml(h, { mine } = {}) {
       ${renderLifeEventTags(h.lifeEventTags)}
       <div class="card-actions">
         <button class="btn btn-primary btn-sm" data-action="open-augmented-home" data-id="${h.id}">View</button>
+        ${!mine ? `<button type="button" class="btn btn-ghost btn-sm" data-action="toggle-compare" data-kind="augmented_home" data-id="${h.id}">${isInCompareTray('augmented_home', h.id) ? '✓ Comparing' : '⚖ Compare'}</button>` : ''}
         ${mine && h.status === 'active' ? `
           <button class="btn btn-ghost btn-sm" data-action="augmented-set-status" data-id="${h.id}" data-status="under_contract">Mark Under Contract</button>
           <button class="btn btn-ghost btn-sm" data-action="augmented-set-status" data-id="${h.id}" data-status="sold">Mark Sold</button>
@@ -2150,8 +2269,10 @@ async function loadAugmentedBrowse() {
   if (city) params.set('city', city);
   if (state) params.set('state', state);
   wanted.forEach(k => params.append('adaptation', k));
+  loadMomentumBanner('augmentedMomentum', 'augmented_home', city, state);
   try {
     const { homes } = await apiGet(`/api/augmented-homes?${params.toString()}`);
+    compareBrowseCache.augmented_home = homes;
     el.innerHTML = homes.length ? homes.map(h => augmentedHomeCardHtml(h, { mine: false })).join('') : '<div class="empty-state">Nothing matching right now.</div>';
   } catch (e) { el.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
 }
@@ -2412,6 +2533,7 @@ function greenHomeCardHtml(h, { mine } = {}) {
       ${renderLifeEventTags(h.lifeEventTags)}
       <div class="card-actions">
         <button class="btn btn-primary btn-sm" data-action="open-green-home" data-id="${h.id}">View</button>
+        ${!mine ? `<button type="button" class="btn btn-ghost btn-sm" data-action="toggle-compare" data-kind="green_home" data-id="${h.id}">${isInCompareTray('green_home', h.id) ? '✓ Comparing' : '⚖ Compare'}</button>` : ''}
         ${mine && h.status === 'active' ? `
           <button class="btn btn-ghost btn-sm" data-action="green-set-status" data-id="${h.id}" data-status="under_contract">Mark Under Contract</button>
           <button class="btn btn-ghost btn-sm" data-action="green-set-status" data-id="${h.id}" data-status="sold">Mark Sold</button>
@@ -2438,8 +2560,10 @@ async function loadGreenBrowse() {
   if (city) params.set('city', city);
   if (state) params.set('state', state);
   wanted.forEach(k => params.append('feature', k));
+  loadMomentumBanner('greenMomentum', 'green_home', city, state);
   try {
     const { homes } = await apiGet(`/api/green-homes?${params.toString()}`);
+    compareBrowseCache.green_home = homes;
     el.innerHTML = homes.length ? homes.map(h => greenHomeCardHtml(h, { mine: false })).join('') : '<div class="empty-state">Nothing matching right now.</div>';
   } catch (e) { el.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
 }
@@ -2714,6 +2838,7 @@ async function loadProjectsBrowse() {
   if (stage) params.set('stage', stage);
   wantedAdaptations.forEach(k => params.append('adaptation', k));
   wantedGreenFeatures.forEach(k => params.append('greenFeature', k));
+  loadMomentumBanner('projectsMomentum', 'dev_project', city, state);
   try {
     const { projects } = await apiGet(`/api/dev-projects?${params.toString()}`);
     el.innerHTML = projects.length ? projects.map(p => projectCardHtml(p, { mine: false })).join('') : '<div class="empty-state">Nothing open right now.</div>';
@@ -4862,6 +4987,34 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!btn) return;
     try { await apiDelete(`/api/market-pulse-alerts/${btn.dataset.id}`); loadMyMarketPulseAlerts(); }
     catch (err) { toast(err.message); }
+  });
+
+  // Market Pulse event/leaderboard links: a /listing/{id} link is a real page, let it navigate normally; an
+  // /app#... link is the SAME page we're already on, so a plain <a> wouldn't actually open the detail view
+  // (nothing listens for hashchange after load) -- route those through the same deep-link opener notifications use.
+  document.addEventListener('click', e => {
+    const link = e.target.closest('[data-action="open-market-entity"]');
+    if (!link) return;
+    const href = link.dataset.link;
+    if (href && href.startsWith('/app#')) { e.preventDefault(); openAppLink(href); }
+  });
+
+  document.addEventListener('click', e => {
+    const compareBtn = e.target.closest('[data-action="toggle-compare"]');
+    if (compareBtn) { toggleCompare(compareBtn.dataset.kind, Number(compareBtn.dataset.id)); return; }
+    const removeBtn = e.target.closest('[data-action="remove-compare"]');
+    if (removeBtn) { toggleCompare(removeBtn.dataset.kind, Number(removeBtn.dataset.id)); openCompareOverlay(); return; }
+  });
+  document.getElementById('closeCompareBtn').addEventListener('click', closeCompareOverlay);
+  document.getElementById('compareOverlay').addEventListener('click', e => {
+    if (e.target.id === 'compareOverlay') closeCompareOverlay();
+  });
+
+  document.getElementById('marketPulseFilterBtn').addEventListener('click', loadMarketPulse);
+  document.getElementById('marketPulseFilterClearBtn').addEventListener('click', () => {
+    document.getElementById('marketPulseFilterCity').value = '';
+    document.getElementById('marketPulseFilterState').value = '';
+    loadMarketPulse();
   });
 
   // The Agent Strategy tab is where the app opens, unless a deep link

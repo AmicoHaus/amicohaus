@@ -96,6 +96,7 @@ async function loadDirectory() {
   if (sort && sort !== 'newest') params.set('sort', sort);
   if (kind) params.set('kind', kind);
 
+  loadMomentumBanner('directoryMomentum', 'listing', city, state);
   try {
     const { listings } = await apiGet(`/api/directory?${params.toString()}`);
     window.__lastListings = listings; // cached so toggling to map view doesn't need a re-fetch

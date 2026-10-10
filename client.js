@@ -123,6 +123,44 @@ function pricePerSqftLabel(price, sqft) {
   return price && sqft ? ` · $${Math.round(price / sqft)}/sqft` : '';
 }
 
+// Where a market_events entity actually lives -- same /app#kind-id convention the existing needs-alert
+// notifications already use (regular listings have a public page; the other 3 verticals don't, so they
+// route back into the app).
+function marketEntityHref(entityKind, entityId) {
+  if (entityKind === 'listing') return `/listing/${entityId}`;
+  if (entityKind === 'augmented_home') return `/app#augmented-home-${entityId}`;
+  if (entityKind === 'green_home') return `/app#green-home-${entityId}`;
+  if (entityKind === 'dev_project') return `/app#dev-project-${entityId}`;
+  return '/app#marketpulse';
+}
+
+// A one-line "🔥 N new, N price drops this week [in City]" banner -- the same real event counts behind
+// Market Pulse, condensed to a single ambient line above a browse grid. Nothing to show, nothing rendered.
+function momentumBannerHtml(trends, scopeLabel) {
+  if (!trends) return '';
+  const counts = trends.eventCounts7d || {};
+  const parts = [];
+  if (counts.new_listing) parts.push(`${counts.new_listing} new`);
+  if (counts.price_drop) parts.push(`${counts.price_drop} price drop${counts.price_drop === 1 ? '' : 's'}`);
+  if (counts.offer_accepted) parts.push(`${counts.offer_accepted} deal${counts.offer_accepted === 1 ? '' : 's'} closed`);
+  if (!parts.length) return '';
+  return `<p class="momentum-banner">🔥 ${parts.join(' · ')} this week${scopeLabel ? ` in ${escapeHtml(scopeLabel)}` : ''}</p>`;
+}
+
+// Fetches and renders the momentum banner into the given container -- called from each browse grid's own
+// load function, scoped to that vertical and whatever city/state filter is currently active there.
+async function loadMomentumBanner(containerId, entityKind, city, state) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  try {
+    const params = new URLSearchParams({ entityKind });
+    if (city) params.set('city', city);
+    if (state) params.set('state', state);
+    const { trends } = await apiGet(`/api/market-trends?${params.toString()}`);
+    el.innerHTML = momentumBannerHtml(trends, city || null);
+  } catch { el.innerHTML = ''; }
+}
+
 // Fallback photos for listings without a real uploaded photo — keyed by
 // property type, so the directory/demo/profile pages never show a bare text
 // card even for seeded demo data that has no actual photos in R2. These are

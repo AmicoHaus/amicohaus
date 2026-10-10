@@ -67,7 +67,14 @@
         <div class="ticker-track" id="marketTickerTrack"><span class="ticker-item ticker-empty">Loading market activity…</span></div>
       </div>
 
+      <div class="form-row two-col">
+        <div class="field"><label>City (optional)</label><input type="text" id="marketPulseFilterCity" placeholder="Scope to one neighborhood"></div>
+        <div class="field"><label>State (optional)</label><input type="text" id="marketPulseFilterState"></div>
+      </div>
+      <div class="form-actions"><button type="button" class="btn btn-ghost btn-sm" id="marketPulseFilterBtn">Filter</button><button type="button" class="btn btn-ghost btn-sm" id="marketPulseFilterClearBtn">Show all activity</button></div>
+
       <div class="stats-bar" id="marketTrends"></div>
+      <div class="grid" id="marketLeaderboard"></div>
 
       <details class="panel bulk-upload" id="marketPulseAlertWrap">
         <summary>Save a watch — get notified</summary>
@@ -663,6 +670,7 @@
         </form>
         <p class="tiny"><strong>Filter by adaptation:</strong></p>
         <div id="augmentedFilterChips"></div>
+        <div id="augmentedMomentum"></div>
         <div class="grid" id="augmentedBrowseList"><div class="empty-state">Loading…</div></div>
       </div>
 
@@ -739,6 +747,7 @@
         </form>
         <p class="tiny"><strong>Filter by feature:</strong></p>
         <div id="greenFilterChips"></div>
+        <div id="greenMomentum"></div>
         <div class="grid" id="greenBrowseList"><div class="empty-state">Loading…</div></div>
       </div>
 
@@ -827,6 +836,7 @@
           <summary>Filter by green feature (optional)</summary>
           <div id="projectGreenFeatureFilterChips"></div>
         </details>
+        <div id="projectsMomentum"></div>
         <div class="grid" id="projectsBrowseList"><div class="empty-state">Loading…</div></div>
       </div>
 
@@ -843,6 +853,17 @@
       <button class="link-btn" id="markAllReadBtn">Mark all read</button>
     </div>
     <div class="stack" id="notifList"></div>
+  </div>
+
+  <div id="compareTrayBar" class="hidden"></div>
+  <div id="compareOverlay" class="hidden">
+    <div class="compare-panel">
+      <div class="panel-header">
+        <h3>Compare</h3>
+        <button class="link-btn" id="closeCompareBtn">✕ Close</button>
+      </div>
+      <div id="compareGrid"></div>
+    </div>
   </div>
 </div>
 <script src="client.js"></script>

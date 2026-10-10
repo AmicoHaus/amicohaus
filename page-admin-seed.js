@@ -193,6 +193,14 @@ async function loadAuditLog() {
   document.getElementById('refreshReportsBtn').addEventListener('click', loadReports);
   document.getElementById('refreshAgentAppsBtn').addEventListener('click', loadAgentApplications);
   document.getElementById('refreshDisputesBtn').addEventListener('click', loadDisputes);
+  document.getElementById('sendDigestPreviewBtn').addEventListener('click', async () => {
+    const out = document.getElementById('digestPreviewResult');
+    out.textContent = 'Sending…';
+    try {
+      const { sent, reason } = await apiPost('/api/admin/send-digest-preview', {});
+      out.textContent = sent ? `Sent to ${user.email ? escapeHtml(user.email) : 'your inbox'}. Check it (or the dev log if EMAIL_DEV_LOG is set).` : (reason || 'Nothing to report this week.');
+    } catch (err) { out.textContent = err.message; }
+  });
   loadOverview();
   loadReports();
   loadAgentApplications();

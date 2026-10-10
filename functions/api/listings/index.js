@@ -3,8 +3,9 @@ import { json, badRequest, unauthorized, parseJsonSafe } from '../../_lib/util.j
 import { validateListingInput, insertListing } from '../../_lib/listings.js';
 import { notifyNewMatches } from '../../_lib/matchNotify.js';
 import { fetchPortfolioMembers } from '../../_lib/portfolios.js';
-import { logMarketEventUnlessDemo } from '../../_lib/marketEvents.js';
-import { fetchPriceSeriesBatch } from '../../_lib/priceSeries.js';
+import { logMarketEventUnlessDemo, fetchRecentActivityBatch } from '../../_lib/marketEvents.js';
+import { fetchPriceSeriesBatch, fetchListingFavoriteCountBatch } from '../../_lib/priceSeries.js';
+import { fetchCommentCountBatch } from '../../_lib/dealThreads.js';
 
 export async function onRequestGet(context) {
   const user = await getSessionUser(context);
@@ -23,13 +24,22 @@ export async function onRequestGet(context) {
 
   const portfolioIds = rows.results.filter(l => l.is_portfolio).map(l => l.id);
   const membersByPortfolio = await fetchPortfolioMembers(db, portfolioIds);
-  const seriesByListing = await fetchPriceSeriesBatch(db, 'listing', rows.results.map(l => l.id));
+  const ids = rows.results.map(l => l.id);
+  const [seriesByListing, recentActivityByListing, favoriteCountByListing, commentCountByListing] = await Promise.all([
+    fetchPriceSeriesBatch(db, 'listing', ids),
+    fetchRecentActivityBatch(db, 'listing', ids),
+    fetchListingFavoriteCountBatch(db, ids),
+    fetchCommentCountBatch(db, 'listing', ids),
+  ]);
 
   const listings = rows.results.map(l => ({
     ...l, external_links: parseJsonSafe(l.external_links, []),
     life_event_tags: parseJsonSafe(l.life_event_tags_json, []),
     portfolio_members: l.is_portfolio ? (membersByPortfolio.get(l.id) || []) : undefined,
     price_series: [...(seriesByListing.get(l.id) || []), l.estimated_value],
+    recent_activity: recentActivityByListing.get(l.id) || null,
+    favorite_count: favoriteCountByListing.get(l.id) || 0,
+    comment_count: commentCountByListing.get(l.id) || 0,
   }));
   return json({ listings });
 }

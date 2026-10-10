@@ -1,10 +1,11 @@
 import { getSessionUser } from '../../_lib/auth.js';
 import { json, badRequest, unauthorized } from '../../_lib/util.js';
 import { validateDevProjectInput, insertDevProject, fetchDevProjectPhotos, fetchInterestCount } from '../../_lib/devProjects.js';
-import { fetchMyFavoriteProjectIds } from '../../_lib/devProjectFavorites.js';
+import { fetchMyFavoriteProjectIds, fetchFavoriteCountBatch } from '../../_lib/devProjectFavorites.js';
 import { checkAlertsForNewProject } from '../../_lib/devProjectNeedsAlerts.js';
-import { logMarketEventUnlessDemo } from '../../_lib/marketEvents.js';
+import { logMarketEventUnlessDemo, fetchRecentActivityBatch } from '../../_lib/marketEvents.js';
 import { PROJECT_TYPE_LABELS } from '../../_lib/devProjects.js';
+import { fetchCommentCountBatch } from '../../_lib/dealThreads.js';
 
 const LIST_FIELDS = `dev_projects.id, dev_projects.user_id, dev_projects.title, dev_projects.city, dev_projects.state,
   dev_projects.project_type, dev_projects.stage, dev_projects.funding_goal, dev_projects.min_investment,
@@ -56,6 +57,12 @@ export async function onRequestGet(context) {
   const favoritesMode = url.searchParams.get('favorites') === '1';
   const skipFilter = url.searchParams.get('mine') === '1' || favoritesMode;
   const myFavoriteIds = favoritesMode ? null : new Set(await fetchMyFavoriteProjectIds(db, user.id));
+  const ids = rows.results.map(r => r.id);
+  const [recentActivityByProject, favoriteCountByProject, commentCountByProject] = await Promise.all([
+    fetchRecentActivityBatch(db, 'dev_project', ids),
+    fetchFavoriteCountBatch(db, ids),
+    fetchCommentCountBatch(db, 'dev_project', ids),
+  ]);
   const projects = [];
   for (const r of rows.results) {
     const adaptations = JSON.parse(r.adaptations_json || '[]');
@@ -69,6 +76,9 @@ export async function onRequestGet(context) {
       projectType: r.project_type, stage: r.stage, fundingGoal: r.funding_goal, minInvestment: r.min_investment,
       targetReturn: r.target_return, timelineMonths: r.timeline_months, status: r.status, createdAt: r.created_at,
       photoIds: photos.map(p => p.id), interestCount, adaptations, greenFeatures,
+      recentActivity: recentActivityByProject.get(r.id) || null,
+      favoriteCount: favoriteCountByProject.get(r.id) || 0,
+      commentCount: commentCountByProject.get(r.id) || 0,
       isFavorited: favoritesMode ? true : myFavoriteIds.has(r.id),
     });
   }

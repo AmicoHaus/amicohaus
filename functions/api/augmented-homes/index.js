@@ -2,13 +2,14 @@ import { getSessionUser } from '../../_lib/auth.js';
 import { json, badRequest, unauthorized } from '../../_lib/util.js';
 import { validateAugmentedHomeInput, insertAugmentedHome, fetchAugmentedHomePhotos } from '../../_lib/augmentedHomes.js';
 import { checkAlertsForNewHome } from '../../_lib/accessibilityAlerts.js';
-import { fetchMyFavoriteHomeIds } from '../../_lib/augmentedHomeFavorites.js';
-import { logMarketEventUnlessDemo } from '../../_lib/marketEvents.js';
+import { fetchMyFavoriteHomeIds, fetchFavoriteCountBatch } from '../../_lib/augmentedHomeFavorites.js';
+import { logMarketEventUnlessDemo, fetchRecentActivityBatch } from '../../_lib/marketEvents.js';
 import { fetchPriceSeriesBatch } from '../../_lib/priceSeries.js';
+import { fetchCommentCountBatch } from '../../_lib/dealThreads.js';
 
 const LIST_FIELDS = `augmented_homes.id, augmented_homes.user_id, augmented_homes.title, augmented_homes.city,
   augmented_homes.state, augmented_homes.zip, augmented_homes.property_type, augmented_homes.beds,
-  augmented_homes.baths, augmented_homes.asking_price, augmented_homes.adaptations_json, augmented_homes.life_event_tags_json,
+  augmented_homes.baths, augmented_homes.sqft, augmented_homes.asking_price, augmented_homes.adaptations_json, augmented_homes.life_event_tags_json,
   augmented_homes.status, augmented_homes.created_at, users.display_name AS owner_name`;
 
 // ?mine=1 for a seller's own listings (any status); otherwise every active
@@ -51,7 +52,13 @@ export async function onRequestGet(context) {
   const favoritesMode = url.searchParams.get('favorites') === '1';
   const skipFilter = url.searchParams.get('mine') === '1' || favoritesMode;
   const myFavoriteIds = favoritesMode ? null : new Set(await fetchMyFavoriteHomeIds(db, user.id));
-  const seriesByHome = await fetchPriceSeriesBatch(db, 'augmented_home', rows.results.map(r => r.id));
+  const ids = rows.results.map(r => r.id);
+  const [seriesByHome, recentActivityByHome, favoriteCountByHome, commentCountByHome] = await Promise.all([
+    fetchPriceSeriesBatch(db, 'augmented_home', ids),
+    fetchRecentActivityBatch(db, 'augmented_home', ids),
+    fetchFavoriteCountBatch(db, ids),
+    fetchCommentCountBatch(db, 'augmented_home', ids),
+  ]);
   const homes = [];
   for (const r of rows.results) {
     const adaptations = JSON.parse(r.adaptations_json || '[]');
@@ -59,8 +66,11 @@ export async function onRequestGet(context) {
     const photos = await fetchAugmentedHomePhotos(db, r.id);
     homes.push({
       id: r.id, userId: r.user_id, owner: r.owner_name, title: r.title, city: r.city, state: r.state, zip: r.zip,
-      propertyType: r.property_type, beds: r.beds, baths: r.baths, askingPrice: r.asking_price,
+      propertyType: r.property_type, beds: r.beds, baths: r.baths, sqft: r.sqft, askingPrice: r.asking_price,
       priceSeries: [...(seriesByHome.get(r.id) || []), r.asking_price],
+      recentActivity: recentActivityByHome.get(r.id) || null,
+      favoriteCount: favoriteCountByHome.get(r.id) || 0,
+      commentCount: commentCountByHome.get(r.id) || 0,
       adaptations, lifeEventTags: JSON.parse(r.life_event_tags_json || '[]'),
       status: r.status, createdAt: r.created_at, photoIds: photos.map(p => p.id),
       isFavorited: favoritesMode ? true : myFavoriteIds.has(r.id),

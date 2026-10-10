@@ -22,7 +22,9 @@ export async function logMarketEventUnlessDemo(db, ownerUserId, event) {
 }
 
 export async function fetchRecentMarketEvents(db, limit = 50) {
-  const rows = await db.prepare('SELECT * FROM market_events ORDER BY created_at DESC LIMIT ?').bind(limit).all();
+  // created_at has only 1-second resolution, so two events on the same entity in the same second are a real
+  // possibility (e.g. a brand-new listing immediately edited) -- id DESC breaks the tie by actual insert order.
+  const rows = await db.prepare('SELECT * FROM market_events ORDER BY created_at DESC, id DESC LIMIT ?').bind(limit).all();
   return rows.results.map(r => ({
     id: r.id, eventType: r.event_type, entityKind: r.entity_kind, entityId: r.entity_id,
     city: r.city, state: r.state, headline: r.headline, amount: r.amount, delta: r.delta, createdAt: r.created_at,
@@ -42,4 +44,22 @@ export async function fetchMarketTrends(db) {
     topCities7d: topCities.results.map(r => ({ city: r.city, state: r.state, count: r.n })),
     priceDropTotal30d: drops.total, priceDropCount30d: drops.n,
   };
+}
+
+// Batches each entity's most recent new_listing/price_drop within the window, for a list/browse card's
+// "just listed" or "price cut" accent -- the two event types that make sense as an at-a-glance card cue
+// (an accepted offer or open house don't call for the buyer's attention the same way).
+export async function fetchRecentActivityBatch(db, entityKind, ids, hours = 48) {
+  const map = new Map();
+  if (!ids.length) return map;
+  const rows = await db.prepare(
+    `SELECT entity_id, event_type FROM market_events
+     WHERE entity_kind = ? AND entity_id IN (${ids.map(() => '?').join(',')}) AND event_type IN ('new_listing', 'price_drop')
+       AND created_at > datetime('now', ?)
+     ORDER BY created_at DESC, id DESC`
+  ).bind(entityKind, ...ids, `-${hours} hours`).all();
+  for (const r of rows.results) {
+    if (!map.has(r.entity_id)) map.set(r.entity_id, r.event_type); // first row per id, in DESC order = most recent
+  }
+  return map;
 }

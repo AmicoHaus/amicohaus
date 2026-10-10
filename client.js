@@ -93,6 +93,36 @@ function renderExternalLinks(links) {
   return tourHtml + restHtml;
 }
 
+// Small listing-card signals shared by the SPA (main.js) and the public directory (page-home.js).
+function daysOnMarketLabel(createdAt) {
+  if (!createdAt) return '';
+  const days = Math.floor((Date.now() - new Date(createdAt + 'Z').getTime()) / 86400000);
+  if (days <= 0) return 'Listed today';
+  return `${days} day${days === 1 ? '' : 's'} on market`;
+}
+
+const ACTIVITY_RIBBON = { new_listing: { text: 'Just listed', tone: 'ticker-neutral' }, price_drop: { text: 'Price cut', tone: 'ticker-down' } };
+function activityRibbonHtml(recentActivity) {
+  const r = ACTIVITY_RIBBON[recentActivity];
+  return r ? `<span class="activity-ribbon ${r.tone}">${r.text}</span>` : '';
+}
+function activityAccentClass(recentActivity) {
+  return recentActivity === 'price_drop' ? 'card-accent-drop' : recentActivity === 'new_listing' ? 'card-accent-new' : '';
+}
+
+// A small "♥ saved · 💬 comments" line of social proof -- how many other people have already engaged,
+// not just your own state. A flame marks a thread with real back-and-forth (3+ comments), not just one post.
+function socialProofHtml(favoriteCount, commentCount) {
+  const parts = [];
+  if (favoriteCount) parts.push(`♥ ${favoriteCount} saved`);
+  if (commentCount) parts.push(`💬 ${commentCount}${commentCount >= 3 ? ' 🔥' : ''}`);
+  return parts.length ? `<p class="tiny card-social-proof">${parts.join(' · ')}</p>` : '';
+}
+
+function pricePerSqftLabel(price, sqft) {
+  return price && sqft ? ` · $${Math.round(price / sqft)}/sqft` : '';
+}
+
 // Fallback photos for listings without a real uploaded photo — keyed by
 // property type, so the directory/demo/profile pages never show a bare text
 // card even for seeded demo data that has no actual photos in R2. These are

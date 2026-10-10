@@ -2,13 +2,14 @@ import { getSessionUser } from '../../_lib/auth.js';
 import { json, badRequest, unauthorized } from '../../_lib/util.js';
 import { validateGreenHomeInput, insertGreenHome, fetchGreenHomePhotos } from '../../_lib/greenHomes.js';
 import { checkGreenAlertsForNewHome } from '../../_lib/greenNeedsAlerts.js';
-import { fetchMyFavoriteHomeIds } from '../../_lib/greenHomeFavorites.js';
-import { logMarketEventUnlessDemo } from '../../_lib/marketEvents.js';
+import { fetchMyFavoriteHomeIds, fetchFavoriteCountBatch } from '../../_lib/greenHomeFavorites.js';
+import { logMarketEventUnlessDemo, fetchRecentActivityBatch } from '../../_lib/marketEvents.js';
 import { fetchPriceSeriesBatch } from '../../_lib/priceSeries.js';
+import { fetchCommentCountBatch } from '../../_lib/dealThreads.js';
 
 const LIST_FIELDS = `green_homes.id, green_homes.user_id, green_homes.title, green_homes.city,
   green_homes.state, green_homes.zip, green_homes.property_type, green_homes.beds,
-  green_homes.baths, green_homes.asking_price, green_homes.green_features_json, green_homes.life_event_tags_json,
+  green_homes.baths, green_homes.sqft, green_homes.asking_price, green_homes.green_features_json, green_homes.life_event_tags_json,
   green_homes.status, green_homes.created_at, users.display_name AS owner_name`;
 
 // ?mine=1 for a seller's own listings (any status); otherwise every active one, filterable by green feature
@@ -50,7 +51,13 @@ export async function onRequestGet(context) {
   const favoritesMode = url.searchParams.get('favorites') === '1';
   const skipFilter = url.searchParams.get('mine') === '1' || favoritesMode;
   const myFavoriteIds = favoritesMode ? null : new Set(await fetchMyFavoriteHomeIds(db, user.id));
-  const seriesByHome = await fetchPriceSeriesBatch(db, 'green_home', rows.results.map(r => r.id));
+  const ids = rows.results.map(r => r.id);
+  const [seriesByHome, recentActivityByHome, favoriteCountByHome, commentCountByHome] = await Promise.all([
+    fetchPriceSeriesBatch(db, 'green_home', ids),
+    fetchRecentActivityBatch(db, 'green_home', ids),
+    fetchFavoriteCountBatch(db, ids),
+    fetchCommentCountBatch(db, 'green_home', ids),
+  ]);
   const homes = [];
   for (const r of rows.results) {
     const greenFeatures = JSON.parse(r.green_features_json || '[]');
@@ -58,8 +65,11 @@ export async function onRequestGet(context) {
     const photos = await fetchGreenHomePhotos(db, r.id);
     homes.push({
       id: r.id, userId: r.user_id, owner: r.owner_name, title: r.title, city: r.city, state: r.state, zip: r.zip,
-      propertyType: r.property_type, beds: r.beds, baths: r.baths, askingPrice: r.asking_price,
+      propertyType: r.property_type, beds: r.beds, baths: r.baths, sqft: r.sqft, askingPrice: r.asking_price,
       priceSeries: [...(seriesByHome.get(r.id) || []), r.asking_price],
+      recentActivity: recentActivityByHome.get(r.id) || null,
+      favoriteCount: favoriteCountByHome.get(r.id) || 0,
+      commentCount: commentCountByHome.get(r.id) || 0,
       greenFeatures, lifeEventTags: JSON.parse(r.life_event_tags_json || '[]'),
       status: r.status, createdAt: r.created_at, photoIds: photos.map(p => p.id),
       isFavorited: favoritesMode ? true : myFavoriteIds.has(r.id),

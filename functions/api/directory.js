@@ -1,6 +1,9 @@
 import { getSessionUser } from '../_lib/auth.js';
 import { json, parseJsonSafe, DEMO_EMAIL_PATTERN } from '../_lib/util.js';
 import { fetchPortfolioMembers } from '../_lib/portfolios.js';
+import { fetchRecentActivityBatch } from '../_lib/marketEvents.js';
+import { fetchListingFavoriteCountBatch } from '../_lib/priceSeries.js';
+import { fetchCommentCountBatch } from '../_lib/dealThreads.js';
 
 const PROPERTY_TYPES = ['Single Family Home', 'Condo', 'Townhouse', 'Penthouse', 'Ranch / Land', 'Multi-Family', 'Investment Property'];
 const SORTS = {
@@ -70,9 +73,9 @@ export async function onRequestGet(context) {
 
   const rows = await db.prepare(
     `SELECT listings.id, listings.title, listings.neighborhood, listings.city, listings.state,
-            listings.property_type, listings.beds, listings.baths, listings.estimated_value, listings.price_tier,
+            listings.property_type, listings.beds, listings.baths, listings.sqft, listings.estimated_value, listings.price_tier,
             listings.external_links, listings.is_rental, listings.rent_amount, listings.min_lease_months, listings.is_portfolio,
-            listings.life_event_tags_json,
+            listings.life_event_tags_json, listings.created_at,
             users.display_name AS owner_name,
             desired_criteria.locations, desired_criteria.property_type AS desired_type,
             desired_criteria.price_min, desired_criteria.price_max,
@@ -88,11 +91,20 @@ export async function onRequestGet(context) {
 
   const portfolioIds = rows.results.filter(r => r.is_portfolio).map(r => r.id);
   const membersByPortfolio = await fetchPortfolioMembers(db, portfolioIds);
+  const ids = rows.results.map(r => r.id);
+  const [recentActivityById, favoriteCountById, commentCountById] = await Promise.all([
+    fetchRecentActivityBatch(db, 'listing', ids),
+    fetchListingFavoriteCountBatch(db, ids),
+    fetchCommentCountBatch(db, 'listing', ids),
+  ]);
 
   const listings = rows.results.map(r => ({
     ...r, external_links: parseJsonSafe(r.external_links, []),
     life_event_tags: parseJsonSafe(r.life_event_tags_json, []),
     portfolio_members: r.is_portfolio ? (membersByPortfolio.get(r.id) || []) : undefined,
+    recent_activity: recentActivityById.get(r.id) || null,
+    favorite_count: favoriteCountById.get(r.id) || 0,
+    comment_count: commentCountById.get(r.id) || 0,
   }));
   return json({ listings });
 }

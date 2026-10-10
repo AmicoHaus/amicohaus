@@ -24,3 +24,14 @@ export async function fetchMyFavoriteHomeIds(db, userId) {
   const rows = await db.prepare('SELECT green_home_id FROM green_home_favorites WHERE user_id = ? ORDER BY created_at DESC').bind(userId).all();
   return rows.results.map(r => r.green_home_id);
 }
+
+// Batch favorite counts for a "X saved this" social-proof badge on list/browse cards.
+export async function fetchFavoriteCountBatch(db, ids) {
+  const map = new Map();
+  if (!ids.length) return map;
+  const rows = await db.prepare(
+    `SELECT green_home_id, COUNT(*) AS n FROM green_home_favorites WHERE green_home_id IN (${ids.map(() => '?').join(',')}) GROUP BY green_home_id`
+  ).bind(...ids).all();
+  for (const r of rows.results) map.set(r.green_home_id, r.n);
+  return map;
+}

@@ -15,8 +15,11 @@ function renderDirectory(listings) {
     return;
   }
   grid.innerHTML = listings.map(l => `
-    <div class="card" data-listing-id="${l.id}">
-      <img class="directory-thumb" src="${l.photo_id ? `/api/photos/${l.photo_id}` : propertyArtUrl(l.property_type, l.id)}" alt="" loading="lazy">
+    <div class="card ${activityAccentClass(l.recent_activity)}" data-listing-id="${l.id}">
+      <div class="directory-thumb-wrap">
+        <img class="directory-thumb" src="${l.photo_id ? `/api/photos/${l.photo_id}` : propertyArtUrl(l.property_type, l.id)}" alt="" loading="lazy">
+        ${activityRibbonHtml(l.recent_activity)}
+      </div>
       <div class="card-head">
         <div>
           <h3><a class="profile-link" href="/listing/${l.id}">${escapeHtml(l.title || l.property_type)}</a></h3>
@@ -26,9 +29,11 @@ function renderDirectory(listings) {
       </div>
       <div class="mini-block">
         <span class="label">Has</span>
-        ${l.is_portfolio ? `${(l.portfolio_members || []).length} properties, ${money(l.estimated_value)} combined` : `${escapeHtml(l.property_type)} · ${l.beds}bd/${l.baths}ba`}<br>
+        ${l.is_portfolio ? `${(l.portfolio_members || []).length} properties, ${money(l.estimated_value)} combined` : `${escapeHtml(l.property_type)} · ${l.beds}bd/${l.baths}ba${pricePerSqftLabel(l.estimated_value, l.sqft)}`}<br>
         ${escapeHtml(l.neighborhood ? l.neighborhood + ', ' : '')}${escapeHtml(l.city)}, ${escapeHtml(l.state)}${l.is_portfolio ? ' (primary property)' : ''}
       </div>
+      <p class="tiny">${daysOnMarketLabel(l.created_at)}</p>
+      ${socialProofHtml(l.favorite_count, l.comment_count)}
       ${l.is_portfolio ? `<div class="mini-block"><span class="label">Includes</span>${(l.portfolio_members || []).map(m => `${escapeHtml(m.propertyType)} in ${escapeHtml(m.city)}, ${escapeHtml(m.state)} (${money(m.estimatedValue)})`).join('<br>')}</div>` : ''}
       ${l.is_rental
         ? `<div class="mini-block"><span class="label">Rent</span>${money(l.rent_amount)}/mo · ${l.min_lease_months}-month min lease</div>`

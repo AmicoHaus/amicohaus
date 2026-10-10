@@ -18,3 +18,19 @@ export async function findOrCreateThreadPost(db, entityKind, entityId, ownerUser
   const result = await db.prepare(`INSERT INTO posts (user_id, ${column}, body) VALUES (?, ?, '')`).bind(ownerUserId, entityId).run();
   return result.meta.last_row_id;
 }
+
+// Batch comment counts for a "💬 N" badge on list/browse cards -- never creates the anchor post (browsing a
+// list shouldn't write anything), so an entity with no thread yet simply isn't in the returned map.
+export async function fetchCommentCountBatch(db, entityKind, ids) {
+  const map = new Map();
+  const column = COLUMN_BY_KIND[entityKind];
+  if (!column || !ids.length) return map;
+  const rows = await db.prepare(
+    `SELECT posts.${column} AS entity_id, COUNT(comments.id) AS n
+     FROM posts JOIN comments ON comments.post_id = posts.id
+     WHERE posts.${column} IN (${ids.map(() => '?').join(',')})
+     GROUP BY posts.${column}`
+  ).bind(...ids).all();
+  for (const r of rows.results) map.set(r.entity_id, r.n);
+  return map;
+}

@@ -648,6 +648,8 @@ const denied = r => r.status >= 400 && r.status < 500;
   const augBrowseForSeries = (await B.call('GET', '/api/augmented-homes')).json.homes;
   const augSeriesRow = augBrowseForSeries.find(h => h.id === AUG);
   record('augmented', 'the browse list carries a sparkline price series reflecting every real edit (625k → 600k → 575k)', JSON.stringify(augSeriesRow && augSeriesRow.priceSeries) === JSON.stringify([625000, 600000, 575000, 575000]), JSON.stringify(augSeriesRow && augSeriesRow.priceSeries));
+  record('augmented', 'the browse list flags the real price-cut accent (recentActivity)', augSeriesRow && augSeriesRow.recentActivity === 'price_drop', JSON.stringify(augSeriesRow && augSeriesRow.recentActivity));
+  record('augmented', "the browse list carries C's real favorite in the count", augSeriesRow && augSeriesRow.favoriteCount === 1, JSON.stringify(augSeriesRow && augSeriesRow.favoriteCount));
 
   const augStatus = await A.call('PUT', `/api/augmented-homes/${AUG}`, { action: 'set-status', status: 'under_contract' });
   record('augmented', 'the owner can change their own listing status', augStatus.status === 200 && sql(`SELECT status FROM augmented_homes WHERE id = ${AUG}`)[0].status === 'under_contract', `status ${augStatus.status}`);
@@ -762,6 +764,8 @@ const denied = r => r.status >= 400 && r.status < 500;
   const greenBrowseForSeries = (await B.call('GET', '/api/green-homes')).json.homes;
   const greenSeriesRow = greenBrowseForSeries.find(h => h.id === GREEN);
   record('green', 'the browse list carries a sparkline price series reflecting every real edit (710k → 690k → 660k)', JSON.stringify(greenSeriesRow && greenSeriesRow.priceSeries) === JSON.stringify([710000, 690000, 660000, 660000]), JSON.stringify(greenSeriesRow && greenSeriesRow.priceSeries));
+  record('green', 'the browse list flags the real price-cut accent (recentActivity)', greenSeriesRow && greenSeriesRow.recentActivity === 'price_drop', JSON.stringify(greenSeriesRow && greenSeriesRow.recentActivity));
+  record('green', "the browse list carries C's real favorite in the count", greenSeriesRow && greenSeriesRow.favoriteCount === 1, JSON.stringify(greenSeriesRow && greenSeriesRow.favoriteCount));
 
   const greenStatus = await A.call('PUT', `/api/green-homes/${GREEN}`, { action: 'set-status', status: 'under_contract' });
   record('green', 'the owner can change their own listing status', greenStatus.status === 200 && sql(`SELECT status FROM green_homes WHERE id = ${GREEN}`)[0].status === 'under_contract', `status ${greenStatus.status}`);
@@ -1018,6 +1022,9 @@ const denied = r => r.status >= 400 && r.status < 500;
   // only through its entity's own thread.
   const feedCheck = await A.call('GET', '/api/posts');
   record('deal-thread', "the deal-thread anchor post never appears in the general feed", !feedCheck.json.posts.some(p => p.id === THREAD_POST), JSON.stringify(feedCheck.json.posts.map(p => p.id)));
+  const myListingsForCommentCount = (await A.call('GET', '/api/listings')).json.listings;
+  const laForCommentCount = myListingsForCommentCount.find(l => l.id === LA);
+  record('deal-thread', "the owner's own listing list carries the real deal-thread comment count", laForCommentCount && laForCommentCount.comment_count === 1, JSON.stringify(laForCommentCount && laForCommentCount.comment_count));
 
   // ---------- comment upvotes ----------
   console.log('\n== comment likes ==');

@@ -400,6 +400,14 @@ function sparklineHtml(series) {
   return `<svg class="sparkline ${tone}" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="Price history: ${title}"><title>${title}</title><polyline points="${points}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
 }
 
+// Compact "▼ 4%" chip alongside the sparkline, for when the shape alone isn't specific enough.
+function priceTrendBadge(series) {
+  if (!series || series.length < 2 || !series[0] || series[0] === series[series.length - 1]) return '';
+  const pct = Math.round(((series[series.length - 1] - series[0]) / series[0]) * 100);
+  const tone = pct < 0 ? 'ticker-down' : 'ticker-up';
+  return `<span class="trend-badge ${tone}">${pct < 0 ? '▼' : '▲'} ${Math.abs(pct)}%</span>`;
+}
+
 function renderTickerItem(e) {
   const tone = MARKET_EVENT_TONE[e.eventType] || 'ticker-neutral';
   const arrow = MARKET_EVENT_ARROW[e.eventType] || '●';
@@ -454,6 +462,20 @@ async function loadMyMarketPulseAlerts() {
 }
 
 let marketPulseTimer = null;
+const MARKET_PULSE_SEEN_KEY = 'ah_market_pulse_seen';
+
+// A small red dot on the nav tab when real activity has happened since this device last opened Market
+// Pulse -- checked once at load, cleared the moment the tab is actually opened (see loadMarketPulse below).
+async function checkUnseenMarketPulse() {
+  const dot = document.getElementById('marketPulseUnseenDot');
+  if (!dot) return;
+  try {
+    const { events } = await apiGet('/api/market-events?limit=1');
+    if (!events.length) return;
+    let seen = ''; try { seen = localStorage.getItem(MARKET_PULSE_SEEN_KEY) || ''; } catch {}
+    dot.classList.toggle('hidden', events[0].createdAt <= seen);
+  } catch { /* non-critical */ }
+}
 
 async function loadMarketPulse() {
   clearTimeout(marketPulseTimer);
@@ -470,6 +492,8 @@ async function loadMarketPulse() {
       // Rendered twice back-to-back so the CSS marquee's translateX(-50%) loop has no visible seam.
       trackEl.innerHTML = tickerHtml + tickerHtml;
       listEl.innerHTML = events.map(renderMarketEventRow).join('');
+      try { localStorage.setItem(MARKET_PULSE_SEEN_KEY, events[0].createdAt); } catch {}
+      document.getElementById('marketPulseUnseenDot')?.classList.add('hidden');
     }
   } catch (e) {
     trackEl.innerHTML = `<span class="ticker-item ticker-empty">${escapeHtml(e.message)}</span>`;
@@ -667,7 +691,7 @@ async function loadMyListing() {
     formWrap.style.display = 'none';
     cancelBtn.classList.remove('hidden');
     summaryEl.innerHTML = listings.map(l => `
-      <div class="card">
+      <div class="card ${activityAccentClass(l.recent_activity)}">
         <div class="card-head">
           <h3><a class="profile-link" href="/listing/${l.id}">${escapeHtml(l.title || l.property_type)}</a></h3>
           <span class="badge ${l.status === 'active' ? 'badge-active' : 'badge-paused'}">${l.status}</span>
@@ -676,13 +700,15 @@ async function loadMyListing() {
           ${l.is_portfolio ? `<span class="badge badge-gold">Portfolio · ${(l.portfolio_members || []).length}</span>` : ''}
           ${l.bundled_into ? '<span class="badge badge-gold">🔗 Bundled</span>' : ''}
         </div>
-        <div class="card-agent">${l.client_name ? `Listed for <strong>${escapeHtml(l.client_name)}</strong> · ` : ''}${l.views || 0} view${l.views === 1 ? '' : 's'}${matchCountById ? ` · ${matchCountById.get(l.id) || 0} match${(matchCountById.get(l.id) || 0) === 1 ? '' : 'es'}` : ''}</div>
+        ${activityRibbonHtml(l.recent_activity)}
+        <div class="card-agent">${l.client_name ? `Listed for <strong>${escapeHtml(l.client_name)}</strong> · ` : ''}${l.views || 0} view${l.views === 1 ? '' : 's'}${matchCountById ? ` · ${matchCountById.get(l.id) || 0} match${(matchCountById.get(l.id) || 0) === 1 ? '' : 'es'}` : ''} · ${daysOnMarketLabel(l.created_at)}</div>
+        ${socialProofHtml(l.favorite_count, l.comment_count)}
         ${(l.is_buyer_only || l.is_portfolio) ? '' : `<div class="photo-gallery" id="gallery-${l.id}"><span class="tiny">Loading photos…</span></div>
         <div class="field">
           <input type="file" id="addPhotos-${l.id}" accept="image/jpeg,image/png,image/webp,image/gif" multiple>
         </div>`}
         <div class="mini-two">
-          <div class="mini-block"><span class="label">Has</span>${l.is_portfolio ? `${(l.portfolio_members || []).length} properties` : listingLabel(l)}${l.is_buyer_only ? '' : `<br>${money(l.estimated_value)}${l.is_portfolio ? ' combined' : ''} ${sparklineHtml(l.price_series)}`}</div>
+          <div class="mini-block"><span class="label">Has</span>${l.is_portfolio ? `${(l.portfolio_members || []).length} properties` : listingLabel(l)}${l.is_buyer_only ? '' : `<br>${money(l.estimated_value)}${l.is_portfolio ? ' combined' : ''}${pricePerSqftLabel(l.estimated_value, l.sqft)} ${sparklineHtml(l.price_series)}${priceTrendBadge(l.price_series)}`}</div>
           ${l.is_rental
             ? `<div class="mini-block"><span class="label">Rent</span>${money(l.rent_amount)}/mo<br>${l.min_lease_months}-month minimum lease</div>`
             : `<div class="mini-block"><span class="label">Wants</span>${escapeHtml(l.desired_type)} in ${escapeHtml(l.locations)}<br>${money(l.price_min)}–${money(l.price_max)}</div>`}
@@ -2067,12 +2093,15 @@ function adaptationLabel(key) {
 
 function augmentedHomeCardHtml(h, { mine } = {}) {
   return `
-    <div class="card">
+    <div class="card ${activityAccentClass(h.recentActivity)}">
       <div class="card-head">
         <h3>${escapeHtml(h.title || h.propertyType)}</h3>
         <span class="badge ${h.status === 'active' ? 'badge-active' : 'badge-paused'}">${h.status.replace('_', ' ')}</span>
       </div>
-      <div class="mini-block">${sparklineHtml(h.priceSeries)}${escapeHtml(h.propertyType)} · ${h.beds}bd/${h.baths}ba in ${escapeHtml(h.city)}, ${escapeHtml(h.state)}<br>${money(h.askingPrice)} asking</div>
+      ${activityRibbonHtml(h.recentActivity)}
+      <div class="mini-block">${sparklineHtml(h.priceSeries)}${escapeHtml(h.propertyType)} · ${h.beds}bd/${h.baths}ba in ${escapeHtml(h.city)}, ${escapeHtml(h.state)}<br>${money(h.askingPrice)} asking${pricePerSqftLabel(h.askingPrice, h.sqft)} ${priceTrendBadge(h.priceSeries)}</div>
+      <p class="tiny">${daysOnMarketLabel(h.createdAt)}</p>
+      ${socialProofHtml(h.favoriteCount, h.commentCount)}
       <p class="tiny">${h.adaptations.map(k => `<span class="badge badge-gold">${escapeHtml(adaptationLabel(k))}</span>`).join(' ')}</p>
       ${renderLifeEventTags(h.lifeEventTags)}
       <div class="card-actions">
@@ -2352,12 +2381,15 @@ function backToGreenList() {
 
 function greenHomeCardHtml(h, { mine } = {}) {
   return `
-    <div class="card">
+    <div class="card ${activityAccentClass(h.recentActivity)}">
       <div class="card-head">
         <h3>${escapeHtml(h.title || h.propertyType)}</h3>
         <span class="badge ${h.status === 'active' ? 'badge-active' : 'badge-paused'}">${h.status.replace('_', ' ')}</span>
       </div>
-      <div class="mini-block">${sparklineHtml(h.priceSeries)}${escapeHtml(h.propertyType)} · ${h.beds}bd/${h.baths}ba in ${escapeHtml(h.city)}, ${escapeHtml(h.state)}<br>${money(h.askingPrice)} asking</div>
+      ${activityRibbonHtml(h.recentActivity)}
+      <div class="mini-block">${sparklineHtml(h.priceSeries)}${escapeHtml(h.propertyType)} · ${h.beds}bd/${h.baths}ba in ${escapeHtml(h.city)}, ${escapeHtml(h.state)}<br>${money(h.askingPrice)} asking${pricePerSqftLabel(h.askingPrice, h.sqft)} ${priceTrendBadge(h.priceSeries)}</div>
+      <p class="tiny">${daysOnMarketLabel(h.createdAt)}</p>
+      ${socialProofHtml(h.favoriteCount, h.commentCount)}
       <p class="tiny">${h.greenFeatures.map(k => `<span class="badge badge-gold">${escapeHtml(greenFeatureLabel(k))}</span>`).join(' ')}</p>
       ${renderLifeEventTags(h.lifeEventTags)}
       <div class="card-actions">
@@ -2619,12 +2651,15 @@ function backToFinderMineList() {
 
 function projectCardHtml(p, { mine } = {}) {
   return `
-    <div class="card">
+    <div class="card ${activityAccentClass(p.recentActivity)}">
       <div class="card-head">
         <h3>${escapeHtml(p.title)}</h3>
         <span class="badge ${p.status === 'open' ? 'badge-active' : 'badge-paused'}">${p.status}</span>
       </div>
+      ${activityRibbonHtml(p.recentActivity)}
       <div class="mini-block">${escapeHtml(PROJECT_TYPE_LABELS[p.projectType] || p.projectType)} · ${escapeHtml(PROJECT_STAGE_LABELS[p.stage] || p.stage)} in ${escapeHtml(p.city)}, ${escapeHtml(p.state)}<br>${p.fundingGoal ? `${money(p.fundingGoal)} funding sought` : 'Funding goal not set'}</div>
+      <p class="tiny">${daysOnMarketLabel(p.createdAt)}</p>
+      ${socialProofHtml(p.favoriteCount, p.commentCount)}
       ${p.adaptations && p.adaptations.length ? `<p class="tiny">${p.adaptations.map(k => `<span class="badge badge-gold">${escapeHtml(adaptationLabel(k))}</span>`).join(' ')}</p>` : ''}
       ${p.greenFeatures && p.greenFeatures.length ? `<p class="tiny">${p.greenFeatures.map(k => `<span class="badge badge-gold">${escapeHtml(greenFeatureLabel(k))}</span>`).join(' ')}</p>` : ''}
       <p class="tiny">${p.interestCount} investor${p.interestCount === 1 ? '' : 's'} interested</p>
@@ -3808,6 +3843,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   loadNotifications();
   refreshMessagesTabBadge();
+  checkUnseenMarketPulse();
 
   document.getElementById('onboardingCreateBtn').addEventListener('click', () => goToTab('listing'));
 

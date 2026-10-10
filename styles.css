@@ -876,3 +876,41 @@ main > .demo-section:first-of-type > [data-pills] { display: none; }
 .sparkline { float: right; margin: 0 0 4px 10px; color: var(--gold-light); }
 .sparkline.ticker-up { color: var(--success); }
 .sparkline.ticker-down { color: var(--danger); }
+
+.trend-badge { font-size: 0.72rem; font-weight: 700; padding: 1px 6px; border-radius: 999px; white-space: nowrap; }
+.trend-badge.ticker-up { background: var(--success-bg); color: var(--success); }
+.trend-badge.ticker-down { background: var(--danger-bg); color: var(--danger); }
+
+/* "Just listed" / "Price cut" ribbon -- a plain inline pill on cards with no photo (AugmentedHomes,
+   GreenHomes, FinderMine, My Listing), or an absolutely-positioned overlay on the directory's photo cards. */
+.activity-ribbon {
+  display: inline-block; font-size: 0.72rem; font-weight: 700; padding: 3px 9px; border-radius: 999px;
+  background: var(--card); border: 1px solid currentColor;
+}
+.activity-ribbon.ticker-neutral { color: var(--gold); }
+.activity-ribbon.ticker-down { color: var(--danger); }
+.directory-thumb-wrap { position: relative; }
+.directory-thumb-wrap .activity-ribbon { position: absolute; top: 8px; left: 8px; background: var(--card); box-shadow: var(--shadow-sm); }
+
+/* A left-edge accent on cards with real activity in the last 48h -- ambient status visible across every
+   browse grid, not just inside the Market Pulse tab. */
+.card.card-accent-new { border-left: 3px solid var(--gold); }
+.card.card-accent-drop { border-left: 3px solid var(--danger); }
+
+.card-social-proof { color: var(--muted); }
+
+.unseen-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--danger); vertical-align: super; margin-left: 2px; }
+
+/* A small pulse on "active" badges -- reinforces that this listing is live right now, pure polish. */
+.badge-active { position: relative; padding-left: 16px; }
+.badge-active::before {
+  content: ''; position: absolute; left: 7px; top: 50%; width: 6px; height: 6px; margin-top: -3px;
+  border-radius: 50%; background: var(--success); animation: badgePulse 2s ease-in-out infinite;
+}
+@keyframes badgePulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 40%, transparent); }
+  50% { opacity: 0.6; box-shadow: 0 0 0 4px color-mix(in srgb, var(--success) 0%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .badge-active::before { animation: none; }
+}

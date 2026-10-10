@@ -1118,6 +1118,15 @@ const denied = r => r.status >= 400 && r.status < 500;
   const digestNonAdmin = await B.call('POST', '/api/admin/send-digest-preview', {});
   record('weekly-digest', "an ordinary signed-in user can't trigger a digest preview", digestNonAdmin.status === 403, `status ${digestNonAdmin.status}`);
 
+  // ---------- global search ----------
+  const searchAnon = await anon.call('GET', '/api/search?q=AUTHZ');
+  record('search', "anonymous can't use global search (3 of 4 verticals require sign-in to browse at all)", searchAnon.status === 401, `status ${searchAnon.status}`);
+  const searchShort = await B.call('GET', '/api/search?q=A');
+  record('search', 'a 1-character query is refused rather than scanning the whole table', searchShort.status === 200 && searchShort.json.results.length === 0, JSON.stringify(searchShort.json));
+  const searchHit = await B.call('GET', `/api/search?q=${encodeURIComponent('AUTHZ Adapted Home')}`);
+  record('search', 'a real query finds the matching AugmentedHomes listing across verticals', searchHit.status === 200 && searchHit.json.results.some(r => r.kind === 'augmented_home' && r.id === AUG), JSON.stringify(searchHit.json.results.map(r => `${r.kind}:${r.id}`)));
+  record('search', "search results never include the private street address", !searchHit.text.includes(MARK.augAddress), '');
+
   // ---------- 5. leak scan: everything B, H and anonymous can GET, grepped for planted secrets ----------
   console.log('\n== leak scan ==');
   const urls = ['/api/me', '/api/directory', '/api/matches', '/api/listings', `/api/listings/${LA}`, `/api/users/${A.id}`, `/api/users/${C.id}`, '/api/pre-listings', `/api/pre-listings/${PL}`,
@@ -1127,7 +1136,7 @@ const denied = r => r.status >= 400 && r.status < 500;
     '/api/augmented-homes', `/api/augmented-homes/${AUG}`, '/api/accessibility-needs-alerts', '/api/dev-projects', `/api/dev-projects/${PROJ}`,
     '/api/green-homes', `/api/green-homes/${GREEN}`,
     `/profile/${G.id}`, `/profile/${A.id}`, `/api/listings/${LA}/offers`, `/api/listings/${LA}/open-houses`, `/listing/${LA}`,
-    `/api/listings/${LA}/thread`, `/api/posts/${THREAD_POST}/comments`, '/api/market-events', '/api/market-pulse-alerts', '/api/market-trends'];
+    `/api/listings/${LA}/thread`, `/api/posts/${THREAD_POST}/comments`, '/api/market-events', '/api/market-pulse-alerts', '/api/market-trends', '/api/search?q=AUTHZ'];
   const secrets = [['client name', MARK.clientName], ['listing address', MARK.address], ['pre-listing address', MARK.preAddress], ['lockbox note (non-agent)', MARK.lockbox], ['private message', MARK.message],
     ['augmented home address', MARK.augAddress], ['dev project address', MARK.projAddress], ['green home address', MARK.greenAddress], ['counter-offer message', MARK.counterMessage],
     ['A email', A.email], ['C email', C.email], ['password hash', 'password_hash'], ['verify token', 'verify_token'], ['reset token', 'reset_token'], ['R2 key', 'r2_key'], ['session', 'ah_session']];

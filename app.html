@@ -35,6 +35,10 @@
       <button class="tab" data-tab="greenhomes">GreenHomes</button>
     </nav>
     <div class="auth-cta">
+      <div class="search-box">
+        <input type="search" id="globalSearchInput" placeholder="Search everything…" autocomplete="off">
+        <div id="globalSearchResults" class="hidden"></div>
+      </div>
       <button class="btn btn-ghost btn-sm" id="notifBtn">🔔 <span id="notifBadge" class="hidden"></span></button>
       <span class="tiny" id="whoami"></span>
       <a class="btn btn-ghost btn-sm" href="/calculator">Calculator</a>
@@ -860,7 +864,10 @@
     <div class="compare-panel">
       <div class="panel-header">
         <h3>Compare</h3>
-        <button class="link-btn" id="closeCompareBtn">✕ Close</button>
+        <div>
+          <button class="link-btn" id="shareCompareBtn">🔗 Share</button>
+          <button class="link-btn" id="closeCompareBtn">✕ Close</button>
+        </div>
       </div>
       <div id="compareGrid"></div>
     </div>

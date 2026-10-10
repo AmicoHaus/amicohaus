@@ -901,6 +901,19 @@ main > .demo-section:first-of-type > [data-pills] { display: none; }
 
 .momentum-banner { margin: 0 0 14px; padding: 8px 14px; border-radius: var(--radius-sm); background: rgba(169,121,63,0.1); color: var(--gold); font-weight: 600; font-size: 0.88rem; }
 
+.search-box { position: relative; }
+#globalSearchInput { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); font-size: 0.85rem; width: 160px; background: var(--card); color: inherit; }
+#globalSearchResults {
+  position: absolute; top: calc(100% + 6px); left: 0; width: 290px; max-height: 380px; overflow-y: auto;
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  box-shadow: var(--shadow); z-index: 60; padding: 6px;
+}
+/* Same .hidden-vs-ID-specificity fix as #compareOverlay/#compareTrayBar above. */
+#globalSearchResults:not(.hidden) { display: block; }
+.search-result-item { display: block; padding: 8px 10px; border-radius: 6px; text-decoration: none; color: inherit; }
+.search-result-item:hover { background: rgba(169,121,63,0.08); }
+.search-result-item .tiny { color: var(--muted); display: block; }
+
 #compareTrayBar {
   position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 900;
   gap: 12px; padding: 10px 18px; border-radius: 999px;

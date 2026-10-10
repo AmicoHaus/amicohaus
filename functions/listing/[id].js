@@ -9,6 +9,7 @@ import { LIFE_EVENT_ITEMS } from '../_lib/lifeEvents.js';
 import { fetchOpenHouses } from '../_lib/openHouses.js';
 import { fetchMyOffer } from '../_lib/listingOffers.js';
 import { findOrCreateThreadPost } from '../_lib/dealThreads.js';
+import { fetchPriceSeriesBatch } from '../_lib/priceSeries.js';
 
 const LIFE_EVENT_LABELS = Object.fromEntries(LIFE_EVENT_ITEMS.map(i => [i.key, i.label]));
 
@@ -27,6 +28,31 @@ function timeAgo(isoString) {
     if (n >= 1) return `${n} ${name}${n > 1 ? 's' : ''} ago`;
   }
   return 'just now';
+}
+
+function daysOnMarketLabel(createdAt) {
+  if (!createdAt) return '';
+  const days = Math.floor((Date.now() - new Date(createdAt + 'Z').getTime()) / 86400000);
+  if (days <= 0) return 'Listed today';
+  return `${days} day${days === 1 ? '' : 's'} on market`;
+}
+
+// Duplicated from main.js's sparklineHtml() on purpose -- same reasoning as money()/timeAgo() above, this
+// runs server-side at render time for the public page's initial HTML.
+function sparklineHtml(series) {
+  if (!series || series.length < 2) return '';
+  const w = 88, h = 22, pad = 2;
+  const min = Math.min(...series), max = Math.max(...series);
+  const range = max - min || 1;
+  const stepX = (w - pad * 2) / (series.length - 1);
+  const points = series.map((v, i) => {
+    const x = pad + i * stepX;
+    const y = pad + (h - pad * 2) * (1 - (v - min) / range);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const tone = series[series.length - 1] < series[0] ? 'ticker-down' : series[series.length - 1] > series[0] ? 'ticker-up' : 'ticker-neutral';
+  const title = `${money(series[0])} → ${money(series[series.length - 1])}`;
+  return `<svg class="sparkline ${tone}" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="Price history: ${title}"><title>${title}</title><polyline points="${points}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
 }
 
 function notFoundPage() {
@@ -108,6 +134,8 @@ async function renderListingPage(context) {
   if (!listing) return notFoundPage();
 
   const members = listing.is_portfolio ? (await fetchPortfolioMembers(db, [listing.id])).get(listing.id) || [] : [];
+  const priceSeriesMap = await fetchPriceSeriesBatch(db, 'listing', [listing.id]);
+  const priceSeries = [...(priceSeriesMap.get(listing.id) || []), listing.estimated_value];
 
   const viewer = await getSessionUser(context);
   const isOwnerOrAdmin = viewer && (viewer.id === listing.owner_id || viewer.role === 'admin');
@@ -281,7 +309,8 @@ async function renderListingPage(context) {
           <span class="label">Has</span>
           ${listing.is_portfolio ? `${members.length} properties` : `${escapeHtml(listing.property_type)} · ${listing.beds}bd/${listing.baths}ba${listing.sqft ? ` · ${listing.sqft.toLocaleString('en-US')} sqft` : ''}`}<br>
           ${showAddress ? escapeHtml(listing.address) + '<br>' : ''}${loc}${listing.is_portfolio ? ' (primary property)' : ''}<br>
-          ${money(listing.estimated_value)}${listing.is_portfolio ? ' combined' : ''}
+          ${money(listing.estimated_value)}${listing.is_portfolio ? ' combined' : ''} ${listing.is_portfolio ? '' : sparklineHtml(priceSeries)}
+          ${listing.is_portfolio ? '' : `<div class="tiny">${daysOnMarketLabel(listing.created_at)}</div>`}
         </div>
         ${listing.is_rental
           ? `<div class="mini-block">

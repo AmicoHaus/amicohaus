@@ -514,6 +514,19 @@ function isInCompareTray(kind, id) {
   return compareTray.some(c => c.compareKind === kind && c.id === id);
 }
 
+const COMPARE_STORAGE_KEY = 'ah_compare_tray';
+// Per-device convenience only, same spirit as the "last tab" / "browse last visit" localStorage uses
+// elsewhere -- never read back by the server, just survives a reload on this browser.
+function saveCompareTray() {
+  try { localStorage.setItem(COMPARE_STORAGE_KEY, JSON.stringify(compareTray)); } catch {}
+}
+function loadStoredCompareTray() {
+  try {
+    const raw = localStorage.getItem(COMPARE_STORAGE_KEY);
+    if (raw) { const parsed = JSON.parse(raw); if (Array.isArray(parsed)) compareTray = parsed; }
+  } catch { /* ignore a corrupt or inaccessible value */ }
+}
+
 function toggleCompare(kind, id) {
   const idx = compareTray.findIndex(c => c.compareKind === kind && c.id === id);
   if (idx >= 0) {
@@ -526,6 +539,7 @@ function toggleCompare(kind, id) {
   }
   const btn = document.querySelector(`[data-action="toggle-compare"][data-kind="${kind}"][data-id="${id}"]`);
   if (btn) btn.textContent = isInCompareTray(kind, id) ? '✓ Comparing' : '⚖ Compare';
+  saveCompareTray();
   renderCompareTrayBar();
 }
 
@@ -546,8 +560,58 @@ function renderCompareTrayBar() {
 function clearCompareTray() {
   document.querySelectorAll('[data-action="toggle-compare"]').forEach(btn => { btn.textContent = '⚖ Compare'; });
   compareTray = [];
+  saveCompareTray();
   renderCompareTrayBar();
   closeCompareOverlay();
+}
+
+function shareCompareLink() {
+  if (!compareTray.length) return;
+  const parts = compareTray.map(c => `${c.compareKind}-${c.id}`).join(',');
+  const url = `${window.location.origin}/app?compare=${encodeURIComponent(parts)}`;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(() => toast('Comparison link copied!')).catch(() => toast(url));
+  } else {
+    toast(url);
+  }
+}
+
+// A shared comparison link (?compare=augmented_home-5,green_home-12) re-fetches each item's CURRENT data
+// through its real detail endpoint (sign-in required, same as browsing those verticals normally already
+// is) -- never trusts stale data baked into the URL itself, and silently skips anything since removed.
+async function loadCompareFromShareLink() {
+  const params = new URLSearchParams(window.location.search);
+  const compareParam = params.get('compare');
+  if (!compareParam) return;
+  const user = await fetchCurrentUser();
+  if (!user) { toast('Sign in to view this shared comparison.'); return; }
+
+  const DETAIL_ROUTE = { augmented_home: 'augmented-homes', green_home: 'green-homes' };
+  const pairs = compareParam.split(',').map(p => p.split('-')).filter(p => p.length === 2 && DETAIL_ROUTE[p[0]]).slice(0, MAX_COMPARE);
+  const loaded = [];
+  for (const [kind, idStr] of pairs) {
+    const id = Number(idStr);
+    if (!id) continue;
+    try {
+      const { home } = await apiGet(`/api/${DETAIL_ROUTE[kind]}/${id}`);
+      loaded.push({
+        compareKind: kind, id: home.id, title: home.title, propertyType: home.propertyType,
+        city: home.city, state: home.state, askingPrice: home.askingPrice, sqft: home.sqft,
+        beds: home.beds, baths: home.baths, createdAt: home.createdAt, photoIds: home.photoIds,
+        priceSeries: seriesFromPriceHistory(home.priceHistory, home.askingPrice),
+        adaptations: home.adaptations, greenFeatures: home.greenFeatures,
+        favoriteCount: 0, commentCount: 0,
+      });
+    } catch { /* this one's gone or no longer visible -- just leave it out */ }
+  }
+  if (loaded.length) {
+    compareTray = loaded;
+    saveCompareTray();
+    renderCompareTrayBar();
+    openCompareOverlay();
+  } else {
+    toast("That shared comparison isn't available anymore.");
+  }
 }
 
 const COMPARE_PHOTO_ROUTE = { augmented_home: 'augmented-home-photos', green_home: 'green-home-photos' };
@@ -583,6 +647,36 @@ function openCompareOverlay() {
 
 function closeCompareOverlay() {
   document.getElementById('compareOverlay')?.classList.add('hidden');
+}
+
+/* ---------------- Global search ---------------- */
+const SEARCH_KIND_LABEL = { listing: 'Agent Strategy', augmented_home: 'AugmentedHomes', green_home: 'GreenHomes', dev_project: 'FinderMine' };
+let globalSearchTimer = null;
+
+function renderSearchResults(results) {
+  const el = document.getElementById('globalSearchResults');
+  if (!el) return;
+  if (!results.length) {
+    el.innerHTML = '<div class="tiny" style="padding:8px 10px">No matches.</div>';
+    el.classList.remove('hidden');
+    return;
+  }
+  el.innerHTML = results.map(r => `
+    <a class="search-result-item" href="${marketEntityHref(r.kind, r.id)}" data-action="open-market-entity" data-link="${escapeHtml(marketEntityHref(r.kind, r.id))}">
+      <strong>${escapeHtml(r.title)}</strong>
+      <span class="tiny">${escapeHtml(r.city)}, ${escapeHtml(r.state)} · ${SEARCH_KIND_LABEL[r.kind] || r.kind}${r.amount ? ` · ${money(r.amount)}` : ''}</span>
+    </a>
+  `).join('');
+  el.classList.remove('hidden');
+}
+
+async function runGlobalSearch(q) {
+  const el = document.getElementById('globalSearchResults');
+  if (q.trim().length < 2) { el?.classList.add('hidden'); return; }
+  try {
+    const { results } = await apiGet(`/api/search?q=${encodeURIComponent(q.trim())}`);
+    renderSearchResults(results);
+  } catch { /* non-critical, just don't show results */ }
 }
 
 async function loadMarketPulse() {
@@ -1637,6 +1731,10 @@ async function loadAgentStatus() {
         : '<p class="tiny">No intro video yet.</p>';
 
       document.getElementById('agentStatsPanel').innerHTML = renderAgentStatsPanel(stats);
+      apiGet('/api/agents/my-bids').then(({ bids }) => {
+        const pendingCount = (bids || []).filter(b => b.status === 'pending').length;
+        document.getElementById('agentStatsPanel').innerHTML = renderAgentStatsPanel(stats, pendingCount);
+      }).catch(() => { /* stats panel already shows without the pipeline tile */ });
       loadAgentReferral();
       loadMyTeam();
 
@@ -2994,13 +3092,14 @@ function collectPackageInput(tier) {
   };
 }
 
-function renderAgentStatsPanel(stats) {
+function renderAgentStatsPanel(stats, pendingCount) {
   if (!stats) return '';
   const winRatePct = stats.winRate !== null ? Math.round(stats.winRate * 100) : null;
   const respLabel = formatResponseHours(stats.avgResponseHours);
   return `
     <div class="mini-block"><span class="label">Proposals</span>${stats.totalBids} submitted, ${stats.acceptedBids} accepted${winRatePct !== null ? ` (${winRatePct}% win rate)` : ''}</div>
     <div class="mini-block"><span class="label">Avg response time</span>${respLabel || 'Not enough data yet'}${stats.topRated ? ' · <span class="badge badge-gold">🏆 Top Rated</span>' : ''}</div>
+    ${pendingCount !== undefined ? `<div class="mini-block"><span class="label">Your pipeline</span>${pendingCount} proposal${pendingCount === 1 ? '' : 's'} awaiting a homeowner's decision right now</div>` : ''}
   `;
 }
 
@@ -3987,6 +4086,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   loadNotifications();
   refreshMessagesTabBadge();
   checkUnseenMarketPulse();
+  if (new URLSearchParams(window.location.search).has('compare')) {
+    loadCompareFromShareLink();
+  } else {
+    loadStoredCompareTray();
+    renderCompareTrayBar();
+  }
 
   document.getElementById('onboardingCreateBtn').addEventListener('click', () => goToTab('listing'));
 
@@ -5006,6 +5111,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (removeBtn) { toggleCompare(removeBtn.dataset.kind, Number(removeBtn.dataset.id)); openCompareOverlay(); return; }
   });
   document.getElementById('closeCompareBtn').addEventListener('click', closeCompareOverlay);
+  document.getElementById('shareCompareBtn').addEventListener('click', shareCompareLink);
+
+  const searchInput = document.getElementById('globalSearchInput');
+  const searchResults = document.getElementById('globalSearchResults');
+  searchInput.addEventListener('input', () => {
+    clearTimeout(globalSearchTimer);
+    globalSearchTimer = setTimeout(() => runGlobalSearch(searchInput.value), 250);
+  });
+  searchInput.addEventListener('focus', () => { if (searchInput.value.trim().length >= 2) runGlobalSearch(searchInput.value); });
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.search-box')) searchResults.classList.add('hidden');
+  });
   document.getElementById('compareOverlay').addEventListener('click', e => {
     if (e.target.id === 'compareOverlay') closeCompareOverlay();
   });

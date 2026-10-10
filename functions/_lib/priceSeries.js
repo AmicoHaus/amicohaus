@@ -1,8 +1,8 @@
 // Batch-fetches a compact price-history series per entity, for sparklines on list/browse cards. Reads from
-// whichever source actually has granularity for that vertical: AugmentedHomes/GreenHomes already track every
-// edit in their own price_history table (full history, not just from today); regular listings have no such
-// table (none was ever built for them), so their series comes from market_events instead -- sparser since it
-// only exists from when that table was created, but real, and it grows forward from here.
+// whichever source actually has granularity for that vertical: AugmentedHomes/GreenHomes/pre-listings each
+// already track every edit in their own price_history table (full history, not just from today); regular
+// listings have no such table (none was ever built for them), so their series comes from market_events
+// instead -- sparser since it only exists from when that table was created, but real, and it grows forward.
 // Returns a Map<entityId, number[]> of HISTORICAL prices only, oldest first -- callers append the current
 // price themselves as the final point, since they already have it in hand from their own row.
 export async function fetchPriceSeriesBatch(db, kind, ids) {
@@ -12,9 +12,9 @@ export async function fetchPriceSeriesBatch(db, kind, ids) {
 
   // created_at/changed_at have only 1-second resolution, so two rows for the same entity in the same second
   // are a real possibility -- id ASC breaks the tie by actual insert order, keeping the series chronological.
-  if (kind === 'augmented_home' || kind === 'green_home') {
-    const table = kind === 'augmented_home' ? 'augmented_home_price_history' : 'green_home_price_history';
-    const col = kind === 'augmented_home' ? 'augmented_home_id' : 'green_home_id';
+  if (kind === 'augmented_home' || kind === 'green_home' || kind === 'pre_listing') {
+    const table = kind === 'augmented_home' ? 'augmented_home_price_history' : kind === 'green_home' ? 'green_home_price_history' : 'pre_listing_price_history';
+    const col = kind === 'augmented_home' ? 'augmented_home_id' : kind === 'green_home' ? 'green_home_id' : 'pre_listing_id';
     const rows = await db.prepare(
       `SELECT ${col} AS entity_id, old_price, new_price FROM ${table} WHERE ${col} IN (${placeholders}) ORDER BY changed_at ASC, id ASC`
     ).bind(...ids).all();

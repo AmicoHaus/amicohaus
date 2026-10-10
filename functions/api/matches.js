@@ -2,6 +2,9 @@ import { getSessionUser } from '../_lib/auth.js';
 import { json, unauthorized, DEMO_EMAIL_PATTERN } from '../_lib/util.js';
 import { buildEdges, findMutualMatches, findChains, findBuyerMatches, findRentalMatches, rowsToProfiles, matchScoreBreakdown } from '../_lib/matching.js';
 import { fetchPortfolioMembers } from '../_lib/portfolios.js';
+import { fetchRecentActivityBatch } from '../_lib/marketEvents.js';
+import { fetchListingFavoriteCountBatch } from '../_lib/priceSeries.js';
+import { fetchCommentCountBatch } from '../_lib/dealThreads.js';
 
 // The matching algorithm is O(n^2) over the candidate listings (every seeker
 // compared against every owner), which is fine at dozens or hundreds of
@@ -13,7 +16,7 @@ import { fetchPortfolioMembers } from '../_lib/portfolios.js';
 const MAX_CANDIDATES = 1500;
 
 const LISTING_FIELDS = `listings.id AS listing_id, listings.user_id, listings.city, listings.state, listings.neighborhood,
-            listings.property_type, listings.beds, listings.baths, listings.estimated_value, listings.created_at,
+            listings.property_type, listings.beds, listings.baths, listings.sqft, listings.estimated_value, listings.created_at,
             listings.is_buyer_only, listings.is_rental, listings.rent_amount, listings.min_lease_months, listings.is_portfolio,
             desired_criteria.locations, desired_criteria.property_type AS desired_type,
             desired_criteria.min_beds, desired_criteria.min_baths, desired_criteria.price_min, desired_criteria.price_max,
@@ -68,10 +71,10 @@ export async function onRequestGet(context) {
   const summaryById = new Map(rows.results.map(r => [r.listing_id, {
     listingId: r.listing_id, userId: r.user_id, owner: r.owner_name,
     city: r.city, state: r.state, neighborhood: r.neighborhood,
-    propertyType: r.property_type, beds: r.beds, baths: r.baths, estimatedValue: r.estimated_value,
+    propertyType: r.property_type, beds: r.beds, baths: r.baths, sqft: r.sqft, estimatedValue: r.estimated_value,
     isBuyerOnly: !!r.is_buyer_only, isRental: !!r.is_rental, rentAmount: r.rent_amount, minLeaseMonths: r.min_lease_months,
     isPortfolio: !!r.is_portfolio, portfolioMembers: r.is_portfolio ? (membersByPortfolio.get(r.listing_id) || []) : undefined,
-    createdAtMs: new Date(r.created_at + 'Z').getTime(),
+    createdAtMs: new Date(r.created_at + 'Z').getTime(), createdAt: r.created_at,
   }]));
   const profiles = rowsToProfiles(rows.results);
   // A buyer-only profile has no home to offer and a rental has nothing it's
@@ -210,6 +213,25 @@ export async function onRequestGet(context) {
         }
       }
     }
+  }
+
+  // Card signals (sparkline accent, saved/comment counts) only for the listings that actually made it into
+  // the response -- mutating the shared summaryById objects in place, since myMatches/myArchived/myChains
+  // all hold the SAME object references, not copies.
+  const usedIds = new Set();
+  for (const m of [...myMatches, ...myArchived]) { usedIds.add(m.a.listingId); usedIds.add(m.b.listingId); }
+  for (const c of myChains) { for (const p of c.path) usedIds.add(p.listingId); }
+  const usedIdsArr = [...usedIds];
+  const [recentActivityById, favoriteCountById, commentCountById] = await Promise.all([
+    fetchRecentActivityBatch(db, 'listing', usedIdsArr),
+    fetchListingFavoriteCountBatch(db, usedIdsArr),
+    fetchCommentCountBatch(db, 'listing', usedIdsArr),
+  ]);
+  for (const id of usedIdsArr) {
+    const s = summaryById.get(id);
+    s.recentActivity = recentActivityById.get(id) || null;
+    s.favoriteCount = favoriteCountById.get(id) || 0;
+    s.commentCount = commentCountById.get(id) || 0;
   }
 
   return json({ matches: myMatches, archived: myArchived, chains: myChains, guidance });

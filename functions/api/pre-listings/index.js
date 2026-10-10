@@ -4,10 +4,11 @@ import { validatePreListingInput, insertPreListing, fetchPreListingPhotos, getVo
 import { getAgentProfile } from '../../_lib/agents.js';
 import { lookupZipCoords, nearestServiceDistance, SERVICE_RADIUS_MILES } from '../../_lib/geo.js';
 import { notifyAgentsNewRequest } from '../../_lib/marketplaceNotify.js';
+import { fetchPriceSeriesBatch } from '../../_lib/priceSeries.js';
 
 const LIST_FIELDS = `pre_listings.id, pre_listings.user_id, pre_listings.title, pre_listings.city, pre_listings.state,
             pre_listings.zip, pre_listings.occupancy_status,
-            pre_listings.property_type, pre_listings.beds, pre_listings.baths, pre_listings.asking_price,
+            pre_listings.property_type, pre_listings.beds, pre_listings.baths, pre_listings.sqft, pre_listings.asking_price,
             pre_listings.status, pre_listings.created_at, users.display_name AS owner_name`;
 
 // ?mine=1 for a homeowner's own pre-listings (any status); otherwise every
@@ -55,6 +56,7 @@ export async function onRequestGet(context) {
   const listingZipCoords = serviceZips ? await lookupZipCoords(db, rows.results.map(r => r.zip)) : null;
 
   const mine = url.searchParams.get('mine') === '1';
+  const seriesById = await fetchPriceSeriesBatch(db, 'pre_listing', rows.results.map(r => r.id));
   const preListings = [];
   for (const r of rows.results) {
     const photos = await fetchPreListingPhotos(db, r.id);
@@ -73,7 +75,8 @@ export async function onRequestGet(context) {
     preListings.push({
       id: r.id, userId: r.user_id, owner: r.owner_name, title: r.title, city: r.city, state: r.state, zip: r.zip,
       occupancyStatus: r.occupancy_status,
-      propertyType: r.property_type, beds: r.beds, baths: r.baths, askingPrice: r.asking_price,
+      propertyType: r.property_type, beds: r.beds, baths: r.baths, sqft: r.sqft, askingPrice: r.asking_price,
+      priceSeries: [...(seriesById.get(r.id) || []), r.asking_price],
       status: r.status, createdAt: r.created_at, photoIds: photos.map(p => p.id), votes,
       distanceMiles: distanceMiles === null ? null : Math.round(distanceMiles),
       inServiceArea: distanceMiles === null ? null : distanceMiles <= SERVICE_RADIUS_MILES,

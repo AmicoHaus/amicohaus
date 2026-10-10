@@ -549,6 +549,9 @@ const denied = r => r.status >= 400 && r.status < 500;
   const e2 = await A.call('PUT', `/api/pre-listings/${PL2}`, { ...PL2_BODY, askingPrice: 700000 });
   const t2 = await tally();
   record('owner', 'changing the asking price clears the price votes (they were about the old price)', e2.status === 200 && e2.json.votesCleared === 2 && t2.total === 0 && t2.nearby === 0, `status ${e2.status} ${JSON.stringify(e2.json)} tally ${JSON.stringify(t2)}`);
+  const myPreListingsForSeries = (await A.call('GET', '/api/pre-listings?mine=1')).json.preListings;
+  const pl2ForSeries = myPreListingsForSeries.find(p => p.id === PL2);
+  record('owner', 'the owner\'s own list carries a sparkline price series reflecting the real edit (750k → 700k)', JSON.stringify(pl2ForSeries && pl2ForSeries.priceSeries) === JSON.stringify([750000, 700000, 700000]), JSON.stringify(pl2ForSeries && pl2ForSeries.priceSeries));
 
   const delOwn = await A.call('DELETE', `/api/pre-listings/${PL2}/photos/${PL2PHOTO}`);
   const gone = await A.call('GET', `/api/pre-listing-photos/${PL2PHOTO}`);
@@ -970,6 +973,9 @@ const denied = r => r.status >= 400 && r.status < 500;
 
   const favoriteByC = await C.call('PUT', `/api/listings/${LA}/feedback`, { feedback: 'up' });
   record('open-house', 'a user can favorite a listing', favoriteByC.status === 200, `status ${favoriteByC.status}`);
+  const cFavorites = (await C.call('GET', '/api/favorites')).json.listings;
+  const laInFavorites = cFavorites.find(l => l.id === LA);
+  record('open-house', "the Saved tab carries the real favorite/comment counts for a card the viewer favorited", !!laInFavorites && laInFavorites.favorite_count >= 1, JSON.stringify(laInFavorites && { favorite_count: laInFavorites.favorite_count, comment_count: laInFavorites.comment_count }));
   const oh2Create = await A.call('POST', `/api/listings/${LA}/open-houses`, { startsAt: new Date(Date.now() + 72 * 3600000).toISOString(), endsAt: new Date(Date.now() + 74 * 3600000).toISOString(), note: 'AUTHZ open house 2' });
   record('open-house', 'the owner can schedule a second open house', oh2Create.status === 201, `status ${oh2Create.status}`);
   await new Promise(r => setTimeout(r, 500));
@@ -1080,6 +1086,18 @@ const denied = r => r.status >= 400 && r.status < 500;
   const alertDeleteOwn = await B.call('DELETE', `/api/market-pulse-alerts/${MP_ALERT}`);
   const alertGoneRow = sql(`SELECT COUNT(*) AS n FROM market_pulse_alerts WHERE id = ${MP_ALERT}`)[0];
   record('market-pulse-alerts', "the alert's own owner can delete it", alertDeleteOwn.status === 200 && alertGoneRow.n === 0, `status ${alertDeleteOwn.status}`);
+
+  // ---------- matches tab card signals ----------
+  // A real match isn't guaranteed to exist from this run's listings, so this is a shape check on whatever
+  // comes back rather than a hard scenario -- the actual recentActivity/favoriteCount/commentCount values
+  // are already covered end-to-end by the augmented/green/favorites checks above using the same batch helpers.
+  const myMatchesForShape = (await A.call('GET', '/api/matches')).json.matches || [];
+  if (myMatchesForShape.length) {
+    const side = myMatchesForShape[0].a;
+    record('matches', "the matches list carries the new card-signal fields on each side", 'recentActivity' in side && 'favoriteCount' in side && 'commentCount' in side && 'sqft' in side, JSON.stringify(side));
+  } else {
+    record('matches', 'no mutual match existed to shape-check this run (not a failure, just nothing to assert)', true, '');
+  }
 
   // ---------- 5. leak scan: everything B, H and anonymous can GET, grepped for planted secrets ----------
   console.log('\n== leak scan ==');

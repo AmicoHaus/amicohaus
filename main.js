@@ -936,7 +936,18 @@ function matchSides(m) {
 function matchLine(side) {
   if (side.isBuyerOnly) return `First-time buyer looking in ${escapeHtml(side.city)}${side.state ? ', ' + escapeHtml(side.state) : ''}`;
   if (side.isRental) return `For rent: ${money(side.rentAmount)}/mo · ${side.minLeaseMonths}-month min · ${escapeHtml(side.city)}, ${escapeHtml(side.state)}`;
-  return `${listingLabel(side)} · ${money(side.estimatedValue)}`;
+  return `${listingLabel(side)} · ${money(side.estimatedValue)}${pricePerSqftLabel(side.estimatedValue, side.sqft)}`;
+}
+
+// A compact one-liner under each side's price line -- days on market plus a ribbon when something real
+// happened recently, without the full card-level treatment list/browse cards get (this card is already
+// dense with two listings side by side).
+function matchMetaLine(side) {
+  if (side.isBuyerOnly || side.isRental) return '';
+  const parts = [daysOnMarketLabel(side.createdAt)];
+  if (side.favoriteCount) parts.push(`♥ ${side.favoriteCount}`);
+  if (side.commentCount) parts.push(`💬 ${side.commentCount}`);
+  return `<p class="tiny">${activityRibbonHtml(side.recentActivity)} ${parts.filter(Boolean).join(' · ')}</p>`;
 }
 
 function breakdownChip(ok, label) {
@@ -999,9 +1010,9 @@ function renderMatchCard(m) {
         ${topBadge}
       </div>
       <div class="match-pair">
-        <div class="side"><img class="side-thumb" src="${propertyArtUrl(mine.propertyType, mine.listingId)}" alt=""><h4><a class="profile-link" href="/profile/${mine.userId}">${escapeHtml(mine.owner)}</a></h4><p class="tiny">${mineLine}</p></div>
+        <div class="side"><img class="side-thumb" src="${propertyArtUrl(mine.propertyType, mine.listingId)}" alt=""><h4><a class="profile-link" href="/profile/${mine.userId}">${escapeHtml(mine.owner)}</a></h4><p class="tiny">${mineLine}</p>${matchMetaLine(mine)}</div>
         <div class="swap-icon">${(m.isBuyerMatch || m.isRentalMatch) ? '→' : '⇄'}</div>
-        <div class="side"><img class="side-thumb" src="${propertyArtUrl(other.propertyType, other.listingId)}" alt=""><h4><a class="profile-link" href="/profile/${other.userId}">${escapeHtml(other.owner)}</a></h4><p class="tiny">${otherLine}</p></div>
+        <div class="side"><img class="side-thumb" src="${propertyArtUrl(other.propertyType, other.listingId)}" alt=""><h4><a class="profile-link" href="/profile/${other.userId}">${escapeHtml(other.owner)}</a></h4><p class="tiny">${otherLine}</p>${matchMetaLine(other)}</div>
       </div>
       ${m.isRentalMatch ? '<p class="tiny match-disclaimer">Illustrative estimate from rough sale-proceeds math only — not a promise, appraisal, or lease offer. Actual lease terms are negotiated directly between the two of you.</p>' : ''}
       ${goneQuietNote}
@@ -1065,11 +1076,16 @@ async function submitMatchFeedback(a, b, feedback) {
 /* ---------------- Saved (favorites + hidden listings) ---------------- */
 function renderSavedListingCard(l, action, label) {
   return `
-    <div class="card" data-listing-id="${l.id}">
-      <img class="directory-thumb" src="${l.photo_id ? `/api/photos/${l.photo_id}` : propertyArtUrl(l.property_type, l.id)}" alt="" loading="lazy">
+    <div class="card ${activityAccentClass(l.recent_activity)}" data-listing-id="${l.id}">
+      <div class="directory-thumb-wrap">
+        <img class="directory-thumb" src="${l.photo_id ? `/api/photos/${l.photo_id}` : propertyArtUrl(l.property_type, l.id)}" alt="" loading="lazy">
+        ${activityRibbonHtml(l.recent_activity)}
+      </div>
       <h3><a class="profile-link" href="/listing/${l.id}">${escapeHtml(l.title || l.property_type)}</a></h3>
       <div class="card-agent">${escapeHtml(l.owner_name)}</div>
-      <div class="mini-block">${listingLabel(l)} · ${money(l.estimated_value)}</div>
+      <div class="mini-block">${listingLabel(l)} · ${money(l.estimated_value)}${pricePerSqftLabel(l.estimated_value, l.sqft)}</div>
+      <p class="tiny">${daysOnMarketLabel(l.created_at)}</p>
+      ${socialProofHtml(l.favorite_count, l.comment_count)}
       <div class="card-actions">
         <button class="btn btn-ghost btn-sm" data-action="${action}" data-id="${l.id}">${label}</button>
       </div>
@@ -1550,7 +1566,8 @@ async function loadMyPreListings() {
           <h3>${escapeHtml(p.title || p.propertyType)}</h3>
           <span class="badge ${p.status === 'open' ? 'badge-active' : 'badge-paused'}">${p.status}</span>
         </div>
-        <div class="mini-block">${escapeHtml(p.propertyType)} · ${p.beds}bd/${p.baths}ba in ${escapeHtml(p.city)}, ${escapeHtml(p.state)} ${escapeHtml(p.zip || '')}<br>${money(p.askingPrice)} asking</div>
+        <div class="mini-block">${sparklineHtml(p.priceSeries)}${escapeHtml(p.propertyType)} · ${p.beds}bd/${p.baths}ba in ${escapeHtml(p.city)}, ${escapeHtml(p.state)} ${escapeHtml(p.zip || '')}<br>${money(p.askingPrice)} asking${pricePerSqftLabel(p.askingPrice, p.sqft)} ${priceTrendBadge(p.priceSeries)}</div>
+        <p class="tiny">${daysOnMarketLabel(p.createdAt)}</p>
         <p class="tiny"><span class="badge ${p.occupancyStatus === 'vacant' ? 'badge-gold' : ''}">${p.occupancyStatus === 'vacant' ? 'Vacant' : 'Occupied'}</span></p>
         <p class="tiny">${voteSummary(p.votes, 'Votes')}</p>
         ${needsAttention.length ? `<p class="tiny"><span class="badge badge-gold">👋 ${needsAttention.join(' · ')} waiting on you</span></p>` : ''}
@@ -1640,7 +1657,8 @@ async function loadMarketplaceBrowse() {
           <h3>${escapeHtml(p.title || p.propertyType)}</h3>
           <span class="badge badge-gold">Pre-Listing</span>${isNew(p) ? ' <span class="badge badge-active">New</span>' : ''}
         </div>
-        <div class="mini-block">${escapeHtml(p.propertyType)} · ${p.beds}bd/${p.baths}ba in ${escapeHtml(p.city)}, ${escapeHtml(p.state)} ${escapeHtml(p.zip)}<br>${money(p.askingPrice)} asking</div>
+        <div class="mini-block">${sparklineHtml(p.priceSeries)}${escapeHtml(p.propertyType)} · ${p.beds}bd/${p.baths}ba in ${escapeHtml(p.city)}, ${escapeHtml(p.state)} ${escapeHtml(p.zip)}<br>${money(p.askingPrice)} asking${pricePerSqftLabel(p.askingPrice, p.sqft)} ${priceTrendBadge(p.priceSeries)}</div>
+        <p class="tiny">${daysOnMarketLabel(p.createdAt)}</p>
         <p class="tiny">
           <span class="badge ${p.occupancyStatus === 'vacant' ? 'badge-gold' : ''}">${p.occupancyStatus === 'vacant' ? 'Vacant' : 'Occupied'}</span>
           ${p.distanceMiles !== null ? ` · <span class="badge ${p.inServiceArea ? 'badge-active' : 'badge-paused'}">${p.inServiceArea ? `${p.distanceMiles} mi — in your area` : `${p.distanceMiles} mi — outside your area`}</span>` : ''}

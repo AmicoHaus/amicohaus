@@ -80,6 +80,10 @@ class User {
   }
 }
 const anon = new User('anon');
+// market_events has no FK to users/listings (it's polymorphic across 4 entity kinds, can't have one REFERENCES
+// clause), so deleting test users never cascades into it. authz-cleanup.js instead sweeps anything logged
+// during this run's own window -- captured here, before any test traffic happens.
+const RUN_START = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
 // Records every account this run made (matched by its own email pattern) plus their R2 photos, for authz-cleanup.js.
 // Called at the end AND when the run crashes, so an aborted run can still be cleaned up.
@@ -88,7 +92,7 @@ function writeCleanupFile() {
   if (!ids.length) return 0;
   const list = ids.join(',');
   const r2keys = sql(`SELECT r2_key FROM pre_listing_photos WHERE pre_listing_id IN (SELECT id FROM pre_listings WHERE user_id IN (${list})) UNION SELECT r2_key FROM listing_photos WHERE listing_id IN (SELECT id FROM listings WHERE user_id IN (${list}))`).map(r => r.r2_key);
-  fs.writeFileSync(path.join(__dirname, 'authz-cleanup.json'), JSON.stringify({ run: RUN, userIds: ids, r2keys }));
+  fs.writeFileSync(path.join(__dirname, 'authz-cleanup.json'), JSON.stringify({ run: RUN, userIds: ids, r2keys, runStart: RUN_START }));
   return ids.length;
 }
 

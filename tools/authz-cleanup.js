@@ -20,9 +20,12 @@ fs.writeFileSync(file, [
   // Signups are limited to 5 per IP per hour and every attempt counts, so a second run needs these cleared.
   // Set MY_IP to the address you run this from (the `ip` column in login_attempts).
   ...(process.env.MY_IP ? [`DELETE FROM login_attempts WHERE kind = 'signup' AND ip = '${process.env.MY_IP}' AND created_at > datetime('now', '-3 hours');`] : []),
+  // market_events has no FK to the users/listings being deleted above (it's polymorphic across 4 entity
+  // kinds), so it never cascades -- sweep anything logged during this run's own window instead.
+  ...(info.runStart ? [`DELETE FROM market_events WHERE created_at >= '${info.runStart}';`] : []),
 ].join('\n') + '\n');
 const out = run(`npx wrangler d1 execute amicohaus --remote --file "${file}"`);
 console.log((out.match(/"changes": \d+/g) || []).join(', '));
 
-const left = JSON.parse(run(`npx wrangler d1 execute amicohaus --remote --json --command "SELECT (SELECT COUNT(*) FROM users WHERE email LIKE 'test-%') AS test_users, (SELECT COUNT(*) FROM users) AS users, (SELECT COUNT(*) FROM agent_profiles WHERE status='approved') AS approved_agents"`).replace(/^[^\[]*/, ''))[0].results[0];
+const left = JSON.parse(run(`npx wrangler d1 execute amicohaus --remote --json --command "SELECT (SELECT COUNT(*) FROM users WHERE email LIKE 'test-%') AS test_users, (SELECT COUNT(*) FROM users) AS users, (SELECT COUNT(*) FROM agent_profiles WHERE status='approved') AS approved_agents, (SELECT COUNT(*) FROM market_events) AS market_events"`).replace(/^[^\[]*/, ''))[0].results[0];
 console.log('after cleanup:', JSON.stringify(left));

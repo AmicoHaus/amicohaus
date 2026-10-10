@@ -645,6 +645,9 @@ const denied = r => r.status >= 400 && r.status < 500;
   record('augmented', 'owner can drop the price again', augPriceDrop.status === 200, `status ${augPriceDrop.status}`);
   const cNotifPriceDrop = sql(`SELECT body FROM notifications WHERE user_id = ${C.id} AND body LIKE '%dropped in price%'`);
   record('augmented', 'favoriter is notified of the price drop', cNotifPriceDrop.length > 0, JSON.stringify(cNotifPriceDrop));
+  const augBrowseForSeries = (await B.call('GET', '/api/augmented-homes')).json.homes;
+  const augSeriesRow = augBrowseForSeries.find(h => h.id === AUG);
+  record('augmented', 'the browse list carries a sparkline price series reflecting every real edit (625k → 600k → 575k)', JSON.stringify(augSeriesRow && augSeriesRow.priceSeries) === JSON.stringify([625000, 600000, 575000, 575000]), JSON.stringify(augSeriesRow && augSeriesRow.priceSeries));
 
   const augStatus = await A.call('PUT', `/api/augmented-homes/${AUG}`, { action: 'set-status', status: 'under_contract' });
   record('augmented', 'the owner can change their own listing status', augStatus.status === 200 && sql(`SELECT status FROM augmented_homes WHERE id = ${AUG}`)[0].status === 'under_contract', `status ${augStatus.status}`);
@@ -756,6 +759,9 @@ const denied = r => r.status >= 400 && r.status < 500;
   record('green', 'owner can drop the price again', greenPriceDrop.status === 200, `status ${greenPriceDrop.status}`);
   const cNotifGreenPriceDrop = sql(`SELECT body FROM notifications WHERE user_id = ${C.id} AND body LIKE '%dropped in price%'`);
   record('green', 'favoriter is notified of the price drop', cNotifGreenPriceDrop.length > 0, JSON.stringify(cNotifGreenPriceDrop));
+  const greenBrowseForSeries = (await B.call('GET', '/api/green-homes')).json.homes;
+  const greenSeriesRow = greenBrowseForSeries.find(h => h.id === GREEN);
+  record('green', 'the browse list carries a sparkline price series reflecting every real edit (710k → 690k → 660k)', JSON.stringify(greenSeriesRow && greenSeriesRow.priceSeries) === JSON.stringify([710000, 690000, 660000, 660000]), JSON.stringify(greenSeriesRow && greenSeriesRow.priceSeries));
 
   const greenStatus = await A.call('PUT', `/api/green-homes/${GREEN}`, { action: 'set-status', status: 'under_contract' });
   record('green', 'the owner can change their own listing status', greenStatus.status === 200 && sql(`SELECT status FROM green_homes WHERE id = ${GREEN}`)[0].status === 'under_contract', `status ${greenStatus.status}`);
@@ -1013,6 +1019,21 @@ const denied = r => r.status >= 400 && r.status < 500;
   const feedCheck = await A.call('GET', '/api/posts');
   record('deal-thread', "the deal-thread anchor post never appears in the general feed", !feedCheck.json.posts.some(p => p.id === THREAD_POST), JSON.stringify(feedCheck.json.posts.map(p => p.id)));
 
+  // ---------- comment upvotes ----------
+  console.log('\n== comment likes ==');
+  const likeAnon = await anon.call('POST', `/api/comments/${THREAD_COMMENT}/like`, {});
+  record('comment-likes', "anonymous can't like a comment", likeAnon.status === 401, `status ${likeAnon.status}`);
+  const likeH = await H.call('POST', `/api/comments/${THREAD_COMMENT}/like`, {});
+  record('comment-likes', 'a signed-in user can like a comment', likeH.json && likeH.json.liked === true && likeH.json.likeCount === 1, JSON.stringify(likeH.json));
+  await new Promise(r => setTimeout(r, 300));
+  const bNotifLike = sql(`SELECT body FROM notifications WHERE user_id = ${B.id} AND body LIKE '%liked your comment%'`);
+  record('comment-likes', 'the comment author is notified of the like', bNotifLike.length > 0, JSON.stringify(bNotifLike));
+  const commentsWithLike = await anon.call('GET', `/api/posts/${THREAD_POST}/comments`);
+  const likedComment = commentsWithLike.json.comments.find(c => c.id === THREAD_COMMENT);
+  record('comment-likes', 'the comments list carries an accurate like_count', likedComment && likedComment.like_count === 1, JSON.stringify(likedComment));
+  const unlikeH = await H.call('POST', `/api/comments/${THREAD_COMMENT}/like`, {});
+  record('comment-likes', 'liking again toggles it off', unlikeH.json && unlikeH.json.liked === false && unlikeH.json.likeCount === 0, JSON.stringify(unlikeH.json));
+
   // ---------- market pulse (real-event ticker) ----------
   console.log('\n== market pulse ==');
   const eventsAnon = await anon.call('GET', '/api/market-events');
@@ -1024,6 +1045,35 @@ const denied = r => r.status >= 400 && r.status < 500;
   const dropEvent = eventsB.json && eventsB.json.events && eventsB.json.events.find(e => e.entityKind === 'listing' && e.entityId === LA && e.eventType === 'price_drop');
   record('market-pulse', 'a real price drop shows up in the market-events feed for any signed-in user, with the right delta', eventsB.status === 200 && !!dropEvent && dropEvent.delta === -25000, JSON.stringify(dropEvent));
 
+  // ---------- market pulse alerts (saved watches that notify on a matching real event) ----------
+  const alertAnonCreate = await anon.call('POST', '/api/market-pulse-alerts', { eventType: 'price_drop' });
+  record('market-pulse-alerts', "anonymous can't save an alert", alertAnonCreate.status === 401, `status ${alertAnonCreate.status}`);
+  const alertNoFilter = await B.call('POST', '/api/market-pulse-alerts', { label: 'AUTHZ empty alert' });
+  record('market-pulse-alerts', 'an alert with no filters at all is refused', alertNoFilter.status === 400, `status ${alertNoFilter.status}`);
+  const alertCreate2 = await B.call('POST', '/api/market-pulse-alerts', { label: 'AUTHZ price drop watch', eventType: 'price_drop', entityKind: 'listing' });
+  record('market-pulse-alerts', 'a signed-in user can save an alert', alertCreate2.status === 201, `status ${alertCreate2.status}`);
+  const MP_ALERT = alertCreate2.json && alertCreate2.json.id;
+  const alertList = await B.call('GET', '/api/market-pulse-alerts');
+  record('market-pulse-alerts', "the owner's own list includes the new alert", alertList.json.alerts.some(a => a.id === MP_ALERT), JSON.stringify(alertList.json));
+
+  const priceDrop2 = await A.call('PUT', `/api/listings/${LA}`, { action: 'edit', ...listingBody({ estimatedValue: 550000 }) });
+  record('market-pulse-alerts', 'owner drops the price again, for the alert-matching check', priceDrop2.status === 200, `status ${priceDrop2.status}`);
+  await new Promise(r => setTimeout(r, 500));
+  const bNotifAlert = sql(`SELECT body FROM notifications WHERE user_id = ${B.id} AND type = 'market_pulse' AND body LIKE '%AUTHZ price drop watch%'`);
+  record('market-pulse-alerts', 'a matching real event notifies the alert owner', bNotifAlert.length > 0, JSON.stringify(bNotifAlert));
+
+  const ohForNoMatch = await A.call('POST', `/api/listings/${LA}/open-houses`, { startsAt: new Date(Date.now() + 96 * 3600000).toISOString(), endsAt: new Date(Date.now() + 98 * 3600000).toISOString() });
+  await new Promise(r => setTimeout(r, 500));
+  const bNotifAfterOh = sql(`SELECT body FROM notifications WHERE user_id = ${B.id} AND type = 'market_pulse'`);
+  record('market-pulse-alerts', "a non-matching event type (open house, not a price drop) doesn't trigger the alert", bNotifAfterOh.length === bNotifAlert.length, JSON.stringify(bNotifAfterOh));
+
+  const alertDeleteByStranger = await C.call('DELETE', `/api/market-pulse-alerts/${MP_ALERT}`);
+  const alertStillThere = sql(`SELECT COUNT(*) AS n FROM market_pulse_alerts WHERE id = ${MP_ALERT}`)[0];
+  record('market-pulse-alerts', "another user can't delete someone else's alert", alertStillThere.n === 1, `delete-status=${alertDeleteByStranger.status} n=${alertStillThere.n}`);
+  const alertDeleteOwn = await B.call('DELETE', `/api/market-pulse-alerts/${MP_ALERT}`);
+  const alertGoneRow = sql(`SELECT COUNT(*) AS n FROM market_pulse_alerts WHERE id = ${MP_ALERT}`)[0];
+  record('market-pulse-alerts', "the alert's own owner can delete it", alertDeleteOwn.status === 200 && alertGoneRow.n === 0, `status ${alertDeleteOwn.status}`);
+
   // ---------- 5. leak scan: everything B, H and anonymous can GET, grepped for planted secrets ----------
   console.log('\n== leak scan ==');
   const urls = ['/api/me', '/api/directory', '/api/matches', '/api/listings', `/api/listings/${LA}`, `/api/users/${A.id}`, `/api/users/${C.id}`, '/api/pre-listings', `/api/pre-listings/${PL}`,
@@ -1033,7 +1083,7 @@ const denied = r => r.status >= 400 && r.status < 500;
     '/api/augmented-homes', `/api/augmented-homes/${AUG}`, '/api/accessibility-needs-alerts', '/api/dev-projects', `/api/dev-projects/${PROJ}`,
     '/api/green-homes', `/api/green-homes/${GREEN}`,
     `/profile/${G.id}`, `/profile/${A.id}`, `/api/listings/${LA}/offers`, `/api/listings/${LA}/open-houses`, `/listing/${LA}`,
-    `/api/listings/${LA}/thread`, `/api/posts/${THREAD_POST}/comments`, '/api/market-events'];
+    `/api/listings/${LA}/thread`, `/api/posts/${THREAD_POST}/comments`, '/api/market-events', '/api/market-pulse-alerts'];
   const secrets = [['client name', MARK.clientName], ['listing address', MARK.address], ['pre-listing address', MARK.preAddress], ['lockbox note (non-agent)', MARK.lockbox], ['private message', MARK.message],
     ['augmented home address', MARK.augAddress], ['dev project address', MARK.projAddress], ['green home address', MARK.greenAddress], ['counter-offer message', MARK.counterMessage],
     ['A email', A.email], ['C email', C.email], ['password hash', 'password_hash'], ['verify token', 'verify_token'], ['reset token', 'reset_token'], ['R2 key', 'r2_key'], ['session', 'ah_session']];

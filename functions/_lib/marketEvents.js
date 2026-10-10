@@ -3,11 +3,14 @@
 // real accepted offer, a real open house) rather than faking tick-by-tick price action. Demo accounts never
 // appear here, same separation the rest of the site keeps between live and seeded/demo data.
 import { DEMO_EMAIL_PATTERN } from './util.js';
+import { checkMarketPulseAlerts } from './marketPulseAlerts.js';
 
-export async function logMarketEvent(db, { eventType, entityKind, entityId, city, state, headline, amount, delta }) {
+export async function logMarketEvent(db, event) {
+  const { eventType, entityKind, entityId, city, state, headline, amount, delta } = event;
   await db.prepare(
     'INSERT INTO market_events (event_type, entity_kind, entity_id, city, state, headline, amount, delta) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
   ).bind(eventType, entityKind, entityId, city || '', state || '', headline, amount ?? null, delta ?? null).run();
+  await checkMarketPulseAlerts(db, event);
 }
 
 // Looks up the given user's email once and skips logging if it's a demo account -- called from the same spot
@@ -24,4 +27,19 @@ export async function fetchRecentMarketEvents(db, limit = 50) {
     id: r.id, eventType: r.event_type, entityKind: r.entity_kind, entityId: r.entity_id,
     city: r.city, state: r.state, headline: r.headline, amount: r.amount, delta: r.delta, createdAt: r.created_at,
   }));
+}
+
+// A few aggregate numbers for a "trending" panel above the ticker -- the closer analog to the market-stats
+// pages BiggerPockets/r/REBubble argue over, built from the same real event log, not a separate data source.
+export async function fetchMarketTrends(db) {
+  const [byType, topCities, drops] = await Promise.all([
+    db.prepare(`SELECT event_type, COUNT(*) AS n FROM market_events WHERE created_at > datetime('now', '-7 days') GROUP BY event_type`).all(),
+    db.prepare(`SELECT city, state, COUNT(*) AS n FROM market_events WHERE created_at > datetime('now', '-7 days') AND city != '' GROUP BY city, state ORDER BY n DESC LIMIT 3`).all(),
+    db.prepare(`SELECT COALESCE(SUM(ABS(delta)), 0) AS total, COUNT(*) AS n FROM market_events WHERE event_type = 'price_drop' AND created_at > datetime('now', '-30 days')`).first(),
+  ]);
+  return {
+    eventCounts7d: Object.fromEntries(byType.results.map(r => [r.event_type, r.n])),
+    topCities7d: topCities.results.map(r => ({ city: r.city, state: r.state, count: r.n })),
+    priceDropTotal30d: drops.total, priceDropCount30d: drops.n,
+  };
 }

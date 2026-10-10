@@ -4,6 +4,7 @@ import { validateGreenHomeInput, insertGreenHome, fetchGreenHomePhotos } from '.
 import { checkGreenAlertsForNewHome } from '../../_lib/greenNeedsAlerts.js';
 import { fetchMyFavoriteHomeIds } from '../../_lib/greenHomeFavorites.js';
 import { logMarketEventUnlessDemo } from '../../_lib/marketEvents.js';
+import { fetchPriceSeriesBatch } from '../../_lib/priceSeries.js';
 
 const LIST_FIELDS = `green_homes.id, green_homes.user_id, green_homes.title, green_homes.city,
   green_homes.state, green_homes.zip, green_homes.property_type, green_homes.beds,
@@ -49,6 +50,7 @@ export async function onRequestGet(context) {
   const favoritesMode = url.searchParams.get('favorites') === '1';
   const skipFilter = url.searchParams.get('mine') === '1' || favoritesMode;
   const myFavoriteIds = favoritesMode ? null : new Set(await fetchMyFavoriteHomeIds(db, user.id));
+  const seriesByHome = await fetchPriceSeriesBatch(db, 'green_home', rows.results.map(r => r.id));
   const homes = [];
   for (const r of rows.results) {
     const greenFeatures = JSON.parse(r.green_features_json || '[]');
@@ -57,6 +59,7 @@ export async function onRequestGet(context) {
     homes.push({
       id: r.id, userId: r.user_id, owner: r.owner_name, title: r.title, city: r.city, state: r.state, zip: r.zip,
       propertyType: r.property_type, beds: r.beds, baths: r.baths, askingPrice: r.asking_price,
+      priceSeries: [...(seriesByHome.get(r.id) || []), r.asking_price],
       greenFeatures, lifeEventTags: JSON.parse(r.life_event_tags_json || '[]'),
       status: r.status, createdAt: r.created_at, photoIds: photos.map(p => p.id),
       isFavorited: favoritesMode ? true : myFavoriteIds.has(r.id),

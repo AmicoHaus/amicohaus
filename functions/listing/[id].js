@@ -218,16 +218,22 @@ async function renderListingPage(context) {
             OR (user_blocks.blocker_id = comments.user_id AND user_blocks.blocked_id = ?)
        )`
     : '';
+  const likedByMeSelect = viewer
+    ? '(SELECT 1 FROM comment_likes WHERE comment_likes.comment_id = comments.id AND comment_likes.user_id = ?) AS liked_by_me'
+    : '0 AS liked_by_me';
   const commentRows = await db.prepare(
-    `SELECT comments.id, comments.user_id, comments.body, comments.created_at, users.display_name AS author_name
+    `SELECT comments.id, comments.user_id, comments.body, comments.created_at, users.display_name AS author_name,
+            (SELECT COUNT(*) FROM comment_likes WHERE comment_likes.comment_id = comments.id) AS like_count,
+            ${likedByMeSelect}
      FROM comments JOIN users ON users.id = comments.user_id
      WHERE comments.post_id = ? ${blockClause}
      ORDER BY comments.created_at ASC LIMIT 200`
-  ).bind(threadPostId, ...(viewer ? [viewer.id, viewer.id] : [])).all();
+  ).bind(...(viewer ? [viewer.id] : []), threadPostId, ...(viewer ? [viewer.id, viewer.id] : [])).all();
   const commentHtml = (c) => `
     <div class="side" data-comment-id="${c.id}">
       <strong><a class="profile-link" href="/profile/${c.user_id}">${escapeHtml(c.author_name)}</a></strong> <span class="tiny">${timeAgo(c.created_at)}</span>
       <p class="tiny">${escapeHtml(c.body)}</p>
+      ${viewer ? `<button type="button" class="link-btn" data-action="like-comment" data-id="${c.id}">👍 ${c.like_count || 0}</button>` : ''}
       ${viewer && viewer.id === c.user_id
         ? `<button type="button" class="link-btn danger" data-action="delete-comment" data-id="${c.id}">Delete</button>`
         : viewer ? `<button type="button" class="link-btn" data-action="report-comment" data-id="${c.id}">Report</button>` : ''}

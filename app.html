@@ -66,6 +66,43 @@
       <div class="ticker-strip" id="marketTicker">
         <div class="ticker-track" id="marketTickerTrack"><span class="ticker-item ticker-empty">Loading market activity…</span></div>
       </div>
+
+      <div class="stats-bar" id="marketTrends"></div>
+
+      <details class="panel bulk-upload" id="marketPulseAlertWrap">
+        <summary>Save a watch — get notified</summary>
+        <p class="section-sub">Pick what to watch for — any combination of event type, marketplace, city, or state — and you'll get notified in-app the moment a matching real event happens.</p>
+        <div class="field"><label>Name this alert (optional)</label><input type="text" id="marketPulseAlertLabel" maxlength="80" placeholder="e.g. Price drops in Chula Vista"></div>
+        <div class="form-row two-col">
+          <div class="field"><label>Event type (optional)</label>
+            <select id="marketPulseAlertEventType">
+              <option value="">Any event</option>
+              <option value="new_listing">New listing</option>
+              <option value="price_drop">Price drop</option>
+              <option value="offer_accepted">Offer accepted</option>
+              <option value="open_house_scheduled">Open house scheduled</option>
+            </select>
+          </div>
+          <div class="field"><label>Marketplace (optional)</label>
+            <select id="marketPulseAlertEntityKind">
+              <option value="">Any marketplace</option>
+              <option value="listing">Agent Strategy listings</option>
+              <option value="augmented_home">AugmentedHomes</option>
+              <option value="green_home">GreenHomes</option>
+              <option value="dev_project">FinderMine</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row two-col">
+          <div class="field"><label>City (optional)</label><input type="text" id="marketPulseAlertCity" maxlength="80"></div>
+          <div class="field"><label>State (optional)</label><input type="text" id="marketPulseAlertState" maxlength="20"></div>
+        </div>
+        <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="saveMarketPulseAlertBtn">Save Alert</button></div>
+      </details>
+      <h2>My Saved Alerts</h2>
+      <div class="stack" id="marketPulseAlertsList"><div class="empty-state">Loading…</div></div>
+
+      <h2>Recent Activity</h2>
       <div class="stack" id="marketEventsList"><div class="empty-state">Loading…</div></div>
     </section>
 

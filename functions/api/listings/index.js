@@ -4,6 +4,7 @@ import { validateListingInput, insertListing } from '../../_lib/listings.js';
 import { notifyNewMatches } from '../../_lib/matchNotify.js';
 import { fetchPortfolioMembers } from '../../_lib/portfolios.js';
 import { logMarketEventUnlessDemo } from '../../_lib/marketEvents.js';
+import { fetchPriceSeriesBatch } from '../../_lib/priceSeries.js';
 
 export async function onRequestGet(context) {
   const user = await getSessionUser(context);
@@ -22,11 +23,13 @@ export async function onRequestGet(context) {
 
   const portfolioIds = rows.results.filter(l => l.is_portfolio).map(l => l.id);
   const membersByPortfolio = await fetchPortfolioMembers(db, portfolioIds);
+  const seriesByListing = await fetchPriceSeriesBatch(db, 'listing', rows.results.map(l => l.id));
 
   const listings = rows.results.map(l => ({
     ...l, external_links: parseJsonSafe(l.external_links, []),
     life_event_tags: parseJsonSafe(l.life_event_tags_json, []),
     portfolio_members: l.is_portfolio ? (membersByPortfolio.get(l.id) || []) : undefined,
+    price_series: [...(seriesByListing.get(l.id) || []), l.estimated_value],
   }));
   return json({ listings });
 }

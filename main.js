@@ -135,7 +135,7 @@ function goToTab(name) {
   // (private browsing, blocked site data) and losing this is never worth breaking navigation over.
   try { localStorage.setItem('ah_last_tab', name); } catch {}
   if (name === 'feed') { loadFeed(); checkOnboarding(); }
-  if (name === 'marketpulse') loadMarketPulse();
+  if (name === 'marketpulse') { loadMarketPulse(); loadMyMarketPulseAlerts(); }
   if (name === 'listing') { loadMyListing(); if (!editingListingId) checkForListingDraft(); }
   if (name === 'groups') loadGroups();
   if (name === 'matches') loadMatches();
@@ -382,6 +382,24 @@ function signedMoney(n) {
   return (n > 0 ? '+' : n < 0 ? '−' : '') + money(Math.abs(n));
 }
 
+// A tiny inline price-history line for a listing card. Needs at least 2 points to mean anything -- a single
+// point is just "the asking price," not a trend -- so a brand-new listing with no history renders nothing.
+function sparklineHtml(series) {
+  if (!series || series.length < 2) return '';
+  const w = 88, h = 22, pad = 2;
+  const min = Math.min(...series), max = Math.max(...series);
+  const range = max - min || 1;
+  const stepX = (w - pad * 2) / (series.length - 1);
+  const points = series.map((v, i) => {
+    const x = pad + i * stepX;
+    const y = pad + (h - pad * 2) * (1 - (v - min) / range);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const tone = series[series.length - 1] < series[0] ? 'ticker-down' : series[series.length - 1] > series[0] ? 'ticker-up' : 'ticker-neutral';
+  const title = `${money(series[0])} → ${money(series[series.length - 1])}`;
+  return `<svg class="sparkline ${tone}" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="Price history: ${title}"><title>${title}</title><polyline points="${points}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+
 function renderTickerItem(e) {
   const tone = MARKET_EVENT_TONE[e.eventType] || 'ticker-neutral';
   const arrow = MARKET_EVENT_ARROW[e.eventType] || '●';
@@ -403,6 +421,38 @@ function renderMarketEventRow(e) {
   `;
 }
 
+const MARKET_EVENT_TYPE_LABEL = { new_listing: 'New listing', price_drop: 'Price drop', offer_accepted: 'Offer accepted', open_house_scheduled: 'Open house scheduled' };
+const MARKET_ENTITY_KIND_LABEL = { listing: 'Agent Strategy', augmented_home: 'AugmentedHomes', green_home: 'GreenHomes', dev_project: 'FinderMine' };
+
+function renderMarketTrends(trends) {
+  const el = document.getElementById('marketTrends');
+  if (!el || !trends) return;
+  const counts = trends.eventCounts7d || {};
+  const totalThisWeek = Object.values(counts).reduce((a, b) => a + b, 0);
+  const topCity = (trends.topCities7d || [])[0];
+  el.innerHTML = `
+    <div class="stat-item"><span class="stat-num">${totalThisWeek}</span><span class="stat-label">Events this week</span></div>
+    <div class="stat-item"><span class="stat-num">${counts.price_drop || 0}</span><span class="stat-label">Price drops this week</span></div>
+    <div class="stat-item"><span class="stat-num">${trends.priceDropCount30d || 0}</span><span class="stat-label">Drops last 30 days</span></div>
+    <div class="stat-item"><span class="stat-num">${money(trends.priceDropTotal30d || 0)}</span><span class="stat-label">Total price cuts (30d)</span></div>
+    <div class="stat-item"><span class="stat-num">${topCity ? escapeHtml(topCity.city) : '—'}</span><span class="stat-label">Busiest city this week</span></div>
+  `;
+}
+
+async function loadMyMarketPulseAlerts() {
+  const el = document.getElementById('marketPulseAlertsList');
+  try {
+    const { alerts } = await apiGet('/api/market-pulse-alerts');
+    el.innerHTML = alerts.length ? alerts.map(a => `
+      <div class="side">
+        <strong>${escapeHtml(a.label)}</strong>
+        <span class="tiny">${a.eventType ? escapeHtml(MARKET_EVENT_TYPE_LABEL[a.eventType] || a.eventType) : 'Any event'} · ${a.entityKind ? escapeHtml(MARKET_ENTITY_KIND_LABEL[a.entityKind] || a.entityKind) : 'Any marketplace'}${a.city || a.state ? ` · ${escapeHtml(a.city || '')}${a.city && a.state ? ', ' : ''}${escapeHtml(a.state || '')}` : ''}</span>
+        <button class="link-btn" data-action="delete-market-pulse-alert" data-id="${a.id}">Remove</button>
+      </div>
+    `).join('') : '<span class="tiny">No saved alerts yet.</span>';
+  } catch (e) { el.innerHTML = `<span class="tiny">${escapeHtml(e.message)}</span>`; }
+}
+
 let marketPulseTimer = null;
 
 async function loadMarketPulse() {
@@ -410,7 +460,8 @@ async function loadMarketPulse() {
   const trackEl = document.getElementById('marketTickerTrack');
   const listEl = document.getElementById('marketEventsList');
   try {
-    const { events } = await apiGet('/api/market-events?limit=50');
+    const { events, trends } = await apiGet('/api/market-events?limit=50');
+    renderMarketTrends(trends);
     if (events.length === 0) {
       trackEl.innerHTML = '<span class="ticker-item ticker-empty">No market activity yet — list a home, drop a price, or close a deal to kick off the feed.</span>';
       listEl.innerHTML = '<div class="empty-state">No market activity yet.</div>';
@@ -460,6 +511,7 @@ function renderComment(c) {
     <div class="side" data-comment-id="${c.id}">
       <strong><a class="profile-link" href="/profile/${c.user_id}">${escapeHtml(c.author_name)}</a></strong> <span class="tiny">${timeAgo(c.created_at)}</span>
       <p class="tiny">${escapeHtml(c.body)}</p>
+      <button type="button" class="link-btn" data-action="like-comment" data-id="${c.id}">👍 ${c.like_count || 0}</button>
       ${isMine
         ? `<button class="link-btn danger" data-action="delete-comment" data-id="${c.id}">Delete</button>`
         : `<button class="link-btn" data-action="report-comment" data-id="${c.id}">Report</button>`}
@@ -501,6 +553,15 @@ function wireFeedEvents(container) {
     }
     const toggleBtn = e.target.closest('[data-action="toggle-comments"]');
     if (toggleBtn) { toggleComments(toggleBtn.dataset.id); return; }
+
+    const likeCommentBtn = e.target.closest('[data-action="like-comment"]');
+    if (likeCommentBtn) {
+      try {
+        const { likeCount } = await apiPost(`/api/comments/${likeCommentBtn.dataset.id}/like`);
+        likeCommentBtn.textContent = `👍 ${likeCount}`;
+      } catch (err) { toast(err.message); }
+      return;
+    }
 
     const reportPostBtn = e.target.closest('[data-action="report-post"]');
     if (reportPostBtn) { submitReport('post', reportPostBtn.dataset.id); return; }
@@ -621,7 +682,7 @@ async function loadMyListing() {
           <input type="file" id="addPhotos-${l.id}" accept="image/jpeg,image/png,image/webp,image/gif" multiple>
         </div>`}
         <div class="mini-two">
-          <div class="mini-block"><span class="label">Has</span>${l.is_portfolio ? `${(l.portfolio_members || []).length} properties` : listingLabel(l)}${l.is_buyer_only ? '' : `<br>${money(l.estimated_value)}${l.is_portfolio ? ' combined' : ''}`}</div>
+          <div class="mini-block"><span class="label">Has</span>${l.is_portfolio ? `${(l.portfolio_members || []).length} properties` : listingLabel(l)}${l.is_buyer_only ? '' : `<br>${money(l.estimated_value)}${l.is_portfolio ? ' combined' : ''} ${sparklineHtml(l.price_series)}`}</div>
           ${l.is_rental
             ? `<div class="mini-block"><span class="label">Rent</span>${money(l.rent_amount)}/mo<br>${l.min_lease_months}-month minimum lease</div>`
             : `<div class="mini-block"><span class="label">Wants</span>${escapeHtml(l.desired_type)} in ${escapeHtml(l.locations)}<br>${money(l.price_min)}–${money(l.price_max)}</div>`}
@@ -2011,7 +2072,7 @@ function augmentedHomeCardHtml(h, { mine } = {}) {
         <h3>${escapeHtml(h.title || h.propertyType)}</h3>
         <span class="badge ${h.status === 'active' ? 'badge-active' : 'badge-paused'}">${h.status.replace('_', ' ')}</span>
       </div>
-      <div class="mini-block">${escapeHtml(h.propertyType)} · ${h.beds}bd/${h.baths}ba in ${escapeHtml(h.city)}, ${escapeHtml(h.state)}<br>${money(h.askingPrice)} asking</div>
+      <div class="mini-block">${sparklineHtml(h.priceSeries)}${escapeHtml(h.propertyType)} · ${h.beds}bd/${h.baths}ba in ${escapeHtml(h.city)}, ${escapeHtml(h.state)}<br>${money(h.askingPrice)} asking</div>
       <p class="tiny">${h.adaptations.map(k => `<span class="badge badge-gold">${escapeHtml(adaptationLabel(k))}</span>`).join(' ')}</p>
       ${renderLifeEventTags(h.lifeEventTags)}
       <div class="card-actions">
@@ -2129,6 +2190,7 @@ async function openAugmentedHomeDetail(id) {
         ${isOwner ? `<div class="form-actions"><button type="button" class="btn btn-danger btn-sm" data-action="delete-augmented-home" data-id="${h.id}">Delete Listing</button></div>` : ''}
         ${h.adaptationNotes ? `<p class="tiny"><span class="label">Seller's notes</span> ${escapeHtml(h.adaptationNotes)}</p>` : ''}
         ${renderPriceHistory(h.priceHistory)}
+        ${sparklineHtml(seriesFromPriceHistory(h.priceHistory, h.askingPrice))}
         ${!isOwner ? `
           <div class="card-actions">
             <button class="btn btn-primary btn-sm" data-action="message-user" data-id="${h.userId}" data-name="${escapeHtml(h.owner)}">Message Seller</button>
@@ -2295,7 +2357,7 @@ function greenHomeCardHtml(h, { mine } = {}) {
         <h3>${escapeHtml(h.title || h.propertyType)}</h3>
         <span class="badge ${h.status === 'active' ? 'badge-active' : 'badge-paused'}">${h.status.replace('_', ' ')}</span>
       </div>
-      <div class="mini-block">${escapeHtml(h.propertyType)} · ${h.beds}bd/${h.baths}ba in ${escapeHtml(h.city)}, ${escapeHtml(h.state)}<br>${money(h.askingPrice)} asking</div>
+      <div class="mini-block">${sparklineHtml(h.priceSeries)}${escapeHtml(h.propertyType)} · ${h.beds}bd/${h.baths}ba in ${escapeHtml(h.city)}, ${escapeHtml(h.state)}<br>${money(h.askingPrice)} asking</div>
       <p class="tiny">${h.greenFeatures.map(k => `<span class="badge badge-gold">${escapeHtml(greenFeatureLabel(k))}</span>`).join(' ')}</p>
       ${renderLifeEventTags(h.lifeEventTags)}
       <div class="card-actions">
@@ -2396,6 +2458,7 @@ async function openGreenHomeDetail(id) {
         ${isOwner ? `<div class="form-actions"><button type="button" class="btn btn-danger btn-sm" data-action="delete-green-home" data-id="${h.id}">Delete Listing</button></div>` : ''}
         ${h.featureNotes ? `<p class="tiny"><span class="label">Seller's notes</span> ${escapeHtml(h.featureNotes)}</p>` : ''}
         ${renderPriceHistory(h.priceHistory)}
+        ${sparklineHtml(seriesFromPriceHistory(h.priceHistory, h.askingPrice))}
         ${!isOwner ? `
           <div class="card-actions">
             <button class="btn btn-primary btn-sm" data-action="message-user" data-id="${h.userId}" data-name="${escapeHtml(h.owner)}">Message Seller</button>
@@ -3125,6 +3188,15 @@ function renderPriceHistory(history) {
   if (!history || !history.length) return '';
   const changes = history.map(h => `${money(h.oldPrice)} → ${money(h.newPrice)} on ${new Date(h.changedAt + 'Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`);
   return `<p class="tiny"><span class="label">Price history</span> ${changes.join(' · ')}</p>`;
+}
+
+// Reshapes the same priceHistory rows renderPriceHistory() reads (old/new price pairs, oldest first) into a
+// flat series for the sparkline, ending at the current price if it's moved since the last logged change.
+function seriesFromPriceHistory(history, currentPrice) {
+  if (!history || !history.length) return [];
+  const series = [history[0].oldPrice, ...history.map(h => h.newPrice)];
+  if (series[series.length - 1] !== currentPrice) series.push(currentPrice);
+  return series;
 }
 
 function renderHomeownerRatingBadge(rating, label) {
@@ -4709,6 +4781,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     const btn = e.target.closest('[data-action="delete-project-alert"]');
     if (!btn) return;
     try { await apiDelete(`/api/dev-project-needs-alerts/${btn.dataset.id}`); loadMyProjectAlerts(); }
+    catch (err) { toast(err.message); }
+  });
+
+  document.getElementById('saveMarketPulseAlertBtn').addEventListener('click', async () => {
+    try {
+      await apiPost('/api/market-pulse-alerts', {
+        label: document.getElementById('marketPulseAlertLabel').value.trim(),
+        eventType: document.getElementById('marketPulseAlertEventType').value,
+        entityKind: document.getElementById('marketPulseAlertEntityKind').value,
+        city: document.getElementById('marketPulseAlertCity').value.trim(),
+        state: document.getElementById('marketPulseAlertState').value.trim(),
+      });
+      document.getElementById('marketPulseAlertLabel').value = '';
+      document.getElementById('marketPulseAlertEventType').value = '';
+      document.getElementById('marketPulseAlertEntityKind').value = '';
+      document.getElementById('marketPulseAlertCity').value = '';
+      document.getElementById('marketPulseAlertState').value = '';
+      loadMyMarketPulseAlerts();
+      toast("Saved — we'll notify you when a match happens.");
+    } catch (err) { toast(err.message); }
+  });
+
+  document.getElementById('marketPulseAlertsList').addEventListener('click', async e => {
+    const btn = e.target.closest('[data-action="delete-market-pulse-alert"]');
+    if (!btn) return;
+    try { await apiDelete(`/api/market-pulse-alerts/${btn.dataset.id}`); loadMyMarketPulseAlerts(); }
     catch (err) { toast(err.message); }
   });
 

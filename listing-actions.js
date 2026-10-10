@@ -11,6 +11,7 @@
       <div class="side" data-comment-id="${c.id}">
         <strong><a class="profile-link" href="/profile/${c.user_id}">${escapeHtml(c.author_name)}</a></strong> <span class="tiny">${timeAgo(c.created_at)}</span>
         <p class="tiny">${escapeHtml(c.body)}</p>
+        <button type="button" class="link-btn" data-action="like-comment" data-id="${c.id}">👍 ${c.like_count || 0}</button>
         ${c.isMine
           ? `<button type="button" class="link-btn danger" data-action="delete-comment" data-id="${c.id}">Delete</button>`
           : `<button type="button" class="link-btn" data-action="report-comment" data-id="${c.id}">Report</button>`}
@@ -33,6 +34,7 @@
     const counterBackBtn = e.target.closest('[data-action="counter-back"]');
     const reportCommentBtn = e.target.closest('[data-action="report-comment"]');
     const deleteCommentBtn = e.target.closest('[data-action="delete-comment"]');
+    const likeCommentBtn = e.target.closest('[data-action="like-comment"]');
 
     if (rsvpBtn) {
       try {
@@ -100,6 +102,11 @@
       try {
         await apiDelete(`/api/comments/${deleteCommentBtn.dataset.id}`);
         deleteCommentBtn.closest('[data-comment-id]').remove();
+      } catch (err) { toast(err.message); }
+    } else if (likeCommentBtn) {
+      try {
+        const { likeCount } = await apiPost(`/api/comments/${likeCommentBtn.dataset.id}/like`, {});
+        likeCommentBtn.textContent = `👍 ${likeCount}`;
       } catch (err) { toast(err.message); }
     }
   });

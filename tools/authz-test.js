@@ -1123,8 +1123,10 @@ const denied = r => r.status >= 400 && r.status < 500;
   record('search', "anonymous can't use global search (3 of 4 verticals require sign-in to browse at all)", searchAnon.status === 401, `status ${searchAnon.status}`);
   const searchShort = await B.call('GET', '/api/search?q=A');
   record('search', 'a 1-character query is refused rather than scanning the whole table', searchShort.status === 200 && searchShort.json.results.length === 0, JSON.stringify(searchShort.json));
+  // AUG itself was set to under_contract earlier (line ~657) to test the browse-list drop, so it's correctly
+  // excluded from search too (same active-only rule); AUG2 ("AUTHZ Adapted Home 2") is the one still active.
   const searchHit = await B.call('GET', `/api/search?q=${encodeURIComponent('AUTHZ Adapted Home')}`);
-  record('search', 'a real query finds the matching AugmentedHomes listing across verticals', searchHit.status === 200 && searchHit.json.results.some(r => r.kind === 'augmented_home' && r.id === AUG), JSON.stringify(searchHit.json.results.map(r => `${r.kind}:${r.id}`)));
+  record('search', 'a real query finds the matching AugmentedHomes listing across verticals', searchHit.status === 200 && searchHit.json.results.some(r => r.kind === 'augmented_home' && r.id === AUG2), JSON.stringify(searchHit.json.results.map(r => `${r.kind}:${r.id}`)));
   record('search', "search results never include the private street address", !searchHit.text.includes(MARK.augAddress), '');
 
   // ---------- 5. leak scan: everything B, H and anonymous can GET, grepped for planted secrets ----------

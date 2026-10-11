@@ -688,6 +688,13 @@ async function loadMarketPulse() {
   const params = new URLSearchParams({ limit: '50' });
   if (city) params.set('city', city);
   if (state) params.set('state', state);
+  const exportBtn = document.getElementById('marketPulseExportBtn');
+  if (exportBtn) {
+    const exportParams = new URLSearchParams();
+    if (city) exportParams.set('city', city);
+    if (state) exportParams.set('state', state);
+    exportBtn.href = `/api/market-events/export.csv${exportParams.toString() ? `?${exportParams.toString()}` : ''}`;
+  }
   try {
     const { events, trends, leaderboard } = await apiGet(`/api/market-events?${params.toString()}`);
     renderMarketTrends(trends);
@@ -952,6 +959,7 @@ async function loadMyListing() {
           <button class="btn btn-danger btn-sm" data-action="delete-listing" data-id="${l.id}">${l.is_portfolio ? 'Dissolve Portfolio' : 'Delete'}</button>
           `}
           ${l.is_portfolio ? '' : `<button class="btn btn-ghost btn-sm" data-action="clone-listing" data-id="${l.id}">Duplicate</button>`}
+          ${(l.is_buyer_only || l.is_portfolio) ? '' : `<a class="btn btn-ghost btn-sm" href="/listing/${l.id}/flyer" target="_blank" rel="noopener noreferrer">🖨️ Print Flyer</a>`}
         </div>
       </div>
     `).join('');
@@ -1017,7 +1025,7 @@ async function loadListingOffersInto(listingId) {
     el.innerHTML = offers.length ? offers.map(o => `
       <div class="side">
         <strong>${money(o.offerPrice)} — ${o.financingType === 'cash' ? 'Cash' : 'Financed'}</strong>
-        <span class="tiny">From <a class="profile-link" href="/profile/${o.buyerUserId}">${escapeHtml(o.buyerName)}</a> · <span class="badge ${o.status === 'accepted' ? 'badge-active' : o.status === 'declined' || o.status === 'withdrawn' ? 'badge-paused' : ''}">${o.status}</span></span>
+        <span class="tiny">From <a class="profile-link" href="/profile/${o.buyerUserId}">${escapeHtml(o.buyerName)}</a>${o.buyerVerified ? ' <span class="badge badge-verified" title="Verified by Amico Haus">✓</span>' : ''} · <span class="badge ${o.status === 'accepted' ? 'badge-active' : o.status === 'declined' || o.status === 'withdrawn' ? 'badge-paused' : ''}">${o.status}</span></span>
         ${o.closingTimeline ? `<p class="tiny"><span class="label">Timeline</span> ${escapeHtml(o.closingTimeline)}</p>` : ''}
         ${o.contingencies ? `<p class="tiny"><span class="label">Contingencies</span> ${escapeHtml(o.contingencies)}</p>` : ''}
         ${o.message ? `<p class="tiny">"${escapeHtml(o.message)}"</p>` : ''}
@@ -2453,7 +2461,7 @@ async function openAugmentedHomeDetail(id) {
         ${photosHtml}
         <h3>Adaptations</h3>
         <p class="tiny">${h.adaptations.map(k => `<span class="badge badge-gold">${escapeHtml(adaptationLabel(k))}</span>`).join(' ')}</p>
-        ${isOwner ? `<div class="form-actions"><button type="button" class="btn btn-danger btn-sm" data-action="delete-augmented-home" data-id="${h.id}">Delete Listing</button></div>` : ''}
+        ${isOwner ? `<div class="form-actions"><a class="btn btn-ghost btn-sm" href="/augmented-home/${h.id}/flyer" target="_blank" rel="noopener noreferrer">🖨️ Print Flyer</a> <button type="button" class="btn btn-danger btn-sm" data-action="delete-augmented-home" data-id="${h.id}">Delete Listing</button></div>` : ''}
         ${h.adaptationNotes ? `<p class="tiny"><span class="label">Seller's notes</span> ${escapeHtml(h.adaptationNotes)}</p>` : ''}
         ${renderPriceHistory(h.priceHistory)}
         ${sparklineHtml(seriesFromPriceHistory(h.priceHistory, h.askingPrice))}
@@ -2518,7 +2526,7 @@ async function loadAugmentedOffersInto(homeId, isOwner) {
       el.innerHTML = offers.length ? offers.map(o => `
         <div class="side">
           <strong>${money(o.offerPrice)} — ${o.financingType === 'cash' ? 'Cash' : 'Financed'}</strong>
-          <span class="tiny">From <a class="profile-link" href="/profile/${o.buyerUserId}">${escapeHtml(o.buyerName)}</a> · <span class="badge ${o.status === 'accepted' ? 'badge-active' : o.status === 'declined' || o.status === 'withdrawn' ? 'badge-paused' : ''}">${o.status}</span></span>
+          <span class="tiny">From <a class="profile-link" href="/profile/${o.buyerUserId}">${escapeHtml(o.buyerName)}</a>${o.buyerVerified ? ' <span class="badge badge-verified" title="Verified by Amico Haus">✓</span>' : ''} · <span class="badge ${o.status === 'accepted' ? 'badge-active' : o.status === 'declined' || o.status === 'withdrawn' ? 'badge-paused' : ''}">${o.status}</span></span>
           ${o.closingTimeline ? `<p class="tiny"><span class="label">Timeline</span> ${escapeHtml(o.closingTimeline)}</p>` : ''}
           ${o.contingencies ? `<p class="tiny"><span class="label">Contingencies</span> ${escapeHtml(o.contingencies)}</p>` : ''}
           ${o.message ? `<p class="tiny">"${escapeHtml(o.message)}"</p>` : ''}
@@ -2727,7 +2735,7 @@ async function openGreenHomeDetail(id) {
         ${photosHtml}
         <h3>Green Features</h3>
         <p class="tiny">${h.greenFeatures.map(k => `<span class="badge badge-gold">${escapeHtml(greenFeatureLabel(k))}</span>`).join(' ')}</p>
-        ${isOwner ? `<div class="form-actions"><button type="button" class="btn btn-danger btn-sm" data-action="delete-green-home" data-id="${h.id}">Delete Listing</button></div>` : ''}
+        ${isOwner ? `<div class="form-actions"><a class="btn btn-ghost btn-sm" href="/green-home/${h.id}/flyer" target="_blank" rel="noopener noreferrer">🖨️ Print Flyer</a> <button type="button" class="btn btn-danger btn-sm" data-action="delete-green-home" data-id="${h.id}">Delete Listing</button></div>` : ''}
         ${h.featureNotes ? `<p class="tiny"><span class="label">Seller's notes</span> ${escapeHtml(h.featureNotes)}</p>` : ''}
         ${renderPriceHistory(h.priceHistory)}
         ${sparklineHtml(seriesFromPriceHistory(h.priceHistory, h.askingPrice))}
@@ -2792,7 +2800,7 @@ async function loadGreenOffersInto(homeId, isOwner) {
       el.innerHTML = offers.length ? offers.map(o => `
         <div class="side">
           <strong>${money(o.offerPrice)} — ${o.financingType === 'cash' ? 'Cash' : 'Financed'}</strong>
-          <span class="tiny">From <a class="profile-link" href="/profile/${o.buyerUserId}">${escapeHtml(o.buyerName)}</a> · <span class="badge ${o.status === 'accepted' ? 'badge-active' : o.status === 'declined' || o.status === 'withdrawn' ? 'badge-paused' : ''}">${o.status}</span></span>
+          <span class="tiny">From <a class="profile-link" href="/profile/${o.buyerUserId}">${escapeHtml(o.buyerName)}</a>${o.buyerVerified ? ' <span class="badge badge-verified" title="Verified by Amico Haus">✓</span>' : ''} · <span class="badge ${o.status === 'accepted' ? 'badge-active' : o.status === 'declined' || o.status === 'withdrawn' ? 'badge-paused' : ''}">${o.status}</span></span>
           ${o.closingTimeline ? `<p class="tiny"><span class="label">Timeline</span> ${escapeHtml(o.closingTimeline)}</p>` : ''}
           ${o.contingencies ? `<p class="tiny"><span class="label">Contingencies</span> ${escapeHtml(o.contingencies)}</p>` : ''}
           ${o.message ? `<p class="tiny">"${escapeHtml(o.message)}"</p>` : ''}

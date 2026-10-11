@@ -32,7 +32,7 @@ export async function insertOffer(db, listingId, buyerUserId, d) {
 // same visibility rule the pre-listing proposal marketplace already uses for bids.
 export async function fetchOffersForOwner(db, listingId) {
   const rows = await db.prepare(
-    `SELECT listing_offers.*, users.display_name AS buyer_name
+    `SELECT listing_offers.*, users.display_name AS buyer_name, users.is_verified AS buyer_verified
      FROM listing_offers JOIN users ON users.id = listing_offers.buyer_user_id
      WHERE listing_offers.listing_id = ? ORDER BY listing_offers.created_at DESC`
   ).bind(listingId).all();
@@ -52,7 +52,7 @@ export async function fetchMyOffer(db, listingId, buyerUserId) {
 
 function mapOfferRow(r) {
   return {
-    id: r.id, listingId: r.listing_id, buyerUserId: r.buyer_user_id, buyerName: r.buyer_name,
+    id: r.id, listingId: r.listing_id, buyerUserId: r.buyer_user_id, buyerName: r.buyer_name, buyerVerified: !!r.buyer_verified,
     offerPrice: r.offer_price, financingType: r.financing_type, closingTimeline: r.closing_timeline,
     contingencies: r.contingencies, message: r.message, status: r.status,
     counterPrice: r.counter_price, counterMessage: r.counter_message, counteredBy: r.countered_by, createdAt: r.created_at,

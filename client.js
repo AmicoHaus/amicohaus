@@ -282,6 +282,13 @@ async function disablePushNotifications() {
   }
 }
 
+// Print button on the listing/AugmentedHomes/GreenHomes flyer pages (functions/_lib/flyerShell.js) --
+// window.print() itself can't be an inline onclick under this site's CSP (script-src has no 'unsafe-inline'),
+// so it's a plain data-action handled here like every other button on the site.
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-action="print-page"]')) window.print();
+});
+
 let toastTimer = null;
 function toast(msg) {
   let el = document.getElementById('toast');
@@ -390,6 +397,79 @@ document.addEventListener('click', e => {
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') document.querySelectorAll('.pkg-chip.open').forEach(c => c.classList.remove('open'));
 });
+
+// "Recently viewed" strip -- entirely client-side via localStorage, so it works across the 4 public detail
+// page kinds without a server round trip and without needing sign-in. Each detail page (functions/listing,
+// augmented-home, green-home, project [id].js) emits a hidden #entityMeta div with its own data; this reads
+// it, records it, and (if the page has a #recentlyViewedStrip container) renders the OTHER recent items.
+const RECENTLY_VIEWED_KEY = 'ah_recently_viewed';
+const RECENTLY_VIEWED_MAX = 20;
+
+function recentlyViewedHref(kind, id) {
+  if (kind === 'listing') return `/listing/${id}`;
+  if (kind === 'augmented_home') return `/augmented-home/${id}`;
+  if (kind === 'green_home') return `/green-home/${id}`;
+  if (kind === 'dev_project') return `/project/${id}`;
+  return '#';
+}
+
+(function trackAndRenderRecentlyViewed() {
+  const meta = document.getElementById('entityMeta');
+  const current = meta && meta.dataset.kind ? { ...meta.dataset } : null;
+
+  let list = [];
+  try { list = JSON.parse(localStorage.getItem(RECENTLY_VIEWED_KEY) || '[]'); } catch { list = []; }
+  if (!Array.isArray(list)) list = [];
+
+  if (current) {
+    list = list.filter(it => !(it.kind === current.kind && String(it.id) === String(current.id)));
+    list.unshift(current);
+    try { localStorage.setItem(RECENTLY_VIEWED_KEY, JSON.stringify(list.slice(0, RECENTLY_VIEWED_MAX))); } catch {}
+  }
+
+  const strip = document.getElementById('recentlyViewedStrip');
+  if (!strip) return;
+  const others = list.filter(it => !current || !(it.kind === current.kind && String(it.id) === String(current.id))).slice(0, 4);
+  if (!others.length) { strip.classList.add('hidden'); return; }
+  strip.classList.remove('hidden');
+  strip.innerHTML = `
+    <h2>Recently Viewed</h2>
+    <div class="recently-viewed-grid">
+      ${others.map(it => `
+        <a class="recently-viewed-card" href="${recentlyViewedHref(it.kind, it.id)}">
+          <strong>${escapeHtml(it.title || '')}</strong>
+          <span class="tiny">${escapeHtml(it.city || '')}, ${escapeHtml(it.state || '')}</span>
+          <span class="tiny">${it.amount ? money(it.amount) : ''}</span>
+        </a>
+      `).join('')}
+    </div>`;
+})();
+
+// Mortgage affordability widget on detail pages (functions/_lib/mortgageCalc.js emits the markup) -- standard
+// fixed-rate amortization, computed live in the browser as the visitor adjusts down payment/rate/term.
+(function initMortgageCalculators() {
+  document.querySelectorAll('.mortgage-calc').forEach(calc => {
+    const price = Number(calc.dataset.price) || 0;
+    const downPctEl = calc.querySelector('.mc-down-pct');
+    const rateEl = calc.querySelector('.mc-rate');
+    const termEl = calc.querySelector('.mc-term');
+    const outEl = calc.querySelector('.mc-monthly');
+    if (!downPctEl || !rateEl || !termEl || !outEl) return;
+
+    function recompute() {
+      const downPct = Math.min(Math.max(Number(downPctEl.value) || 0, 0), 100);
+      const rate = Math.max(Number(rateEl.value) || 0, 0);
+      const years = Number(termEl.value) || 30;
+      const loanAmount = price * (1 - downPct / 100);
+      const monthlyRate = rate / 100 / 12;
+      const n = years * 12;
+      const payment = monthlyRate === 0 ? loanAmount / n : loanAmount * monthlyRate * Math.pow(1 + monthlyRate, n) / (Math.pow(1 + monthlyRate, n) - 1);
+      outEl.textContent = Number.isFinite(payment) && payment > 0 ? money(Math.round(payment)) : '—';
+    }
+    [downPctEl, rateEl, termEl].forEach(el => el.addEventListener('input', recompute));
+    recompute();
+  });
+})();
 
 // Keeps --topbar-h equal to the sticky header's height (0 when it isn't
 // sticky) so in-page jumps land below it — see scroll-padding-top in styles.css.

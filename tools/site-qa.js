@@ -105,6 +105,7 @@ function ids(html) {
     'counterBackPrice', 'counterBackMessage', // listing-actions.js: only for a signed-in buyer whose offer was just countered by the owner
     'editBioBtn', 'editPhoneBtn', 'bioInput', 'phoneInput', 'saveBioBtn', 'cancelBioBtn', 'savePhoneBtn', 'cancelPhoneBtn', // profile-actions.js: only for the profile's own owner
     'toggleVerifiedBtn', 'favoriteAgentBtn', // profile-actions.js: admin-only / signed-in-viewer-only
+    'entityMeta', 'recentlyViewedStrip', // client.js: only on the 4 dynamic /listing|augmented-home|green-home/project/:id detail pages, which this crawler (static page list only) never visits
   ]);
   for (const [p, html] of pageHtml) {
     const have = new Set(ids(html));

@@ -10,6 +10,8 @@ import { fetchOpenHouses } from '../_lib/openHouses.js';
 import { fetchMyOffer } from '../_lib/listingOffers.js';
 import { findOrCreateThreadPost } from '../_lib/dealThreads.js';
 import { fetchPriceSeriesBatch } from '../_lib/priceSeries.js';
+import { fetchSimilarEntities, similarEntitiesHtml } from '../_lib/similarEntities.js';
+import { mortgageCalcHtml } from '../_lib/mortgageCalc.js';
 
 const LIFE_EVENT_LABELS = Object.fromEntries(LIFE_EVENT_ITEMS.map(i => [i.key, i.label]));
 
@@ -161,6 +163,8 @@ async function renderListingPage(context) {
     ? `<p class="tiny">${lifeEventTags.map(k => `<span class="badge badge-gold">${escapeHtml(LIFE_EVENT_LABELS[k] || k)}</span>`).join(' ')}</p>`
     : '';
 
+  const similar = await fetchSimilarEntities(db, 'listing', { excludeId: id, city: listing.city, state: listing.state, propertyType: listing.property_type });
+
   const openHouses = await fetchOpenHouses(db, id, viewer ? viewer.id : null);
   const openHousesHtml = openHouses.length ? `
     <div class="card about-card">
@@ -294,6 +298,7 @@ async function renderListingPage(context) {
     : null;
 
   const body = `
+    <div id="entityMeta" class="hidden" data-kind="listing" data-id="${id}" data-title="${escapeHtml(listing.title || listing.property_type)}" data-amount="${listing.estimated_value}" data-city="${escapeHtml(listing.city)}" data-state="${escapeHtml(listing.state)}"></div>
     <div class="card">
       <img class="directory-thumb" src="${listing.photo_id ? `/api/photos/${listing.photo_id}` : propertyArtUrl(listing.property_type, listing.id)}" alt="">
       <div class="card-head">
@@ -345,7 +350,11 @@ async function renderListingPage(context) {
 
     ${openHousesHtml}
     ${offerHtml}
+    ${!listing.is_rental ? mortgageCalcHtml(listing.estimated_value) : ''}
+    ${similarEntitiesHtml(similar)}
     ${discussionHtml}
+
+    <div class="card about-card recently-viewed-strip hidden" id="recentlyViewedStrip"></div>
 
     <div class="form-actions">
       <a class="btn btn-primary" href="/signup">Create Your Own Profile to Connect</a>

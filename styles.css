@@ -952,3 +952,36 @@ main > .demo-section:first-of-type > [data-pills] { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .badge-active::before { animation: none; }
 }
+
+/* ---------------- Similar homes / recently viewed strips ---------------- */
+.similar-grid, .recently-viewed-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-top: 8px;
+}
+.similar-card, .recently-viewed-card {
+  display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); text-decoration: none; color: inherit; background: var(--card);
+}
+.similar-card:hover, .recently-viewed-card:hover { border-color: var(--gold); }
+.similar-card strong, .recently-viewed-card strong { font-size: 0.85rem; }
+.recently-viewed-strip { margin-top: 24px; }
+
+/* ---------------- Mortgage affordability calculator (detail pages) ---------------- */
+.mortgage-calc .field { margin-bottom: 10px; }
+.mortgage-calc-result {
+  display: flex; align-items: baseline; gap: 8px; margin: 10px 0; padding: 10px 14px;
+  background: color-mix(in srgb, var(--gold) 10%, transparent); border-radius: var(--radius-sm);
+}
+.mortgage-calc-result strong { font-size: 1.3rem; }
+
+/* ---------------- Printable listing flyer ---------------- */
+.flyer-actions { margin: 16px 0; display: flex; gap: 8px; }
+.flyer-page { max-width: 820px; margin: 0 auto; }
+.flyer-page .directory-thumb { height: 320px; }
+.flyer-price { font-size: 1.8rem; font-weight: 700; color: var(--navy-2); margin: 6px 0; }
+:root[data-theme="dark"] .flyer-price { color: var(--gold-light); }
+.flyer-brand { margin-top: 20px; line-height: 1.6; }
+@media print {
+  .flyer-noprint { display: none !important; }
+  .topbar, .site-footer, .agent-strip { display: none !important; }
+  body, main.prose { padding: 0; margin: 0; max-width: none; }
+}

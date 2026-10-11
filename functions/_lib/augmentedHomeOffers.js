@@ -32,7 +32,7 @@ export async function insertOffer(db, homeId, buyerUserId, d) {
 
 export async function fetchOffersForOwner(db, homeId) {
   const rows = await db.prepare(
-    `SELECT augmented_home_offers.*, users.display_name AS buyer_name
+    `SELECT augmented_home_offers.*, users.display_name AS buyer_name, users.is_verified AS buyer_verified
      FROM augmented_home_offers JOIN users ON users.id = augmented_home_offers.buyer_user_id
      WHERE augmented_home_offers.augmented_home_id = ? ORDER BY augmented_home_offers.created_at DESC`
   ).bind(homeId).all();
@@ -49,7 +49,7 @@ export async function fetchMyOffer(db, homeId, buyerUserId) {
 
 function mapOfferRow(r) {
   return {
-    id: r.id, homeId: r.augmented_home_id, buyerUserId: r.buyer_user_id, buyerName: r.buyer_name,
+    id: r.id, homeId: r.augmented_home_id, buyerUserId: r.buyer_user_id, buyerName: r.buyer_name, buyerVerified: !!r.buyer_verified,
     offerPrice: r.offer_price, financingType: r.financing_type, closingTimeline: r.closing_timeline,
     contingencies: r.contingencies, message: r.message, status: r.status,
     counterPrice: r.counter_price, counterMessage: r.counter_message, counteredBy: r.countered_by, createdAt: r.created_at,

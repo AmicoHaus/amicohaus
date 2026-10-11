@@ -5,6 +5,7 @@ import { withSecurityHeaders } from '../_lib/withSecurityHeaders.js';
 import { PROJECT_TYPE_LABELS, PROJECT_STAGE_LABELS } from '../_lib/devProjects.js';
 import { ADAPTATION_ITEMS } from '../_lib/adaptations.js';
 import { GREEN_FEATURE_ITEMS } from '../_lib/greenFeatures.js';
+import { fetchSimilarEntities, similarEntitiesHtml } from '../_lib/similarEntities.js';
 
 const ADAPTATION_LABELS = Object.fromEntries(ADAPTATION_ITEMS.map(i => [i.key, i.label]));
 const GREEN_FEATURE_LABELS = Object.fromEntries(GREEN_FEATURE_ITEMS.map(i => [i.key, i.label]));
@@ -87,6 +88,7 @@ async function renderPage(context) {
   const viewer = await getSessionUser(context);
   const adaptations = JSON.parse(project.adaptations_json || '[]');
   const greenFeatures = JSON.parse(project.green_features_json || '[]');
+  const similar = await fetchSimilarEntities(db, 'dev_project', { excludeId: id, city: project.city, state: project.state, propertyType: project.project_type });
 
   const loc = `${project.neighborhood ? escapeHtml(project.neighborhood) + ', ' : ''}${escapeHtml(project.city)}, ${escapeHtml(project.state)}`;
   const title = `${project.title} — FinderMine on Amico Haus`;
@@ -97,6 +99,7 @@ async function renderPage(context) {
     : null;
 
   const body = `
+    <div id="entityMeta" class="hidden" data-kind="dev_project" data-id="${id}" data-title="${escapeHtml(project.title)}" data-amount="${project.funding_goal || ''}" data-city="${escapeHtml(project.city)}" data-state="${escapeHtml(project.state)}"></div>
     <div class="card">
       <img class="directory-thumb" src="${project.photo_id ? `/api/dev-project-photos/${project.photo_id}` : '/favicon.svg'}" alt="">
       <div class="card-head">
@@ -127,6 +130,8 @@ async function renderPage(context) {
       <p class="form-note">FinderMine is for discovering and discussing projects only. No funds, equity, or investments are tracked or transacted through Amico Haus. Nothing posted here is an offer to sell securities or a solicitation to invest.</p>
     </div>
 
+    ${similarEntitiesHtml(similar)}
+
     <div class="card about-card">
       <h2>Contact ${escapeHtml(project.owner_name)}</h2>
       ${project.owner_phone
@@ -136,6 +141,8 @@ async function renderPage(context) {
         <a class="btn btn-primary btn-sm" href="/profile/${project.owner_id}">View Full Profile</a>
       </div>
     </div>
+
+    <div class="card about-card recently-viewed-strip hidden" id="recentlyViewedStrip"></div>
 
     <div class="form-actions">
       <a class="btn btn-primary" href="/signup">Create Your Own Profile to Connect</a>

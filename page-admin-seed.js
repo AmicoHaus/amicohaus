@@ -201,6 +201,14 @@ async function loadAuditLog() {
       out.textContent = sent ? `Sent to ${user.email ? escapeHtml(user.email) : 'your inbox'}. Check it (or the dev log if EMAIL_DEV_LOG is set).` : (reason || 'Nothing to report this week.');
     } catch (err) { out.textContent = err.message; }
   });
+  document.getElementById('sendOpenHouseReminderPreviewBtn').addEventListener('click', async () => {
+    const out = document.getElementById('openHouseReminderPreviewResult');
+    out.textContent = 'Sending…';
+    try {
+      const { sent, reason } = await apiPost('/api/admin/send-open-house-reminder-preview', {});
+      out.textContent = sent ? `Sent to ${user.email ? escapeHtml(user.email) : 'your inbox'}. Check it (or the dev log if EMAIL_DEV_LOG is set).` : (reason || 'No upcoming open houses to preview.');
+    } catch (err) { out.textContent = err.message; }
+  });
   loadOverview();
   loadReports();
   loadAgentApplications();

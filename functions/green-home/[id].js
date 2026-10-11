@@ -4,6 +4,8 @@ import { ASSET_VERSIONS } from '../_lib/assetVersions.js';
 import { withSecurityHeaders } from '../_lib/withSecurityHeaders.js';
 import { GREEN_FEATURE_ITEMS } from '../_lib/greenFeatures.js';
 import { LIFE_EVENT_ITEMS } from '../_lib/lifeEvents.js';
+import { fetchSimilarEntities, similarEntitiesHtml } from '../_lib/similarEntities.js';
+import { mortgageCalcHtml } from '../_lib/mortgageCalc.js';
 
 const GREEN_FEATURE_LABELS = Object.fromEntries(GREEN_FEATURE_ITEMS.map(i => [i.key, i.label]));
 const LIFE_EVENT_LABELS = Object.fromEntries(LIFE_EVENT_ITEMS.map(i => [i.key, i.label]));
@@ -85,6 +87,7 @@ async function renderPage(context) {
   const viewer = await getSessionUser(context);
   const greenFeatures = JSON.parse(home.green_features_json || '[]');
   const lifeEventTags = JSON.parse(home.life_event_tags_json || '[]');
+  const similar = await fetchSimilarEntities(db, 'green_home', { excludeId: id, city: home.city, state: home.state, propertyType: home.property_type });
 
   const loc = `${home.neighborhood ? escapeHtml(home.neighborhood) + ', ' : ''}${escapeHtml(home.city)}, ${escapeHtml(home.state)}`;
   const title = `${home.title || 'Green home'} in ${home.city}, ${home.state} — GreenHomes on Amico Haus`;
@@ -95,6 +98,7 @@ async function renderPage(context) {
     : null;
 
   const body = `
+    <div id="entityMeta" class="hidden" data-kind="green_home" data-id="${id}" data-title="${escapeHtml(home.title || home.property_type)}" data-amount="${home.asking_price}" data-city="${escapeHtml(home.city)}" data-state="${escapeHtml(home.state)}"></div>
     <div class="card">
       <img class="directory-thumb" src="${home.photo_id ? `/api/green-home-photos/${home.photo_id}` : '/favicon.svg'}" alt="">
       <div class="card-head">
@@ -120,6 +124,9 @@ async function renderPage(context) {
       ${home.feature_notes ? `<p class="tiny"><span class="label">Seller's notes</span> ${escapeHtml(home.feature_notes)}</p>` : ''}
     </div>
 
+    ${mortgageCalcHtml(home.asking_price)}
+    ${similarEntitiesHtml(similar)}
+
     <div class="card about-card">
       <h2>Contact ${escapeHtml(home.owner_name)}</h2>
       ${home.owner_phone
@@ -129,6 +136,8 @@ async function renderPage(context) {
         <a class="btn btn-primary btn-sm" href="/profile/${home.owner_id}">View Full Profile</a>
       </div>
     </div>
+
+    <div class="card about-card recently-viewed-strip hidden" id="recentlyViewedStrip"></div>
 
     <div class="form-actions">
       <a class="btn btn-primary" href="/signup">Create Your Own Profile to Connect</a>

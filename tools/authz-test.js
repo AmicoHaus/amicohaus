@@ -710,6 +710,7 @@ const denied = r => r.status >= 400 && r.status < 500;
   const GREEN_ALERT = greenAlertCreate.json && greenAlertCreate.json.id;
   record('green', 'another user can save a green needs alert', greenAlertCreate.status === 201, `status ${greenAlertCreate.status}`);
   const greenMatch = await A.call('POST', '/api/green-homes', { ...greenBody, title: 'AUTHZ Green Home 2', address: '' });
+  const GREEN2 = greenMatch.json && greenMatch.json.id;
   const bNotifAfterGreenMatch = sql(`SELECT body FROM notifications WHERE user_id = ${B.id} AND body LIKE 'A new GreenHomes listing%AUTHZ green alert%'`);
   record('green', "posting a newly-matching home notifies the saved alert's owner", bNotifAfterGreenMatch.length > 0, JSON.stringify(bNotifAfterGreenMatch));
   await A.call('DELETE', `/api/green-needs-alerts/${GREEN_ALERT}`);
@@ -1129,6 +1130,36 @@ const denied = r => r.status >= 400 && r.status < 500;
   record('search', 'a real query finds the matching AugmentedHomes listing across verticals', searchHit.status === 200 && searchHit.json.results.some(r => r.kind === 'augmented_home' && r.id === AUG2), JSON.stringify(searchHit.json.results.map(r => `${r.kind}:${r.id}`)));
   record('search', "search results never include the private street address", !searchHit.text.includes(MARK.augAddress), '');
 
+  // ---------- verified-buyer badge on offers ----------
+  sql(`UPDATE users SET is_verified = 1 WHERE id = ${B.id}`);
+  const offersVerifiedCheck = await A.call('GET', `/api/listings/${LA}/offers`);
+  const bOfferRow = offersVerifiedCheck.json && offersVerifiedCheck.json.offers.find(o => o.buyerUserId === B.id);
+  record('offers', "a verified buyer's offer is flagged buyerVerified for the owner", !!bOfferRow && bOfferRow.buyerVerified === true, JSON.stringify(bOfferRow && bOfferRow.buyerVerified));
+  sql(`UPDATE users SET is_verified = 0 WHERE id = ${B.id}`);
+  const offersUnverifiedCheck = await A.call('GET', `/api/listings/${LA}/offers`);
+  const bOfferRow2 = offersUnverifiedCheck.json && offersUnverifiedCheck.json.offers.find(o => o.buyerUserId === B.id);
+  record('offers', "an unverified buyer's offer is not flagged buyerVerified", !!bOfferRow2 && bOfferRow2.buyerVerified === false, JSON.stringify(bOfferRow2 && bOfferRow2.buyerVerified));
+
+  // ---------- market pulse CSV export ----------
+  const csvAnon = await anon.call('GET', '/api/market-events/export.csv');
+  record('csv-export', "anonymous can't export market pulse history", csvAnon.status === 401, `status ${csvAnon.status}`);
+  const csvOk = await B.call('GET', '/api/market-events/export.csv');
+  record('csv-export', 'a signed-in user can export market pulse history as CSV', csvOk.status === 200 && csvOk.text.startsWith('date,eventType,'), `status ${csvOk.status}`);
+
+  // ---------- printable listing flyer (owner-only, not even visible to another signed-in user) ----------
+  const flyerAnon = await anon.call('GET', `/listing/${LA}/flyer`);
+  record('flyer', "anonymous can't open a listing's flyer", flyerAnon.status === 401, `status ${flyerAnon.status}`);
+  const flyerStranger = await B.call('GET', `/listing/${LA}/flyer`);
+  record('flyer', "a non-owner can't open another user's listing flyer", flyerStranger.status === 403, `status ${flyerStranger.status}`);
+  const flyerOwner = await A.call('GET', `/listing/${LA}/flyer`);
+  record('flyer', 'the owner can open their own listing flyer', flyerOwner.status === 200 && flyerOwner.text.includes('Print Flyer'), `status ${flyerOwner.status}`);
+
+  // ---------- open-house reminder preview (admin-only, manual trigger, always sends to the admin's own address) ----------
+  const reminderAnon = await anon.call('POST', '/api/admin/send-open-house-reminder-preview', {});
+  record('open-house-reminder', "anonymous can't trigger an open-house reminder preview", reminderAnon.status === 401, `status ${reminderAnon.status}`);
+  const reminderNonAdmin = await B.call('POST', '/api/admin/send-open-house-reminder-preview', {});
+  record('open-house-reminder', "an ordinary signed-in user can't trigger an open-house reminder preview", reminderNonAdmin.status === 403, `status ${reminderNonAdmin.status}`);
+
   // ---------- 5. leak scan: everything B, H and anonymous can GET, grepped for planted secrets ----------
   console.log('\n== leak scan ==');
   const urls = ['/api/me', '/api/directory', '/api/matches', '/api/listings', `/api/listings/${LA}`, `/api/users/${A.id}`, `/api/users/${C.id}`, '/api/pre-listings', `/api/pre-listings/${PL}`,
@@ -1138,7 +1169,8 @@ const denied = r => r.status >= 400 && r.status < 500;
     '/api/augmented-homes', `/api/augmented-homes/${AUG}`, '/api/accessibility-needs-alerts', '/api/dev-projects', `/api/dev-projects/${PROJ}`,
     '/api/green-homes', `/api/green-homes/${GREEN}`,
     `/profile/${G.id}`, `/profile/${A.id}`, `/api/listings/${LA}/offers`, `/api/listings/${LA}/open-houses`, `/listing/${LA}`,
-    `/api/listings/${LA}/thread`, `/api/posts/${THREAD_POST}/comments`, '/api/market-events', '/api/market-pulse-alerts', '/api/market-trends', '/api/search?q=AUTHZ'];
+    `/api/listings/${LA}/thread`, `/api/posts/${THREAD_POST}/comments`, '/api/market-events', '/api/market-pulse-alerts', '/api/market-trends', '/api/search?q=AUTHZ',
+    `/augmented-home/${AUG2}`, `/green-home/${GREEN2}`, `/project/${PROJ}`, `/listing/${LA}/flyer`, `/augmented-home/${AUG}/flyer`, `/green-home/${GREEN}/flyer`, '/api/market-events/export.csv'];
   const secrets = [['client name', MARK.clientName], ['listing address', MARK.address], ['pre-listing address', MARK.preAddress], ['lockbox note (non-agent)', MARK.lockbox], ['private message', MARK.message],
     ['augmented home address', MARK.augAddress], ['dev project address', MARK.projAddress], ['green home address', MARK.greenAddress], ['counter-offer message', MARK.counterMessage],
     ['A email', A.email], ['C email', C.email], ['password hash', 'password_hash'], ['verify token', 'verify_token'], ['reset token', 'reset_token'], ['R2 key', 'r2_key'], ['session', 'ah_session']];

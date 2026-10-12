@@ -20,6 +20,33 @@ function summaryLabel(s) {
   return `${escapeHtml(s.propertyType)} · ${s.beds}bd/${s.baths}ba in ${loc} (${money(s.estimatedValue)})`;
 }
 
+let activityChart = null;
+
+async function loadActivityChart() {
+  const canvas = document.getElementById('activityChart');
+  if (!canvas || typeof Chart === 'undefined') return; // Chart.js loads from a CDN; stay quiet if it's blocked/offline
+  try {
+    const { days, signups, listings } = await apiGet('/api/admin/activity-timeseries');
+    const labels = days.map(d => new Date(d + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+    if (activityChart) activityChart.destroy();
+    activityChart = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Signups', data: signups, borderColor: '#182430', backgroundColor: 'rgba(24,36,48,0.08)', tension: 0.25, fill: true },
+          { label: 'New Listings', data: listings, borderColor: '#a9793f', backgroundColor: 'rgba(169,121,63,0.12)', tension: 0.25, fill: true },
+        ],
+      },
+      options: {
+        responsive: true,
+        interaction: { mode: 'index', intersect: false },
+        scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+      },
+    });
+  } catch { /* chart just stays empty */ }
+}
+
 async function loadOverview() {
   const statsEl = document.getElementById('overviewStats');
   const matchesEl = document.getElementById('overviewMatches');
@@ -214,6 +241,7 @@ async function loadAuditLog() {
   loadAgentApplications();
   loadDisputes();
   loadAuditLog();
+  loadActivityChart();
 
   document.getElementById('agentApplicationsList').addEventListener('click', async (e) => {
     const btn = e.target.closest('button[data-action]');

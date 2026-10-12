@@ -12,6 +12,7 @@ import { findOrCreateThreadPost } from '../_lib/dealThreads.js';
 import { fetchPriceSeriesBatch } from '../_lib/priceSeries.js';
 import { fetchSimilarEntities, similarEntitiesHtml } from '../_lib/similarEntities.js';
 import { mortgageCalcHtml } from '../_lib/mortgageCalc.js';
+import { realEstateListingJsonLd } from '../_lib/structuredData.js';
 
 const LIFE_EVENT_LABELS = Object.fromEntries(LIFE_EVENT_ITEMS.map(i => [i.key, i.label]));
 
@@ -64,7 +65,7 @@ function notFoundPage() {
   `), { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 
-function renderShell(title, description, bodyHtml, authCta) {
+function renderShell(title, description, bodyHtml, authCta, jsonLd = '') {
   return `<!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
@@ -77,6 +78,7 @@ ${description ? `<meta name="description" content="${escapeHtml(description)}">`
 ${description ? `<meta property="og:description" content="${escapeHtml(description)}">` : ''}
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/styles.css?v=${ASSET_VERSIONS['/styles.css']}">
+${jsonLd}
 </head>
 <body>
 <div id="app">
@@ -362,7 +364,22 @@ async function renderListingPage(context) {
     </div>
   `;
 
-  return new Response(renderShell(title, description, body, authCta), {
+  // Buyer-only listings aren't a home for sale (it's someone wanting to buy one) -- RealEstateListing/Offer
+  // schema would misrepresent that, so skip structured data for them entirely rather than force-fit it.
+  const jsonLd = listing.is_buyer_only ? '' : realEstateListingJsonLd({
+    url: `https://amicohaus.com/listing/${id}`,
+    name: listing.title || listing.property_type,
+    description,
+    image: listing.photo_id ? `https://amicohaus.com/api/photos/${listing.photo_id}` : `https://amicohaus.com${propertyArtUrl(listing.property_type, listing.id)}`,
+    datePosted: listing.created_at,
+    city: listing.city, state: listing.state, propertyType: listing.property_type,
+    beds: listing.is_portfolio ? undefined : listing.beds,
+    baths: listing.is_portfolio ? undefined : listing.baths,
+    sqft: listing.is_portfolio ? undefined : listing.sqft,
+    price: listing.is_rental ? listing.rent_amount : listing.estimated_value,
+  });
+
+  return new Response(renderShell(title, description, body, authCta, jsonLd), {
     headers: { 'Content-Type': 'text/html; charset=utf-8' },
   });
 }

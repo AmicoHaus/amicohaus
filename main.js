@@ -959,7 +959,7 @@ async function loadMyListing() {
           <button class="btn btn-danger btn-sm" data-action="delete-listing" data-id="${l.id}">${l.is_portfolio ? 'Dissolve Portfolio' : 'Delete'}</button>
           `}
           ${l.is_portfolio ? '' : `<button class="btn btn-ghost btn-sm" data-action="clone-listing" data-id="${l.id}">Duplicate</button>`}
-          ${(l.is_buyer_only || l.is_portfolio) ? '' : `<a class="btn btn-ghost btn-sm" href="/listing/${l.id}/flyer" target="_blank" rel="noopener noreferrer">🖨️ Print Flyer</a>`}
+          ${(l.is_buyer_only || l.is_portfolio) ? '' : `<a class="btn btn-ghost btn-sm" href="/listing/${l.id}/flyer" target="_blank" rel="noopener noreferrer">🖨️ Print Flyer</a> <a class="btn btn-ghost btn-sm" href="/api/listings/${l.id}/performance.csv" download>📊 Export Performance</a>`}
         </div>
       </div>
     `).join('');
@@ -2366,21 +2366,51 @@ async function loadMyAugmentedHomes() {
   } catch (e) { el.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
 }
 
-async function loadAugmentedBrowse() {
-  const el = document.getElementById('augmentedBrowseList');
+const BROWSE_PAGE_SIZE = 60;
+let augmentedBrowseOffset = 0;
+let augmentedBrowseHasMore = false;
+
+function augmentedBrowseParams() {
   const city = document.getElementById('augmentedCity').value.trim();
   const state = document.getElementById('augmentedState').value.trim();
   const wanted = [...document.querySelectorAll('.augmented-filter-check:checked')].map(c => c.value);
-  const params = new URLSearchParams();
+  const params = new URLSearchParams({ limit: String(BROWSE_PAGE_SIZE) });
   if (city) params.set('city', city);
   if (state) params.set('state', state);
   wanted.forEach(k => params.append('adaptation', k));
+  return { params, city, state };
+}
+
+async function loadAugmentedBrowse() {
+  const el = document.getElementById('augmentedBrowseList');
+  const { params, city, state } = augmentedBrowseParams();
   loadMomentumBanner('augmentedMomentum', 'augmented_home', city, state);
   try {
-    const { homes } = await apiGet(`/api/augmented-homes?${params.toString()}`);
+    const { homes, hasMore } = await apiGet(`/api/augmented-homes?${params.toString()}`);
     compareBrowseCache.augmented_home = homes;
+    augmentedBrowseOffset = homes.length;
+    augmentedBrowseHasMore = !!hasMore;
+    document.getElementById('augmentedLoadMoreBtn')?.classList.toggle('hidden', !augmentedBrowseHasMore);
     el.innerHTML = homes.length ? homes.map(h => augmentedHomeCardHtml(h, { mine: false })).join('') : '<div class="empty-state">Nothing matching right now.</div>';
   } catch (e) { el.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
+}
+
+async function loadMoreAugmentedBrowse() {
+  if (!augmentedBrowseHasMore) return;
+  const el = document.getElementById('augmentedBrowseList');
+  const btn = document.getElementById('augmentedLoadMoreBtn');
+  const { params } = augmentedBrowseParams();
+  params.set('offset', String(augmentedBrowseOffset));
+  if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
+  try {
+    const { homes, hasMore } = await apiGet(`/api/augmented-homes?${params.toString()}`);
+    compareBrowseCache.augmented_home = [...compareBrowseCache.augmented_home, ...homes];
+    augmentedBrowseOffset += homes.length;
+    augmentedBrowseHasMore = !!hasMore;
+    btn?.classList.toggle('hidden', !augmentedBrowseHasMore);
+    el.insertAdjacentHTML('beforeend', homes.map(h => augmentedHomeCardHtml(h, { mine: false })).join(''));
+  } catch (e) { toast(e.message); }
+  if (btn) { btn.disabled = false; btn.textContent = 'Load More'; }
 }
 
 async function loadMyAccessibilityAlerts() {
@@ -2461,7 +2491,7 @@ async function openAugmentedHomeDetail(id) {
         ${photosHtml}
         <h3>Adaptations</h3>
         <p class="tiny">${h.adaptations.map(k => `<span class="badge badge-gold">${escapeHtml(adaptationLabel(k))}</span>`).join(' ')}</p>
-        ${isOwner ? `<div class="form-actions"><a class="btn btn-ghost btn-sm" href="/augmented-home/${h.id}/flyer" target="_blank" rel="noopener noreferrer">🖨️ Print Flyer</a> <button type="button" class="btn btn-danger btn-sm" data-action="delete-augmented-home" data-id="${h.id}">Delete Listing</button></div>` : ''}
+        ${isOwner ? `<div class="form-actions"><a class="btn btn-ghost btn-sm" href="/augmented-home/${h.id}/flyer" target="_blank" rel="noopener noreferrer">🖨️ Print Flyer</a> <a class="btn btn-ghost btn-sm" href="/api/augmented-homes/${h.id}/performance.csv" download>📊 Export Performance</a> <button type="button" class="btn btn-danger btn-sm" data-action="delete-augmented-home" data-id="${h.id}">Delete Listing</button></div>` : ''}
         ${h.adaptationNotes ? `<p class="tiny"><span class="label">Seller's notes</span> ${escapeHtml(h.adaptationNotes)}</p>` : ''}
         ${renderPriceHistory(h.priceHistory)}
         ${sparklineHtml(seriesFromPriceHistory(h.priceHistory, h.askingPrice))}
@@ -2657,21 +2687,50 @@ async function loadMyGreenHomes() {
   } catch (e) { el.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
 }
 
-async function loadGreenBrowse() {
-  const el = document.getElementById('greenBrowseList');
+let greenBrowseOffset = 0;
+let greenBrowseHasMore = false;
+
+function greenBrowseParams() {
   const city = document.getElementById('greenFilterCity').value.trim();
   const state = document.getElementById('greenFilterState').value.trim();
   const wanted = [...document.querySelectorAll('.green-filter-check:checked')].map(c => c.value);
-  const params = new URLSearchParams();
+  const params = new URLSearchParams({ limit: String(BROWSE_PAGE_SIZE) });
   if (city) params.set('city', city);
   if (state) params.set('state', state);
   wanted.forEach(k => params.append('feature', k));
+  return { params, city, state };
+}
+
+async function loadGreenBrowse() {
+  const el = document.getElementById('greenBrowseList');
+  const { params, city, state } = greenBrowseParams();
   loadMomentumBanner('greenMomentum', 'green_home', city, state);
   try {
-    const { homes } = await apiGet(`/api/green-homes?${params.toString()}`);
+    const { homes, hasMore } = await apiGet(`/api/green-homes?${params.toString()}`);
     compareBrowseCache.green_home = homes;
+    greenBrowseOffset = homes.length;
+    greenBrowseHasMore = !!hasMore;
+    document.getElementById('greenLoadMoreBtn')?.classList.toggle('hidden', !greenBrowseHasMore);
     el.innerHTML = homes.length ? homes.map(h => greenHomeCardHtml(h, { mine: false })).join('') : '<div class="empty-state">Nothing matching right now.</div>';
   } catch (e) { el.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
+}
+
+async function loadMoreGreenBrowse() {
+  if (!greenBrowseHasMore) return;
+  const el = document.getElementById('greenBrowseList');
+  const btn = document.getElementById('greenLoadMoreBtn');
+  const { params } = greenBrowseParams();
+  params.set('offset', String(greenBrowseOffset));
+  if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
+  try {
+    const { homes, hasMore } = await apiGet(`/api/green-homes?${params.toString()}`);
+    compareBrowseCache.green_home = [...compareBrowseCache.green_home, ...homes];
+    greenBrowseOffset += homes.length;
+    greenBrowseHasMore = !!hasMore;
+    btn?.classList.toggle('hidden', !greenBrowseHasMore);
+    el.insertAdjacentHTML('beforeend', homes.map(h => greenHomeCardHtml(h, { mine: false })).join(''));
+  } catch (e) { toast(e.message); }
+  if (btn) { btn.disabled = false; btn.textContent = 'Load More'; }
 }
 
 async function loadMyGreenAlerts() {
@@ -2735,7 +2794,7 @@ async function openGreenHomeDetail(id) {
         ${photosHtml}
         <h3>Green Features</h3>
         <p class="tiny">${h.greenFeatures.map(k => `<span class="badge badge-gold">${escapeHtml(greenFeatureLabel(k))}</span>`).join(' ')}</p>
-        ${isOwner ? `<div class="form-actions"><a class="btn btn-ghost btn-sm" href="/green-home/${h.id}/flyer" target="_blank" rel="noopener noreferrer">🖨️ Print Flyer</a> <button type="button" class="btn btn-danger btn-sm" data-action="delete-green-home" data-id="${h.id}">Delete Listing</button></div>` : ''}
+        ${isOwner ? `<div class="form-actions"><a class="btn btn-ghost btn-sm" href="/green-home/${h.id}/flyer" target="_blank" rel="noopener noreferrer">🖨️ Print Flyer</a> <a class="btn btn-ghost btn-sm" href="/api/green-homes/${h.id}/performance.csv" download>📊 Export Performance</a> <button type="button" class="btn btn-danger btn-sm" data-action="delete-green-home" data-id="${h.id}">Delete Listing</button></div>` : ''}
         ${h.featureNotes ? `<p class="tiny"><span class="label">Seller's notes</span> ${escapeHtml(h.featureNotes)}</p>` : ''}
         ${renderPriceHistory(h.priceHistory)}
         ${sparklineHtml(seriesFromPriceHistory(h.priceHistory, h.askingPrice))}
@@ -2929,26 +2988,54 @@ async function loadMyProjects() {
   } catch (e) { el.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
 }
 
-async function loadProjectsBrowse() {
-  const el = document.getElementById('projectsBrowseList');
+let projectsBrowseOffset = 0;
+let projectsBrowseHasMore = false;
+
+function projectsBrowseParams() {
   const city = document.getElementById('projectCity').value.trim();
   const state = document.getElementById('projectState').value.trim();
   const type = document.getElementById('projectTypeFilter').value;
   const stage = document.getElementById('projectStageFilter').value;
   const wantedAdaptations = [...document.querySelectorAll('.project-adaptation-filter-check:checked')].map(c => c.value);
   const wantedGreenFeatures = [...document.querySelectorAll('.project-green-feature-filter-check:checked')].map(c => c.value);
-  const params = new URLSearchParams();
+  const params = new URLSearchParams({ limit: String(BROWSE_PAGE_SIZE) });
   if (city) params.set('city', city);
   if (state) params.set('state', state);
   if (type) params.set('type', type);
   if (stage) params.set('stage', stage);
   wantedAdaptations.forEach(k => params.append('adaptation', k));
   wantedGreenFeatures.forEach(k => params.append('greenFeature', k));
+  return { params, city, state };
+}
+
+async function loadProjectsBrowse() {
+  const el = document.getElementById('projectsBrowseList');
+  const { params, city, state } = projectsBrowseParams();
   loadMomentumBanner('projectsMomentum', 'dev_project', city, state);
   try {
-    const { projects } = await apiGet(`/api/dev-projects?${params.toString()}`);
+    const { projects, hasMore } = await apiGet(`/api/dev-projects?${params.toString()}`);
+    projectsBrowseOffset = projects.length;
+    projectsBrowseHasMore = !!hasMore;
+    document.getElementById('projectsLoadMoreBtn')?.classList.toggle('hidden', !projectsBrowseHasMore);
     el.innerHTML = projects.length ? projects.map(p => projectCardHtml(p, { mine: false })).join('') : '<div class="empty-state">Nothing open right now.</div>';
   } catch (e) { el.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
+}
+
+async function loadMoreProjectsBrowse() {
+  if (!projectsBrowseHasMore) return;
+  const el = document.getElementById('projectsBrowseList');
+  const btn = document.getElementById('projectsLoadMoreBtn');
+  const { params } = projectsBrowseParams();
+  params.set('offset', String(projectsBrowseOffset));
+  if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
+  try {
+    const { projects, hasMore } = await apiGet(`/api/dev-projects?${params.toString()}`);
+    projectsBrowseOffset += projects.length;
+    projectsBrowseHasMore = !!hasMore;
+    btn?.classList.toggle('hidden', !projectsBrowseHasMore);
+    el.insertAdjacentHTML('beforeend', projects.map(p => projectCardHtml(p, { mine: false })).join(''));
+  } catch (e) { toast(e.message); }
+  if (btn) { btn.disabled = false; btn.textContent = 'Load More'; }
 }
 
 async function loadFinderMineTab() {
@@ -4686,6 +4773,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   document.getElementById('augmentedFilters').addEventListener('input', () => loadAugmentedBrowse());
   document.getElementById('augmentedFilterChips').addEventListener('change', () => loadAugmentedBrowse());
+  document.getElementById('augmentedLoadMoreBtn')?.addEventListener('click', () => loadMoreAugmentedBrowse());
 
   function wireAugmentedOpenButtons(containerId) {
     document.getElementById(containerId).addEventListener('click', async e => {
@@ -4859,6 +4947,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   document.getElementById('greenFilters').addEventListener('input', () => loadGreenBrowse());
   document.getElementById('greenFilterChips').addEventListener('change', () => loadGreenBrowse());
+  document.getElementById('greenLoadMoreBtn')?.addEventListener('click', () => loadMoreGreenBrowse());
 
   function wireGreenOpenButtons(containerId) {
     document.getElementById(containerId).addEventListener('click', async e => {
@@ -5007,6 +5096,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('projectStageFilter').addEventListener('change', () => loadProjectsBrowse());
   document.getElementById('projectAdaptationFilterChips').addEventListener('change', () => loadProjectsBrowse());
   document.getElementById('projectGreenFeatureFilterChips').addEventListener('change', () => loadProjectsBrowse());
+  document.getElementById('projectsLoadMoreBtn')?.addEventListener('click', () => loadMoreProjectsBrowse());
 
   function wireProjectOpenButtons(containerId) {
     document.getElementById(containerId).addEventListener('click', async e => {

@@ -28,6 +28,7 @@ export async function onRequestGet(context) {
   const priceMax = Number(url.searchParams.get('priceMax'));
   const sort = SORTS[url.searchParams.get('sort')] || SORTS.newest;
   const limit = Math.min(Number(url.searchParams.get('limit')) || 40, 100);
+  const offset = Math.max(Number(url.searchParams.get('offset')) || 0, 0);
   const kind = url.searchParams.get('kind'); // 'trade' | 'rental' | 'portfolio' | null (all)
 
   // First-time/primary-buyer profiles have no home to show off — they only
@@ -69,7 +70,8 @@ export async function onRequestGet(context) {
     ? '(SELECT feedback FROM listing_feedback WHERE listing_feedback.listing_id = listings.id AND listing_feedback.user_id = ?) AS my_feedback'
     : 'NULL AS my_feedback';
   if (viewer) params.unshift(viewer.id);
-  params.push(limit);
+  // Fetch one extra row to know whether there's a next page, without a separate COUNT(*) query.
+  params.push(limit + 1, offset);
 
   const rows = await db.prepare(
     `SELECT listings.id, listings.title, listings.neighborhood, listings.city, listings.state,
@@ -86,8 +88,11 @@ export async function onRequestGet(context) {
      ${joinGroups}
      LEFT JOIN desired_criteria ON desired_criteria.listing_id = listings.id
      WHERE ${conditions.join(' AND ')}
-     ORDER BY ${sort} LIMIT ?`
+     ORDER BY ${sort} LIMIT ? OFFSET ?`
   ).bind(...params).all();
+
+  const hasMore = rows.results.length > limit;
+  if (hasMore) rows.results.length = limit;
 
   const portfolioIds = rows.results.filter(r => r.is_portfolio).map(r => r.id);
   const membersByPortfolio = await fetchPortfolioMembers(db, portfolioIds);
@@ -106,5 +111,5 @@ export async function onRequestGet(context) {
     favorite_count: favoriteCountById.get(r.id) || 0,
     comment_count: commentCountById.get(r.id) || 0,
   }));
-  return json({ listings });
+  return json({ listings, hasMore });
 }

@@ -22,6 +22,7 @@ export async function onRequestGet(context) {
   const url = new URL(context.request.url);
 
   let rows;
+  let hasMore = false;
   if (url.searchParams.get('mine') === '1') {
     rows = await db.prepare(
       `SELECT ${LIST_FIELDS} FROM dev_projects JOIN users ON users.id = dev_projects.user_id
@@ -39,17 +40,21 @@ export async function onRequestGet(context) {
     const state = (url.searchParams.get('state') || '').trim();
     const type = (url.searchParams.get('type') || '').trim();
     const stage = (url.searchParams.get('stage') || '').trim();
+    const limit = Math.min(Number(url.searchParams.get('limit')) || 60, 100);
+    const offset = Math.max(Number(url.searchParams.get('offset')) || 0, 0);
     const conditions = [`dev_projects.status = 'open'`];
     const params = [];
     if (city) { conditions.push('dev_projects.city LIKE ?'); params.push(`%${city}%`); }
     if (state) { conditions.push('dev_projects.state LIKE ?'); params.push(`%${state}%`); }
     if (type) { conditions.push('dev_projects.project_type = ?'); params.push(type); }
     if (stage) { conditions.push('dev_projects.stage = ?'); params.push(stage); }
-    params.push(60);
+    params.push(limit + 1, offset);
     rows = await db.prepare(
       `SELECT ${LIST_FIELDS} FROM dev_projects JOIN users ON users.id = dev_projects.user_id
-       WHERE ${conditions.join(' AND ')} ORDER BY dev_projects.created_at DESC LIMIT ?`
+       WHERE ${conditions.join(' AND ')} ORDER BY dev_projects.created_at DESC LIMIT ? OFFSET ?`
     ).bind(...params).all();
+    hasMore = rows.results.length > limit;
+    if (hasMore) rows.results.length = limit;
   }
 
   const wantedAdaptations = url.searchParams.getAll('adaptation');
@@ -82,7 +87,7 @@ export async function onRequestGet(context) {
       isFavorited: favoritesMode ? true : myFavoriteIds.has(r.id),
     });
   }
-  return json({ projects });
+  return json({ projects, hasMore });
 }
 
 export async function onRequestPost(context) {

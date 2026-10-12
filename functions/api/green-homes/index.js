@@ -21,6 +21,7 @@ export async function onRequestGet(context) {
   const url = new URL(context.request.url);
 
   let rows;
+  let hasMore = false;
   if (url.searchParams.get('mine') === '1') {
     rows = await db.prepare(
       `SELECT ${LIST_FIELDS} FROM green_homes JOIN users ON users.id = green_homes.user_id
@@ -36,15 +37,19 @@ export async function onRequestGet(context) {
   } else {
     const city = (url.searchParams.get('city') || '').trim();
     const state = (url.searchParams.get('state') || '').trim();
+    const limit = Math.min(Number(url.searchParams.get('limit')) || 60, 100);
+    const offset = Math.max(Number(url.searchParams.get('offset')) || 0, 0);
     const conditions = [`green_homes.status = 'active'`];
     const params = [];
     if (city) { conditions.push('green_homes.city LIKE ?'); params.push(`%${city}%`); }
     if (state) { conditions.push('green_homes.state LIKE ?'); params.push(`%${state}%`); }
-    params.push(60);
+    params.push(limit + 1, offset);
     rows = await db.prepare(
       `SELECT ${LIST_FIELDS} FROM green_homes JOIN users ON users.id = green_homes.user_id
-       WHERE ${conditions.join(' AND ')} ORDER BY green_homes.created_at DESC LIMIT ?`
+       WHERE ${conditions.join(' AND ')} ORDER BY green_homes.created_at DESC LIMIT ? OFFSET ?`
     ).bind(...params).all();
+    hasMore = rows.results.length > limit;
+    if (hasMore) rows.results.length = limit;
   }
 
   const wantedFeatures = url.searchParams.getAll('feature');
@@ -75,7 +80,7 @@ export async function onRequestGet(context) {
       isFavorited: favoritesMode ? true : myFavoriteIds.has(r.id),
     });
   }
-  return json({ homes });
+  return json({ homes, hasMore });
 }
 
 export async function onRequestPost(context) {

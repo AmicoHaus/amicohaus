@@ -1154,6 +1154,39 @@ const denied = r => r.status >= 400 && r.status < 500;
   const flyerOwner = await A.call('GET', `/listing/${LA}/flyer`);
   record('flyer', 'the owner can open their own listing flyer', flyerOwner.status === 200 && flyerOwner.text.includes('Print Flyer'), `status ${flyerOwner.status}`);
 
+  // ---------- a listing's own performance export (owner-only) ----------
+  const perfAnon = await anon.call('GET', `/api/listings/${LA}/performance.csv`);
+  record('performance-csv', "anonymous can't export a listing's performance", perfAnon.status === 401, `status ${perfAnon.status}`);
+  const perfStranger = await B.call('GET', `/api/listings/${LA}/performance.csv`);
+  record('performance-csv', "a non-owner can't export another user's listing performance", perfStranger.status === 403, `status ${perfStranger.status}`);
+  const perfOwner = await A.call('GET', `/api/listings/${LA}/performance.csv`);
+  record('performance-csv', "the owner can export their own listing's performance, including B's real offer", perfOwner.status === 200 && perfOwner.text.startsWith('date,type,detail') && perfOwner.text.includes(',offer,'), `status ${perfOwner.status}`);
+  const augPerfStranger = await B.call('GET', `/api/augmented-homes/${AUG}/performance.csv`);
+  record('performance-csv', "a non-owner can't export another user's AugmentedHomes performance", augPerfStranger.status === 403, `status ${augPerfStranger.status}`);
+  const greenPerfStranger = await B.call('GET', `/api/green-homes/${GREEN}/performance.csv`);
+  record('performance-csv', "a non-owner can't export another user's GreenHomes performance", greenPerfStranger.status === 403, `status ${greenPerfStranger.status}`);
+
+  // ---------- admin growth chart data (admin-only) ----------
+  const growthAnon = await anon.call('GET', '/api/admin/activity-timeseries');
+  record('admin-growth', "anonymous can't read the growth chart data", growthAnon.status === 401, `status ${growthAnon.status}`);
+  const growthNonAdmin = await B.call('GET', '/api/admin/activity-timeseries');
+  record('admin-growth', "an ordinary signed-in user can't read the growth chart data", growthNonAdmin.status === 403, `status ${growthNonAdmin.status}`);
+
+  // ---------- browse pagination ----------
+  const dirPage1 = await anon.call('GET', '/api/directory?limit=1');
+  const dirPage2 = await anon.call('GET', '/api/directory?limit=1&offset=1');
+  record('pagination', 'the directory pages with limit/offset and reports hasMore, with no overlap between pages',
+    dirPage1.status === 200 && dirPage1.json.hasMore === true && dirPage1.json.listings.length === 1
+      && dirPage2.status === 200 && dirPage2.json.listings.length === 1 && dirPage2.json.listings[0].id !== dirPage1.json.listings[0].id,
+    JSON.stringify({ p1: dirPage1.json && dirPage1.json.listings.map(l => l.id), p2: dirPage2.json && dirPage2.json.listings.map(l => l.id) }));
+
+  // ---------- structured data on public pages ----------
+  const ldPage = await anon.call('GET', `/listing/${LA}`);
+  const ldMatch = /<script type="application\/ld\+json">([\s\S]*?)<\/script>/.exec(ldPage.text);
+  let ld = null; try { ld = ldMatch && JSON.parse(ldMatch[1]); } catch { /* invalid JSON-LD */ }
+  record('structured-data', 'the public listing page carries valid RealEstateListing JSON-LD with a price', !!ld && ld['@type'] === 'RealEstateListing' && !!ld.offers && ld.offers.price > 0, ldMatch ? ldMatch[1].slice(0, 120) : 'no JSON-LD found');
+  record('structured-data', "the JSON-LD never includes the street address, only city/state", !!ld && !JSON.stringify(ld).includes(MARK.address) && !ld.about.address.streetAddress, '');
+
   // ---------- open-house reminder preview (admin-only, manual trigger, always sends to the admin's own address) ----------
   const reminderAnon = await anon.call('POST', '/api/admin/send-open-house-reminder-preview', {});
   record('open-house-reminder', "anonymous can't trigger an open-house reminder preview", reminderAnon.status === 401, `status ${reminderAnon.status}`);
@@ -1170,7 +1203,9 @@ const denied = r => r.status >= 400 && r.status < 500;
     '/api/green-homes', `/api/green-homes/${GREEN}`,
     `/profile/${G.id}`, `/profile/${A.id}`, `/api/listings/${LA}/offers`, `/api/listings/${LA}/open-houses`, `/listing/${LA}`,
     `/api/listings/${LA}/thread`, `/api/posts/${THREAD_POST}/comments`, '/api/market-events', '/api/market-pulse-alerts', '/api/market-trends', '/api/search?q=AUTHZ',
-    `/augmented-home/${AUG2}`, `/green-home/${GREEN2}`, `/project/${PROJ}`, `/listing/${LA}/flyer`, `/augmented-home/${AUG}/flyer`, `/green-home/${GREEN}/flyer`, '/api/market-events/export.csv'];
+    `/augmented-home/${AUG2}`, `/green-home/${GREEN2}`, `/project/${PROJ}`, `/listing/${LA}/flyer`, `/augmented-home/${AUG}/flyer`, `/green-home/${GREEN}/flyer`, '/api/market-events/export.csv',
+    `/api/listings/${LA}/performance.csv`, `/api/augmented-homes/${AUG}/performance.csv`, `/api/green-homes/${GREEN}/performance.csv`, '/api/admin/activity-timeseries',
+    '/api/directory?limit=5&offset=1', '/api/augmented-homes?limit=5&offset=1', '/api/green-homes?limit=5&offset=1', '/api/dev-projects?limit=5&offset=1'];
   const secrets = [['client name', MARK.clientName], ['listing address', MARK.address], ['pre-listing address', MARK.preAddress], ['lockbox note (non-agent)', MARK.lockbox], ['private message', MARK.message],
     ['augmented home address', MARK.augAddress], ['dev project address', MARK.projAddress], ['green home address', MARK.greenAddress], ['counter-offer message', MARK.counterMessage],
     ['A email', A.email], ['C email', C.email], ['password hash', 'password_hash'], ['verify token', 'verify_token'], ['reset token', 'reset_token'], ['R2 key', 'r2_key'], ['session', 'ah_session']];

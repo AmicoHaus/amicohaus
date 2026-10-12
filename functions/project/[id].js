@@ -6,6 +6,7 @@ import { PROJECT_TYPE_LABELS, PROJECT_STAGE_LABELS } from '../_lib/devProjects.j
 import { ADAPTATION_ITEMS } from '../_lib/adaptations.js';
 import { GREEN_FEATURE_ITEMS } from '../_lib/greenFeatures.js';
 import { fetchSimilarEntities, similarEntitiesHtml } from '../_lib/similarEntities.js';
+import { realEstateListingJsonLd } from '../_lib/structuredData.js';
 
 const ADAPTATION_LABELS = Object.fromEntries(ADAPTATION_ITEMS.map(i => [i.key, i.label]));
 const GREEN_FEATURE_LABELS = Object.fromEntries(GREEN_FEATURE_ITEMS.map(i => [i.key, i.label]));
@@ -22,7 +23,7 @@ function notFoundPage() {
   `), { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 
-function renderShell(title, description, bodyHtml, authCta) {
+function renderShell(title, description, bodyHtml, authCta, jsonLd = '') {
   return `<!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
@@ -35,6 +36,7 @@ ${description ? `<meta name="description" content="${escapeHtml(description)}">`
 ${description ? `<meta property="og:description" content="${escapeHtml(description)}">` : ''}
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/styles.css?v=${ASSET_VERSIONS['/styles.css']}">
+${jsonLd}
 </head>
 <body>
 <div id="app">
@@ -150,7 +152,18 @@ async function renderPage(context) {
     </div>
   `;
 
-  return new Response(renderShell(title, description, body, authCta), {
+  // No price field -- a funding goal isn't a real-estate sale price, and FinderMine explicitly isn't an
+  // offer to sell anything (see the disclaimer in the body above), so no schema.org Offer is emitted either.
+  const jsonLd = realEstateListingJsonLd({
+    url: `https://amicohaus.com/project/${id}`,
+    name: project.title,
+    description,
+    image: project.photo_id ? `https://amicohaus.com/api/dev-project-photos/${project.photo_id}` : 'https://amicohaus.com/favicon.svg',
+    datePosted: project.created_at,
+    city: project.city, state: project.state, propertyType: project.project_type,
+  });
+
+  return new Response(renderShell(title, description, body, authCta, jsonLd), {
     headers: { 'Content-Type': 'text/html; charset=utf-8' },
   });
 }

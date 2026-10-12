@@ -7,14 +7,12 @@ const PROPERTY_TYPES = ['Single Family Home', 'Condo', 'Townhouse', 'Penthouse',
 let currentView = 'list';
 let map = null;
 let mapMarkers = [];
+const DIRECTORY_PAGE_SIZE = 40;
+let directoryOffset = 0;
+let directoryHasMore = false;
 
-function renderDirectory(listings) {
-  const grid = document.getElementById('directoryGrid');
-  if (listings.length === 0) {
-    grid.innerHTML = '<div class="empty-state">No listings match those filters yet.</div>';
-    return;
-  }
-  grid.innerHTML = listings.map(l => `
+function directoryCardHtml(l) {
+  return `
     <div class="card ${activityAccentClass(l.recent_activity)}" data-listing-id="${l.id}">
       <div class="directory-thumb-wrap">
         <img class="directory-thumb" src="${l.photo_id ? `/api/photos/${l.photo_id}` : propertyArtUrl(l.property_type, l.id)}" alt="" loading="lazy">
@@ -45,7 +43,18 @@ function renderDirectory(listings) {
         <button type="button" class="btn btn-ghost btn-sm thumb-btn" data-action="thumb-down" data-id="${l.id}" title="Not interested — hide this listing">👎</button>
       </div>
     </div>
-  `).join('');
+  `;
+}
+
+function renderDirectory(listings, append = false) {
+  const grid = document.getElementById('directoryGrid');
+  if (!append && listings.length === 0) {
+    grid.innerHTML = '<div class="empty-state">No listings match those filters yet.</div>';
+    return;
+  }
+  const html = listings.map(directoryCardHtml).join('');
+  if (append) grid.insertAdjacentHTML('beforeend', html);
+  else grid.innerHTML = html;
 }
 
 function renderMap(listings) {
@@ -78,9 +87,8 @@ function renderMap(listings) {
   }
 }
 
-async function loadDirectory() {
-  const grid = document.getElementById('directoryGrid');
-  const params = new URLSearchParams({ limit: '60' });
+function directoryFilterParams() {
+  const params = new URLSearchParams({ limit: String(DIRECTORY_PAGE_SIZE) });
   const city = document.getElementById('filterCity').value.trim();
   const state = document.getElementById('filterState').value.trim();
   const propertyType = document.getElementById('filterType').value;
@@ -95,16 +103,46 @@ async function loadDirectory() {
   if (priceMax) params.set('priceMax', priceMax);
   if (sort && sort !== 'newest') params.set('sort', sort);
   if (kind) params.set('kind', kind);
+  return { params, city, state };
+}
 
+function updateDirectoryLoadMoreBtn() {
+  document.getElementById('directoryLoadMoreBtn')?.classList.toggle('hidden', !directoryHasMore);
+}
+
+async function loadDirectory() {
+  const grid = document.getElementById('directoryGrid');
+  const { params, city, state } = directoryFilterParams();
   loadMomentumBanner('directoryMomentum', 'listing', city, state);
   try {
-    const { listings } = await apiGet(`/api/directory?${params.toString()}`);
+    const { listings, hasMore } = await apiGet(`/api/directory?${params.toString()}`);
     window.__lastListings = listings; // cached so toggling to map view doesn't need a re-fetch
+    directoryOffset = listings.length;
+    directoryHasMore = !!hasMore;
+    updateDirectoryLoadMoreBtn();
     renderDirectory(listings);
     if (currentView === 'map') renderMap(listings);
   } catch (e) {
     grid.innerHTML = '<div class="empty-state">Could not load the directory right now.</div>';
   }
+}
+
+async function loadMoreDirectory() {
+  if (!directoryHasMore) return;
+  const btn = document.getElementById('directoryLoadMoreBtn');
+  const { params } = directoryFilterParams();
+  params.set('offset', String(directoryOffset));
+  if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
+  try {
+    const { listings, hasMore } = await apiGet(`/api/directory?${params.toString()}`);
+    window.__lastListings = [...(window.__lastListings || []), ...listings];
+    directoryOffset += listings.length;
+    directoryHasMore = !!hasMore;
+    updateDirectoryLoadMoreBtn();
+    renderDirectory(listings, true);
+    if (currentView === 'map') renderMap(window.__lastListings);
+  } catch (e) { toast(e.message); }
+  if (btn) { btn.disabled = false; btn.textContent = 'Load More'; }
 }
 
 function setView(view) {
@@ -193,6 +231,7 @@ async function loadLiveNumbers() {
   document.getElementById('directoryFilters3').addEventListener('change', () => loadDirectory());
   document.getElementById('viewListBtn').addEventListener('click', () => setView('list'));
   document.getElementById('viewMapBtn').addEventListener('click', () => setView('map'));
+  document.getElementById('directoryLoadMoreBtn')?.addEventListener('click', () => loadMoreDirectory());
 
   document.getElementById('directoryGrid').addEventListener('click', async (e) => {
     const btn = e.target.closest('.thumb-btn');

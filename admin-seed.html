@@ -7,6 +7,7 @@
 <meta name="robots" content="noindex, nofollow">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="styles.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.1/chart.umd.js"></script>
 </head>
 <body>
 <div id="app">
@@ -59,6 +60,10 @@
       </div>
       <p class="form-note trust">Seeded accounts use @demo.amicohaus.local emails and no password — they're for demo purposes only and can be removed later without touching real accounts. Listings are concentrated in California, Florida, New York, and Washington so a smaller batch still produces plenty of overlap.</p>
       <div class="stack" id="progressLog"></div>
+
+      <h2>Growth, Last 30 Days</h2>
+      <p class="section-sub">Real signups and new listings (combined across all 4 marketplaces), by day. Demo accounts excluded.</p>
+      <div class="chart-wrap"><canvas id="activityChart" height="90"></canvas></div>
 
       <h2>Platform Activity</h2>
       <p class="section-sub">See matches and daisy chains happening between seeded users right now — this is the platform-wide view, not just your own account's matches.</p>

@@ -88,3 +88,24 @@ export function clampString(value, maxLength) {
 export function parseJsonSafe(str, fallback) {
   try { return JSON.parse(str); } catch { return fallback; }
 }
+
+// Shared CSV writer for the couple of export endpoints (Market Pulse history, a listing's own performance) --
+// quotes a field only when it actually needs it (contains a comma, quote, or newline), same minimal-quoting
+// convention most CSV readers (incl. Excel/Sheets) expect.
+function csvField(v) {
+  const s = String(v ?? '');
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+export function toCsv(header, rows) {
+  return [header, ...rows].map(row => row.map(csvField).join(',')).join('\n') + '\n';
+}
+
+export function csvResponse(csv, filename) {
+  return new Response(csv, {
+    headers: {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    },
+  });
+}

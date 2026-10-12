@@ -22,6 +22,7 @@ export async function onRequestGet(context) {
   const url = new URL(context.request.url);
 
   let rows;
+  let hasMore = false;
   if (url.searchParams.get('mine') === '1') {
     rows = await db.prepare(
       `SELECT ${LIST_FIELDS} FROM augmented_homes JOIN users ON users.id = augmented_homes.user_id
@@ -37,15 +38,19 @@ export async function onRequestGet(context) {
   } else {
     const city = (url.searchParams.get('city') || '').trim();
     const state = (url.searchParams.get('state') || '').trim();
+    const limit = Math.min(Number(url.searchParams.get('limit')) || 60, 100);
+    const offset = Math.max(Number(url.searchParams.get('offset')) || 0, 0);
     const conditions = [`augmented_homes.status = 'active'`];
     const params = [];
     if (city) { conditions.push('augmented_homes.city LIKE ?'); params.push(`%${city}%`); }
     if (state) { conditions.push('augmented_homes.state LIKE ?'); params.push(`%${state}%`); }
-    params.push(60);
+    params.push(limit + 1, offset);
     rows = await db.prepare(
       `SELECT ${LIST_FIELDS} FROM augmented_homes JOIN users ON users.id = augmented_homes.user_id
-       WHERE ${conditions.join(' AND ')} ORDER BY augmented_homes.created_at DESC LIMIT ?`
+       WHERE ${conditions.join(' AND ')} ORDER BY augmented_homes.created_at DESC LIMIT ? OFFSET ?`
     ).bind(...params).all();
+    hasMore = rows.results.length > limit;
+    if (hasMore) rows.results.length = limit;
   }
 
   const wantedAdaptations = url.searchParams.getAll('adaptation');
@@ -76,7 +81,7 @@ export async function onRequestGet(context) {
       isFavorited: favoritesMode ? true : myFavoriteIds.has(r.id),
     });
   }
-  return json({ homes });
+  return json({ homes, hasMore });
 }
 
 export async function onRequestPost(context) {

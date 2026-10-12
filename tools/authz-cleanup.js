@@ -6,7 +6,19 @@ const path = require('path');
 const ROOT = process.argv[2];
 const info = JSON.parse(fs.readFileSync(path.join(__dirname, 'authz-cleanup.json'), 'utf8'));
 
-const run = (cmd) => execSync(cmd, { cwd: ROOT, encoding: 'utf8', shell: true, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 20 * 1024 * 1024 });
+// Everything this script runs is a delete (or a read), so retrying a transient Cloudflare failure is always safe.
+const TRANSIENT = /\b7403\b|fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|\b50[234]\b/;
+function run(cmd) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return execSync(cmd, { cwd: ROOT, encoding: 'utf8', shell: true, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 20 * 1024 * 1024 });
+    } catch (e) {
+      if (attempt >= 4 || !TRANSIENT.test(`${e.stdout || ''} ${e.stderr || ''} ${e.message || ''}`)) throw e;
+      console.log(`  (transient Cloudflare error, retry ${attempt} of 3)`);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000 * attempt);
+    }
+  }
+}
 
 for (const key of info.r2keys) {
   try { run(`npx wrangler r2 object delete amicohaus-photos/${key} --remote`); console.log('deleted R2 object', key); }
@@ -27,5 +39,5 @@ fs.writeFileSync(file, [
 const out = run(`npx wrangler d1 execute amicohaus --remote --file "${file}"`);
 console.log((out.match(/"changes": \d+/g) || []).join(', '));
 
-const left = JSON.parse(run(`npx wrangler d1 execute amicohaus --remote --json --command "SELECT (SELECT COUNT(*) FROM users WHERE email LIKE 'test-%') AS test_users, (SELECT COUNT(*) FROM users) AS users, (SELECT COUNT(*) FROM agent_profiles WHERE status='approved') AS approved_agents, (SELECT COUNT(*) FROM market_events) AS market_events"`).replace(/^[^\[]*/, ''))[0].results[0];
+const left = JSON.parse(run(`npx wrangler d1 execute amicohaus --remote --json --command "SELECT (SELECT COUNT(*) FROM users WHERE email LIKE 'delivered+authz-%' OR email LIKE 'test-%') AS test_users, (SELECT COUNT(*) FROM users) AS users, (SELECT COUNT(*) FROM agent_profiles WHERE status='approved') AS approved_agents, (SELECT COUNT(*) FROM market_events) AS market_events"`).replace(/^[^\[]*/, ''))[0].results[0];
 console.log('after cleanup:', JSON.stringify(left));

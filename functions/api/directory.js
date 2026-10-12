@@ -27,7 +27,9 @@ export async function onRequestGet(context) {
   const priceMin = Number(url.searchParams.get('priceMin'));
   const priceMax = Number(url.searchParams.get('priceMax'));
   const sort = SORTS[url.searchParams.get('sort')] || SORTS.newest;
-  const limit = Math.min(Number(url.searchParams.get('limit')) || 40, 100);
+  // Capped at 60 so the batch lookups below (one id per row, plus a couple of fixed params) stay well under
+  // D1's per-query bound-parameter limit.
+  const limit = Math.min(Number(url.searchParams.get('limit')) || 40, 60);
   const offset = Math.max(Number(url.searchParams.get('offset')) || 0, 0);
   const kind = url.searchParams.get('kind'); // 'trade' | 'rental' | 'portfolio' | null (all)
 

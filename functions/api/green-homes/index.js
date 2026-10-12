@@ -1,6 +1,7 @@
 import { getSessionUser } from '../../_lib/auth.js';
 import { json, badRequest, unauthorized } from '../../_lib/util.js';
-import { validateGreenHomeInput, insertGreenHome, fetchGreenHomePhotos } from '../../_lib/greenHomes.js';
+import { validateGreenHomeInput, insertGreenHome } from '../../_lib/greenHomes.js';
+import { fetchPhotoIdsBatch } from '../../_lib/photoBatch.js';
 import { checkGreenAlertsForNewHome } from '../../_lib/greenNeedsAlerts.js';
 import { fetchMyFavoriteHomeIds, fetchFavoriteCountBatch } from '../../_lib/greenHomeFavorites.js';
 import { logMarketEventUnlessDemo, fetchRecentActivityBatch } from '../../_lib/marketEvents.js';
@@ -37,12 +38,19 @@ export async function onRequestGet(context) {
   } else {
     const city = (url.searchParams.get('city') || '').trim();
     const state = (url.searchParams.get('state') || '').trim();
-    const limit = Math.min(Number(url.searchParams.get('limit')) || 60, 100);
+    // Capped at 60 so the batch lookups below stay well under D1's per-query bound-parameter limit.
+    const limit = Math.min(Number(url.searchParams.get('limit')) || 60, 60);
     const offset = Math.max(Number(url.searchParams.get('offset')) || 0, 0);
+    const wantedFeatures = url.searchParams.getAll('feature').filter(Boolean).slice(0, 30);
     const conditions = [`green_homes.status = 'active'`];
     const params = [];
     if (city) { conditions.push('green_homes.city LIKE ?'); params.push(`%${city}%`); }
     if (state) { conditions.push('green_homes.state LIKE ?'); params.push(`%${state}%`); }
+    // "Has any of the checked features" -- filtered in SQL so every page is a full page of real matches.
+    if (wantedFeatures.length) {
+      conditions.push(`EXISTS (SELECT 1 FROM json_each(green_homes.green_features_json) WHERE json_each.value IN (${wantedFeatures.map(() => '?').join(',')}))`);
+      params.push(...wantedFeatures);
+    }
     params.push(limit + 1, offset);
     rows = await db.prepare(
       `SELECT ${LIST_FIELDS} FROM green_homes JOIN users ON users.id = green_homes.user_id
@@ -52,22 +60,19 @@ export async function onRequestGet(context) {
     if (hasMore) rows.results.length = limit;
   }
 
-  const wantedFeatures = url.searchParams.getAll('feature');
   const favoritesMode = url.searchParams.get('favorites') === '1';
-  const skipFilter = url.searchParams.get('mine') === '1' || favoritesMode;
   const myFavoriteIds = favoritesMode ? null : new Set(await fetchMyFavoriteHomeIds(db, user.id));
   const ids = rows.results.map(r => r.id);
-  const [seriesByHome, recentActivityByHome, favoriteCountByHome, commentCountByHome] = await Promise.all([
+  const [seriesByHome, recentActivityByHome, favoriteCountByHome, commentCountByHome, photoIdsByHome] = await Promise.all([
     fetchPriceSeriesBatch(db, 'green_home', ids),
     fetchRecentActivityBatch(db, 'green_home', ids),
     fetchFavoriteCountBatch(db, ids),
     fetchCommentCountBatch(db, 'green_home', ids),
+    fetchPhotoIdsBatch(db, 'green_home', ids),
   ]);
   const homes = [];
   for (const r of rows.results) {
     const greenFeatures = JSON.parse(r.green_features_json || '[]');
-    if (!skipFilter && wantedFeatures.length && !wantedFeatures.some(k => greenFeatures.includes(k))) continue;
-    const photos = await fetchGreenHomePhotos(db, r.id);
     homes.push({
       id: r.id, userId: r.user_id, owner: r.owner_name, title: r.title, city: r.city, state: r.state, zip: r.zip,
       propertyType: r.property_type, beds: r.beds, baths: r.baths, sqft: r.sqft, askingPrice: r.asking_price,
@@ -76,7 +81,7 @@ export async function onRequestGet(context) {
       favoriteCount: favoriteCountByHome.get(r.id) || 0,
       commentCount: commentCountByHome.get(r.id) || 0,
       greenFeatures, lifeEventTags: JSON.parse(r.life_event_tags_json || '[]'),
-      status: r.status, createdAt: r.created_at, photoIds: photos.map(p => p.id),
+      status: r.status, createdAt: r.created_at, photoIds: photoIdsByHome.get(r.id) || [],
       isFavorited: favoritesMode ? true : myFavoriteIds.has(r.id),
     });
   }

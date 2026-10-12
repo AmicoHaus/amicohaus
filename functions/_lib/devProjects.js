@@ -102,6 +102,16 @@ export async function fetchInterestCount(db, projectId) {
   return row.n;
 }
 
+export async function fetchInterestCountBatch(db, ids) {
+  const map = new Map();
+  if (!ids.length) return map;
+  const rows = await db.prepare(
+    `SELECT dev_project_id, COUNT(*) AS n FROM dev_project_interests WHERE dev_project_id IN (${ids.map(() => '?').join(',')}) GROUP BY dev_project_id`
+  ).bind(...ids).all();
+  for (const r of rows.results) map.set(r.dev_project_id, r.n);
+  return map;
+}
+
 export async function toggleInterest(db, projectId, investorUserId, note) {
   const existing = await db.prepare('SELECT id FROM dev_project_interests WHERE dev_project_id = ? AND investor_user_id = ?').bind(projectId, investorUserId).first();
   if (existing) {

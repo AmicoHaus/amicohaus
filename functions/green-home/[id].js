@@ -23,7 +23,7 @@ function notFoundPage() {
   `), { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 
-function renderShell(title, description, bodyHtml, authCta, jsonLd = '') {
+function renderShell(title, description, bodyHtml, authCta, { jsonLd = '', image = '', url = '' } = {}) {
   return `<!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
@@ -31,9 +31,15 @@ function renderShell(title, description, bodyHtml, authCta, jsonLd = '') {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${escapeHtml(title)}</title>
 ${description ? `<meta name="description" content="${escapeHtml(description)}">` : ''}
+${url ? `<link rel="canonical" href="${escapeHtml(url)}">` : ''}
 <meta property="og:type" content="website">
+<meta property="og:site_name" content="Amico Haus">
 <meta property="og:title" content="${escapeHtml(title)}">
 ${description ? `<meta property="og:description" content="${escapeHtml(description)}">` : ''}
+${url ? `<meta property="og:url" content="${escapeHtml(url)}">` : ''}
+${image ? `<meta property="og:image" content="${escapeHtml(image)}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="${escapeHtml(image)}">` : ''}
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/styles.css?v=${ASSET_VERSIONS['/styles.css']}">
 ${jsonLd}
@@ -147,17 +153,20 @@ async function renderPage(context) {
     </div>
   `;
 
+  const pageUrl = `https://amicohaus.com/green-home/${id}`;
+  // Social apps won't show an SVG, so a home without a photo falls back to the site's share image.
+  const shareImage = home.photo_id ? `https://amicohaus.com/api/green-home-photos/${home.photo_id}` : 'https://amicohaus.com/og-image.png';
   const jsonLd = realEstateListingJsonLd({
-    url: `https://amicohaus.com/green-home/${id}`,
+    url: pageUrl,
     name: home.title || home.property_type,
     description,
-    image: home.photo_id ? `https://amicohaus.com/api/green-home-photos/${home.photo_id}` : 'https://amicohaus.com/favicon.svg',
+    image: shareImage,
     datePosted: home.created_at,
     city: home.city, state: home.state, propertyType: home.property_type,
     beds: home.beds, baths: home.baths, sqft: home.sqft, price: home.asking_price,
   });
 
-  return new Response(renderShell(title, description, body, authCta, jsonLd), {
+  return new Response(renderShell(title, description, body, authCta, { jsonLd, image: shareImage, url: pageUrl }), {
     headers: { 'Content-Type': 'text/html; charset=utf-8' },
   });
 }

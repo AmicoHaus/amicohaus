@@ -39,10 +39,27 @@ function record(section, label, ok, detail = '') {
   console.log(`${ok ? 'PASS' : 'FAIL'}  [${section}] ${label}${ok ? '' : '  <<< ' + detail}`);
 }
 
+const NETWORK_BLIP = /fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|\b50[234]\b/;
+function sleepMs(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
+
+// Cloudflare's API occasionally rejects a request outright (error 7403) or drops it mid-flight. A 7403 means
+// the statement never ran, so it's retried whatever it is; any other network blip might have landed, so only
+// reads are retried for those -- a repeated INSERT/UPDATE could double-apply.
 function sql(command) {
-  const out = execSync(`npx wrangler d1 execute amicohaus --remote --json --command "${command.replace(/"/g, '\\"')}"`, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], shell: true, maxBuffer: 20 * 1024 * 1024 });
-  const j = JSON.parse(out.slice(out.indexOf('[')));
-  return j[0].results || [];
+  const isRead = /^\s*SELECT\b/i.test(command);
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const out = execSync(`npx wrangler d1 execute amicohaus --remote --json --command "${command.replace(/"/g, '\\"')}"`, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], shell: true, maxBuffer: 20 * 1024 * 1024 });
+      const j = JSON.parse(out.slice(out.indexOf('[')));
+      return j[0].results || [];
+    } catch (e) {
+      const msg = `${e.stdout || ''} ${e.stderr || ''} ${e.message || ''}`;
+      const retryable = /\b7403\b/.test(msg) || (isRead && NETWORK_BLIP.test(msg));
+      if (!retryable || attempt >= 4) throw e;
+      console.log(`  (transient Cloudflare error, retry ${attempt} of 3)`);
+      sleepMs(2000 * attempt);
+    }
+  }
 }
 
 class User {
@@ -54,8 +71,16 @@ class User {
     if (opts.form) payload = opts.form;
     else if (body !== undefined) { headers['Content-Type'] = 'application/json'; payload = JSON.stringify(body); }
     let res;
-    try { res = await fetch(BASE + url, { method, headers, body: payload, redirect: 'manual', signal: AbortSignal.timeout(30000) }); }
-    catch (e) { throw new Error(`${method} ${url} failed: ${e.name} ${e.message}`); } // say WHICH request, not just "timeout"
+    // A GET that never got a response can safely be sent again; a write can't (it may have landed), so only
+    // reads are retried on a network-level failure. HTTP error statuses are never retried -- those are results.
+    for (let attempt = 1; ; attempt++) {
+      try { res = await fetch(BASE + url, { method, headers, body: payload, redirect: 'manual', signal: AbortSignal.timeout(30000) }); break; }
+      catch (e) {
+        if (method !== 'GET' || attempt >= 4) throw new Error(`${method} ${url} failed: ${e.name} ${e.message}`); // say WHICH request, not just "timeout"
+        console.log(`  (network blip on GET ${url}, retry ${attempt} of 3)`);
+        await new Promise(r => setTimeout(r, 2000 * attempt));
+      }
+    }
     const text = res.headers.get('content-type')?.startsWith('image/') ? '' : await res.text();
     let json = null; try { json = JSON.parse(text); } catch { /* not json */ }
     const sc = res.headers.getSetCookie ? res.headers.getSetCookie() : [];
@@ -1186,6 +1211,19 @@ const denied = r => r.status >= 400 && r.status < 500;
   let ld = null; try { ld = ldMatch && JSON.parse(ldMatch[1]); } catch { /* invalid JSON-LD */ }
   record('structured-data', 'the public listing page carries valid RealEstateListing JSON-LD with a price', !!ld && ld['@type'] === 'RealEstateListing' && !!ld.offers && ld.offers.price > 0, ldMatch ? ldMatch[1].slice(0, 120) : 'no JSON-LD found');
   record('structured-data', "the JSON-LD never includes the street address, only city/state", !!ld && !JSON.stringify(ld).includes(MARK.address) && !ld.about.address.streetAddress, '');
+
+  // ---------- link previews (what iMessage/Facebook/LinkedIn show when a listing link is shared) ----------
+  const ogImageMatch = /<meta property="og:image" content="([^"]+)">/.exec(ldPage.text);
+  record('share-preview', 'the public listing page carries an og:image and a canonical URL',
+    !!ogImageMatch && ldPage.text.includes(`<link rel="canonical" href="https://amicohaus.com/listing/${LA}">`), ogImageMatch ? ogImageMatch[1] : 'no og:image');
+  const ogImageRes = ogImageMatch ? await anon.call('GET', ogImageMatch[1].replace('https://amicohaus.com', '')) : { status: 0 };
+  record('share-preview', "the preview image loads anonymously, the way a social app's crawler fetches it", ogImageRes.status === 200, `status ${ogImageRes.status}`);
+
+  // ---------- browse filters run in SQL, so a filtered page is a full page of real matches ----------
+  const filteredPage = await B.call('GET', '/api/augmented-homes?adaptation=roll_in_shower&limit=1');
+  record('pagination', 'a one-item page with a feature filter returns a real match, not an empty or non-matching page',
+    filteredPage.status === 200 && filteredPage.json.homes.length === 1 && filteredPage.json.homes[0].adaptations.includes('roll_in_shower'),
+    JSON.stringify(filteredPage.json && filteredPage.json.homes.map(h => ({ id: h.id, adaptations: h.adaptations }))));
 
   // ---------- open-house reminder preview (admin-only, manual trigger, always sends to the admin's own address) ----------
   const reminderAnon = await anon.call('POST', '/api/admin/send-open-house-reminder-preview', {});

@@ -1,6 +1,7 @@
 import { getSessionUser } from '../../_lib/auth.js';
 import { json, badRequest, unauthorized } from '../../_lib/util.js';
-import { validateAugmentedHomeInput, insertAugmentedHome, fetchAugmentedHomePhotos } from '../../_lib/augmentedHomes.js';
+import { validateAugmentedHomeInput, insertAugmentedHome } from '../../_lib/augmentedHomes.js';
+import { fetchPhotoIdsBatch } from '../../_lib/photoBatch.js';
 import { checkAlertsForNewHome } from '../../_lib/accessibilityAlerts.js';
 import { fetchMyFavoriteHomeIds, fetchFavoriteCountBatch } from '../../_lib/augmentedHomeFavorites.js';
 import { logMarketEventUnlessDemo, fetchRecentActivityBatch } from '../../_lib/marketEvents.js';
@@ -38,12 +39,20 @@ export async function onRequestGet(context) {
   } else {
     const city = (url.searchParams.get('city') || '').trim();
     const state = (url.searchParams.get('state') || '').trim();
-    const limit = Math.min(Number(url.searchParams.get('limit')) || 60, 100);
+    // Capped at 60 so the batch lookups below (one id per row, plus a couple of fixed params) stay well
+    // under D1's per-query bound-parameter limit.
+    const limit = Math.min(Number(url.searchParams.get('limit')) || 60, 60);
     const offset = Math.max(Number(url.searchParams.get('offset')) || 0, 0);
+    const wantedAdaptations = url.searchParams.getAll('adaptation').filter(Boolean).slice(0, 30);
     const conditions = [`augmented_homes.status = 'active'`];
     const params = [];
     if (city) { conditions.push('augmented_homes.city LIKE ?'); params.push(`%${city}%`); }
     if (state) { conditions.push('augmented_homes.state LIKE ?'); params.push(`%${state}%`); }
+    // "Has any of the checked adaptations" -- filtered in SQL so every page is a full page of real matches.
+    if (wantedAdaptations.length) {
+      conditions.push(`EXISTS (SELECT 1 FROM json_each(augmented_homes.adaptations_json) WHERE json_each.value IN (${wantedAdaptations.map(() => '?').join(',')}))`);
+      params.push(...wantedAdaptations);
+    }
     params.push(limit + 1, offset);
     rows = await db.prepare(
       `SELECT ${LIST_FIELDS} FROM augmented_homes JOIN users ON users.id = augmented_homes.user_id
@@ -53,22 +62,19 @@ export async function onRequestGet(context) {
     if (hasMore) rows.results.length = limit;
   }
 
-  const wantedAdaptations = url.searchParams.getAll('adaptation');
   const favoritesMode = url.searchParams.get('favorites') === '1';
-  const skipFilter = url.searchParams.get('mine') === '1' || favoritesMode;
   const myFavoriteIds = favoritesMode ? null : new Set(await fetchMyFavoriteHomeIds(db, user.id));
   const ids = rows.results.map(r => r.id);
-  const [seriesByHome, recentActivityByHome, favoriteCountByHome, commentCountByHome] = await Promise.all([
+  const [seriesByHome, recentActivityByHome, favoriteCountByHome, commentCountByHome, photoIdsByHome] = await Promise.all([
     fetchPriceSeriesBatch(db, 'augmented_home', ids),
     fetchRecentActivityBatch(db, 'augmented_home', ids),
     fetchFavoriteCountBatch(db, ids),
     fetchCommentCountBatch(db, 'augmented_home', ids),
+    fetchPhotoIdsBatch(db, 'augmented_home', ids),
   ]);
   const homes = [];
   for (const r of rows.results) {
     const adaptations = JSON.parse(r.adaptations_json || '[]');
-    if (!skipFilter && wantedAdaptations.length && !wantedAdaptations.some(k => adaptations.includes(k))) continue;
-    const photos = await fetchAugmentedHomePhotos(db, r.id);
     homes.push({
       id: r.id, userId: r.user_id, owner: r.owner_name, title: r.title, city: r.city, state: r.state, zip: r.zip,
       propertyType: r.property_type, beds: r.beds, baths: r.baths, sqft: r.sqft, askingPrice: r.asking_price,
@@ -77,7 +83,7 @@ export async function onRequestGet(context) {
       favoriteCount: favoriteCountByHome.get(r.id) || 0,
       commentCount: commentCountByHome.get(r.id) || 0,
       adaptations, lifeEventTags: JSON.parse(r.life_event_tags_json || '[]'),
-      status: r.status, createdAt: r.created_at, photoIds: photos.map(p => p.id),
+      status: r.status, createdAt: r.created_at, photoIds: photoIdsByHome.get(r.id) || [],
       isFavorited: favoritesMode ? true : myFavoriteIds.has(r.id),
     });
   }

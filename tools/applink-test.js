@@ -66,6 +66,7 @@ function expect(label, actual, expected) {
   expect('saved-search notification', await run('saved_search', '/'), [closePanel, ['navigate', '/']]);
   expect('#post-home lands on the Agents tab and opens the post-your-home form', await run('marketplace', '/app#post-home'), [closePanel, ['goToTab', 'marketplace'], ['open', 'postHomeWrap', true], ['scrollIntoView', 'postHomeWrap']]);
   expect('#become-agent opens the agent application', await run('marketplace', '/app#become-agent'), [closePanel, ['goToTab', 'marketplace'], ['open', 'becomeAgentWrap', true], ['scrollIntoView', 'becomeAgentWrap']]);
+  expect('#find-agent opens the agent directory', await run('marketplace', '/app#find-agent'), [closePanel, ['goToTab', 'marketplace'], ['open', 'agentDirectoryWrap', true], ['scrollIntoView', 'agentDirectoryWrap']]);
   expect('no link at all', await run('marketplace', ''), [closePanel]);
 
   console.log(failed ? `\n${failed} FAILED` : '\nall passed');

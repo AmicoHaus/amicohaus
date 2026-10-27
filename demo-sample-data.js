@@ -140,7 +140,7 @@ function demoAgentInfo(a) {
       a.eo && { text: 'E&O insured (self-reported)', tone: 'good' },
     ].filter(Boolean),
     stats: [
-      { k: 'Replies in', v: `~${a.respondsHours}h` },
+      { k: 'Proposal speed', v: `~${a.respondsHours}h` },
       a.winRate !== null && { k: 'Win rate', v: `${a.winRate}%` },
       a.caseStudies > 0 && { k: 'Case studies', v: String(a.caseStudies) },
     ].filter(Boolean),

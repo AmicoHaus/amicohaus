@@ -37,7 +37,8 @@ async function renderFlyer(context) {
   const lifeEventTags = parseJsonSafe(listing.life_event_tags_json, []);
 
   const body = `
-    <img class="directory-thumb" src="${photo ? `/api/photos/${photo.id}` : propertyArtUrl(listing.property_type, listing.id)}" alt="">
+    <img class="directory-thumb" src="${photo ? `/api/photos/${photo.id}` : propertyArtUrl(listing.property_type, listing.id)}" alt="${photo ? '' : 'Illustrative photo, not this home'}">
+    ${photo ? '' : '<span class="photo-caption">Illustrative photo, not this home</span>'}
     <h1>${escapeHtml(listing.title || listing.property_type)}</h1>
     <p class="flyer-price">${listing.is_rental ? `${money(listing.rent_amount)}/mo` : money(listing.estimated_value)}</p>
     <p><strong>${escapeHtml(listing.address || '')}</strong><br>${loc}</p>

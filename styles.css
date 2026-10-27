@@ -172,6 +172,9 @@ main { flex: 1; width: 100%; max-width: 1080px; margin: 0 auto; padding: 28px 24
   font-weight: 600;
   cursor: pointer;
   transition: transform 0.1s, box-shadow 0.15s, background 0.15s;
+  /* Link-buttons (<a class="btn">) otherwise inherit the browser's underline. */
+  text-decoration: none;
+  display: inline-flex; align-items: center; justify-content: center;
 }
 .btn:active { transform: translateY(1px); }
 .btn-primary { background: var(--gold); color: #201404; }
@@ -825,10 +828,14 @@ main > .demo-section:first-of-type > [data-pills] { display: none; }
 .terms-notice { border-left: 4px solid var(--gold); background: var(--card); border-radius: var(--radius-sm); padding: 12px 16px; box-shadow: var(--shadow-sm); }
 
 /* Proposal comparison table — a quick-scan summary above the full proposal cards. */
+.proposal-controls { margin: 8px 0 4px; }
 .comparison-table-wrap { overflow-x: auto; margin: 12px 0; border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .comparison-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; white-space: nowrap; }
 .comparison-table th, .comparison-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
 .comparison-table tbody tr:last-child td { border-bottom: none; }
+/* Education tables (assumable-loans page) hold sentences, so they wrap instead of scrolling sideways on a phone. */
+.loan-table { white-space: normal; }
+.loan-table td:first-child { font-weight: 600; }
 .comparison-table th { background: var(--cream); font-weight: 600; color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.02em; }
 
 /* Inline quick-reply box on a message notification. */
@@ -987,4 +994,26 @@ main > .demo-section:first-of-type > [data-pills] { display: none; }
   .flyer-noprint { display: none !important; }
   .topbar, .site-footer, .agent-strip { display: none !important; }
   body, main.prose { padding: 0; margin: 0; max-width: none; }
+}
+
+/* ---------------- Launch polish ---------------- */
+.hero-area { font-weight: 600; color: var(--navy-2); margin: 10px 0 0; }
+:root[data-theme="dark"] .hero-area { color: var(--gold-light); }
+.inline-alert { margin-top: 12px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--danger-bg); color: var(--danger); font-size: 0.88rem; }
+.inline-alert a { color: inherit; font-weight: 600; }
+.email-hint { font-size: 0.85rem; color: var(--muted); margin: 10px 0; }
+.photo-caption { display: block; font-size: 0.72rem; color: var(--muted); margin: -4px 0 8px; }
+.noscript-note { max-width: 640px; margin: 40px auto; padding: 0 20px; font-family: Georgia, serif; color: #1c2128; }
+
+/* Phones. Kept at the END of the file on purpose: several rules it overrides (e.g. #globalSearchInput) appear
+   after the main 720px block above, so source order matters here. */
+@media (max-width: 720px) {
+  /* iOS (and the TikTok/Instagram in-app browsers) zoom the page in when a field under 16px gets focus. */
+  .field input, .field select, .field textarea, #globalSearchInput, .post-form textarea, .comment-form input { font-size: 16px; }
+  /* Comfortable tap targets for every button. */
+  .btn { min-height: 44px; }
+  /* The signed-in header's buttons (Calculator, Security, Log Out) used to run off the right edge. */
+  .auth-cta { flex-wrap: wrap; flex-shrink: 1; row-gap: 8px; }
+  .search-box { flex-basis: 100%; }
+  #globalSearchInput { width: 100%; }
 }

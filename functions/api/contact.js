@@ -1,6 +1,7 @@
 import { getClientIp } from '../_lib/auth.js';
 import { json, badRequest, clampString } from '../_lib/util.js';
 import { sendEmail } from '../_lib/email.js';
+import { sanitizeAttribution, describeAttribution } from '../_lib/attribution.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const AGENT_EMAIL = 'rudypabloflores@gmail.com';
@@ -21,6 +22,7 @@ export async function onRequestPost(context) {
   const email = clampString(body.email, 200).toLowerCase();
   const phone = clampString(body.phone, 30);
   const message = clampString(body.message, 2000);
+  const source = sanitizeAttribution(body.source);
 
   if (!name || !email || !message) return badRequest('Please fill in your name, email, and message.');
   if (!EMAIL_RE.test(email)) return badRequest('Enter a valid email address.');
@@ -36,14 +38,19 @@ export async function onRequestPost(context) {
   }
 
   await db.prepare(
-    'INSERT INTO leads (name, email, phone, message, ip) VALUES (?, ?, ?, ?, ?)'
-  ).bind(name, email, phone, message, ip).run();
+    'INSERT INTO leads (name, email, phone, message, ip, source) VALUES (?, ?, ?, ?, ?, ?)'
+  ).bind(name, email, phone, message, ip, source).run();
 
-  await sendEmail(context, {
+  // The lead is saved either way, so a failed email doesn't lose it, but say so rather than claim it was
+  // sent (Rudy reads leads from his inbox).
+  const sent = await sendEmail(context, {
     to: AGENT_EMAIL,
     subject: `New Amico Haus inquiry from ${name}`,
-    text: `Name: ${name}\nEmail: ${email}\nPhone: ${phone || '(not provided)'}\n\nMessage:\n${message}`,
-  });
+    text: `Name: ${name}\nEmail: ${email}\nPhone: ${phone || '(not provided)'}\nCame from: ${describeAttribution(source)}\n\nMessage:\n${message}`,
+  }).catch(() => false);
+  if (!sent) {
+    return json({ error: "Thanks, your message was saved. If it's urgent, call or text Rudy at (619) 392-6714.", saved: true }, { status: 503 });
+  }
 
   return json({ ok: true });
 }

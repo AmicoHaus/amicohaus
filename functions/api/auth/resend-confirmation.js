@@ -1,4 +1,4 @@
-import { getClientIp, isRateLimited, recordAttempt } from '../../_lib/auth.js';
+import { getClientIp, isRateLimited, recordAttempt, releaseAttemptAddress } from '../../_lib/auth.js';
 import { json, badRequest, clampString } from '../../_lib/util.js';
 import { sendConfirmationLink } from '../../_lib/emailConfirmation.js';
 
@@ -38,7 +38,14 @@ export async function onRequestPost(context) {
   const user = await db.prepare('SELECT id, email, display_name, email_confirmation_pending FROM users WHERE email = ?').bind(email).first();
   if (!user || !user.email_confirmation_pending) return answer;
 
-  const sent = await sendConfirmationLink(context, { id: user.id, email: user.email, displayName: user.display_name });
-  if (!sent) return json({ error: "We couldn't send the email right now. Please try again in a few minutes." }, { status: 503 });
+  // Keeps an agent on the agent path: the confirm page uses this to decide where to send them next.
+  const intent = ['homeowner', 'agent'].includes(body.intent) ? body.intent : '';
+  const sent = await sendConfirmationLink(context, { id: user.id, email: user.email, displayName: user.display_name }, { intent });
+  if (!sent) {
+    // A send that never went out shouldn't block the retry for two minutes (it still counts toward
+    // the 5-per-hour network limit).
+    await releaseAttemptAddress(db, KIND, ip, email);
+    return json({ error: "The email didn't go out just now. Give it a minute and try again." }, { status: 503 });
+  }
   return answer;
 }

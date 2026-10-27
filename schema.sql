@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS users (
   email_frequency TEXT NOT NULL DEFAULT 'capped' CHECK(email_frequency IN ('every','capped')),
   phone TEXT,
   is_verified INTEGER NOT NULL DEFAULT 0,
+  signup_intent TEXT,
+  signup_source TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code);
@@ -245,8 +247,19 @@ CREATE TABLE IF NOT EXISTS leads (
   phone TEXT,
   message TEXT NOT NULL,
   ip TEXT,
+  source TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- One row per "new pre-listing" / "new agent application" email sent to Rudy (functions/_lib/adminAlerts.js),
+-- so the daily caps can't be reset by deleting a pre-listing and posting it again.
+CREATE TABLE IF NOT EXISTS admin_alerts_sent (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_admin_alerts_sent_user ON admin_alerts_sent(user_id, created_at);
 
 CREATE TABLE IF NOT EXISTS saved_searches (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

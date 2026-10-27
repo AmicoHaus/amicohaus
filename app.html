@@ -497,55 +497,90 @@
         <details class="panel bulk-upload" id="agentDirectoryWrap">
           <summary>Browse Agents</summary>
           <p class="section-sub">Search vetted agents to favorite for next time, or to invite directly to one of your open requests.</p>
-          <div class="field"><label>Search by name or brokerage</label><input type="text" id="agentDirectorySearch" placeholder="Start typing…"></div>
-          <div class="form-row three-col">
-            <div class="field"><label>Min price ($)</label><input type="number" id="agentDirPriceMin" min="0" step="50"></div>
-            <div class="field"><label>Max price ($)</label><input type="number" id="agentDirPriceMax" min="0" step="50"></div>
-            <div class="field"><label>Service offered</label><select id="agentDirService"><option value="">Any</option></select></div>
-          </div>
-          <div class="form-row three-col">
-            <div class="field"><label>Min rating</label><select id="agentDirMinRating"><option value="">Any</option><option value="3">3+ ⭐</option><option value="4">4+ ⭐</option><option value="4.5">4.5+ ⭐</option></select></div>
-            <div class="field"><label>Near zip (within 20mi)</label><input type="text" id="agentDirZip" maxlength="10" inputmode="numeric" placeholder="5-digit zip"></div>
-            <div class="field field-end">
-              <label class="checkbox-row"><input type="checkbox" id="agentDirTopRated"><span>Top Rated only</span></label>
-            </div>
-          </div>
-          <div class="form-row three-col">
-            <div class="field"><label>Specialty</label><select id="agentDirSpecialty"><option value="">Any</option></select></div>
-            <div class="field"><label>Language spoken</label><select id="agentDirLanguage"><option value="">Any</option></select></div>
-            <div class="field field-end">
-              <label class="checkbox-row"><input type="checkbox" id="agentDirSoloAgent"><span>Solo agent only</span></label>
-            </div>
-          </div>
           <div class="form-row two-col">
-            <label class="checkbox-row"><input type="checkbox" id="agentDirLicenseVerified"><span>License Verified only</span></label>
-            <label class="checkbox-row"><input type="checkbox" id="agentDirHasVideo"><span>Has intro video</span></label>
-          </div>
-
-          <p class="tiny"><strong>More filters</strong></p>
-          <div class="form-row three-col">
-            <div class="field"><label>Min. years of experience</label><input type="number" id="agentDirMinYears" min="0" max="80"></div>
-            <div class="field"><label>Max avg. days on market</label><input type="number" id="agentDirMaxDom" min="0" max="3650"></div>
-            <div class="field"><label>Min. homes sold last year</label><input type="number" id="agentDirMinHomesSold" min="0" max="10000"></div>
-          </div>
-          <div class="form-row three-col">
-            <div class="field"><label>Min. sale-to-list ratio</label><input type="number" id="agentDirMinSaleToList" min="0" max="2" step="0.01" placeholder="e.g. 0.98"></div>
-            <div class="field"><label>Max commission (%)</label><input type="number" id="agentDirMaxCommission" min="0" max="100" step="0.1"></div>
-            <div class="field"><label>Can start within (days)</label><input type="number" id="agentDirMaxTurnaround" min="1" max="365"></div>
-          </div>
-          <div class="form-row three-col">
-            <div class="field"><label>Min. review count</label><input type="number" id="agentDirMinReviews" min="0" max="10000"></div>
-            <div class="field"><label>Open house available</label><select id="agentDirOpenHouseDay"><option value="">Any day</option></select></div>
-            <div class="field field-end">
-              <label class="checkbox-row"><input type="checkbox" id="agentDirLocalSpecialist"><span>Local specialist only</span></label>
+            <div class="field"><label for="agentDirectorySearch">Search by name, brokerage or designation</label><input type="text" id="agentDirectorySearch" placeholder="e.g. a name, ABR, SRES, CRS"></div>
+            <div class="field"><label for="agentDirSort">Sort by</label>
+              <select id="agentDirSort">
+                <option value="">Name (A–Z), or nearest when a zip is entered</option>
+                <option value="highestRated">Highest rated</option>
+                <option value="mostHired">Most hired on Amico Haus</option>
+                <option value="fastestProposal">Fastest to send proposals</option>
+                <option value="newest">Newest to Amico Haus</option>
+              </select>
             </div>
           </div>
           <div class="form-row three-col">
-            <label class="checkbox-row"><input type="checkbox" id="agentDirHasCaseStudies"><span>Has case studies</span></label>
-            <label class="checkbox-row"><input type="checkbox" id="agentDirAcceptingClients"><span>Accepting new clients</span></label>
-            <label class="checkbox-row"><input type="checkbox" id="agentDirEoInsurance"><span>Carries E&amp;O insurance</span></label>
+            <div class="field"><label for="agentDirZip">Near zip (within 20mi)</label><input type="text" id="agentDirZip" maxlength="10" inputmode="numeric" placeholder="5-digit zip"></div>
+            <div class="field"><label for="agentDirService">Service offered</label><select id="agentDirService"><option value="">Any</option></select></div>
+            <div class="field"><label for="agentDirFeeType">Pricing offered</label>
+              <select id="agentDirFeeType"><option value="">Any</option><option value="flat">Flat fee available</option><option value="commission">Commission % available</option></select>
+            </div>
           </div>
 
+          <details class="score-breakdown" open>
+            <summary>Track record on Amico Haus (measured by us)</summary>
+            <p class="tiny">Reviews come only from homeowners who hired the agent here. Agents who are new to Amico Haus won't have these yet, which doesn't mean they're a bad fit.</p>
+            <div class="form-row three-col">
+              <div class="field"><label for="agentDirMinRating">Min rating</label><select id="agentDirMinRating"><option value="">Any</option><option value="3">3+ ⭐</option><option value="4">4+ ⭐</option><option value="4.5">4.5+ ⭐</option></select></div>
+              <div class="field"><label for="agentDirMinReviews">Min. review count</label><input type="number" id="agentDirMinReviews" min="0" max="10000"></div>
+              <div class="field"><label for="agentDirMinHires">Hired through Amico Haus</label>
+                <select id="agentDirMinHires"><option value="">Any</option><option value="1">1+ times</option><option value="3">3+ times</option><option value="5">5+ times</option></select>
+              </div>
+            </div>
+            <div class="form-row three-col">
+              <div class="field"><label for="agentDirMaxProposalHours">Usually sends a proposal within</label>
+                <select id="agentDirMaxProposalHours"><option value="">Any</option><option value="24">1 day</option><option value="72">3 days</option><option value="168">1 week</option></select>
+              </div>
+              <div class="field field-end">
+                <label class="checkbox-row"><input type="checkbox" id="agentDirTopRated"><span>Top Rated only</span></label>
+              </div>
+              <div class="field field-end">
+                <label class="checkbox-row"><input type="checkbox" id="agentDirLicenseVerified"><span>License verified by Amico Haus</span></label>
+              </div>
+            </div>
+          </details>
+
+          <details class="score-breakdown">
+            <summary>Agent's own claims (self-reported)</summary>
+            <div class="form-row three-col">
+              <div class="field"><label for="agentDirMinYears">Min. years of experience</label><input type="number" id="agentDirMinYears" min="0" max="80"></div>
+              <div class="field"><label for="agentDirMinHomesSold">Min. homes sold last year</label><input type="number" id="agentDirMinHomesSold" min="0" max="10000"></div>
+              <div class="field"><label for="agentDirMaxDom">Max avg. days on market</label><input type="number" id="agentDirMaxDom" min="0" max="3650"></div>
+            </div>
+            <div class="form-row three-col">
+              <div class="field"><label for="agentDirMinSaleToList">Min. sale-to-list ratio</label><input type="number" id="agentDirMinSaleToList" min="0" max="2" step="0.01" placeholder="e.g. 0.98"></div>
+              <div class="field"><label for="agentDirSpecialty">Specialty</label><select id="agentDirSpecialty"><option value="">Any</option></select></div>
+              <div class="field"><label for="agentDirLanguage">Language spoken</label><select id="agentDirLanguage"><option value="">Any</option></select></div>
+            </div>
+            <div class="form-row three-col">
+              <div class="field"><label for="agentDirOpenHouseDay">Open house available</label><select id="agentDirOpenHouseDay"><option value="">Any day</option></select></div>
+              <div class="field field-end">
+                <label class="checkbox-row"><input type="checkbox" id="agentDirLocalSpecialist"><span>Local specialist only</span></label>
+              </div>
+              <div class="field field-end">
+                <label class="checkbox-row"><input type="checkbox" id="agentDirSoloAgent"><span>Solo agent only</span></label>
+              </div>
+            </div>
+            <div class="form-row three-col">
+              <label class="checkbox-row"><input type="checkbox" id="agentDirAcceptingClients"><span>Accepting new clients</span></label>
+              <label class="checkbox-row"><input type="checkbox" id="agentDirShowsPastWork"><span>Shows past work (photos or case studies)</span></label>
+              <label class="checkbox-row"><input type="checkbox" id="agentDirHasVideo"><span>Has intro video</span></label>
+            </div>
+            <div class="form-row two-col">
+              <label class="checkbox-row"><input type="checkbox" id="agentDirEoInsurance"><span>Carries E&amp;O insurance</span></label>
+            </div>
+          </details>
+
+          <details class="score-breakdown">
+            <summary>Fees</summary>
+            <div class="form-row three-col">
+              <div class="field"><label for="agentDirMaxCommission">Max commission (%)</label><input type="number" id="agentDirMaxCommission" min="0" max="100" step="0.1"></div>
+              <div class="field"><label for="agentDirPriceMax">Max flat fee ($)</label><input type="number" id="agentDirPriceMax" min="0" step="50"></div>
+              <div class="field"><label for="agentDirMaxTurnaround">Package ready within (days)</label><input type="number" id="agentDirMaxTurnaround" min="1" max="365"></div>
+            </div>
+          </details>
+
+          <p class="tiny">Saved alerts don't include the "hired" or "proposal speed" filters, since those change as agents work on Amico Haus.</p>
           <div class="form-row two-col">
             <input type="text" id="agentAlertLabel" maxlength="80" placeholder="Name this search (optional)">
             <button type="button" class="btn btn-ghost btn-sm" id="saveAgentAlertBtn">Save as Alert</button>

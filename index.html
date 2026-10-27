@@ -12,7 +12,6 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Amico Haus">
@@ -41,7 +40,7 @@
 </head>
 <body>
 <noscript>
-  <p style="max-width:640px;margin:40px auto;padding:0 20px;font-family:Georgia,serif;color:#1c2128;">
+  <p class="noscript-note">
     Amico Haus is a pre-listing showcase: post your home and local real estate agent experts evaluate your
     asking price and share their strategy for selling it — fee, included services and turnaround — so you can
     compare and choose. Homeowners can also trade homes instead of listing them. Enable JavaScript to use the live app.
@@ -60,8 +59,7 @@
     <nav class="tabs" id="mainNav">
       <a class="tab tab-demo" href="/demo">Demo - Start Here!</a>
       <a class="tab" href="/#how">How it works</a>
-      <a class="tab" href="/#directory">Live listings</a>
-      <a class="tab" href="/calculator">Calculator</a>
+      <a class="tab" href="/#for-agents">For agents</a>
       <a class="tab" href="/about">About</a>
     </nav>
     <div class="auth-cta" id="authCta">
@@ -76,6 +74,7 @@
       <p class="eyebrow">Agent Strategy &middot; a pre-listing showcase</p>
       <h1>Local agent experts weigh in on your home's price — before you list.</h1>
       <p class="lede">Post a pre-listing showcase of your home. Local agents evaluate your asking price — too high, about right, or too low — and lay out their strategy for selling it: their fee, what's included, and how fast they can start. It's a mutual evaluation: you weigh each strategy and track record, and they earn the listing on the strength of theirs.</p>
+      <p class="hero-area">Free for homeowners · Now serving San Diego County: Chula Vista, EastLake, Bonita</p>
       <div class="hero-actions">
         <a class="btn btn-primary" href="/signup?as=homeowner">Post a Pre-Listing</a>
         <a class="btn btn-ghost" href="/signup?as=agent">I'm an Agent</a>
@@ -114,7 +113,7 @@
           </ul>
           <a class="btn btn-primary btn-sm" href="/signup?as=homeowner">Post a Pre-Listing</a>
         </div>
-        <div class="card audience-card">
+        <div class="card audience-card" id="for-agents">
           <h2>For agents</h2>
           <ul class="feature-list">
             <li>Apply to be vetted — an admin reviews what you report about your license and brokerage.</li>
@@ -186,11 +185,10 @@
   </main>
 
   <footer class="site-footer">
-    Amico Haus — where homeowners and vetted agents find each other. <a href="/about">About</a> · <a href="/whats-new">What's New</a> · <a href="/contact">Contact</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="https://www.tiktok.com/@amicohaus" target="_blank" rel="noopener noreferrer">TikTok</a> · <a href="https://www.youtube.com/@amicohaus" target="_blank" rel="noopener noreferrer">YouTube</a>
+    Amico Haus — where homeowners and vetted agents find each other. <a href="/about">About</a> · <a href="/whats-new">What's New</a> · <a href="/calculator">Calculator</a> · <a href="/assumable-loans">Assumable loans</a> · <a href="/contact">Contact</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="https://www.instagram.com/amicohaus" target="_blank" rel="noopener noreferrer">Instagram</a> · <a href="https://www.tiktok.com/@amicohaus" target="_blank" rel="noopener noreferrer">TikTok</a> · <a href="https://www.youtube.com/@amicohaus" target="_blank" rel="noopener noreferrer">YouTube</a>
   </footer>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="client.js"></script>
 <script src="agent-cards.js"></script>
 <script src="page-home.js"></script>

@@ -1225,6 +1225,34 @@ const denied = r => r.status >= 400 && r.status < 500;
     filteredPage.status === 200 && filteredPage.json.homes.length === 1 && filteredPage.json.homes[0].adaptations.includes('roll_in_shower'),
     JSON.stringify(filteredPage.json && filteredPage.json.homes.map(h => ({ id: h.id, adaptations: h.adaptations }))));
 
+  // ---------- agent directory: new vetting filters, sorts, and suspended agents ----------
+  const hasAgent = (r, id) => !!(r.json && r.json.agents && r.json.agents.some(a => a.userId === id));
+  const agentIds = r => JSON.stringify(r.json && r.json.agents && r.json.agents.map(a => a.userId));
+  const dirNewest = await anon.call('GET', '/api/agents/directory?sort=newest');
+  record('agent-directory', 'an approved agent appears in the public directory and the new sort is applied', dirNewest.status === 200 && hasAgent(dirNewest, G.id) && dirNewest.json.sort === 'newest', `status ${dirNewest.status} sort ${dirNewest.json && dirNewest.json.sort}`);
+  record('agent-directory', 'the directory never exposes internal fields (approval date, portfolio photo count)',
+    !dirNewest.text.includes('approvedAt') && !dirNewest.text.includes('reviewed_at') && !dirNewest.text.includes('portfolio_photo_count'), '');
+  const dirBadSort = await anon.call('GET', '/api/agents/directory?sort=valueOf');
+  record('agent-directory', 'an unknown sort value falls back to the default instead of erroring', dirBadSort.status === 200 && dirBadSort.json.sort === 'name', `status ${dirBadSort.status} sort ${dirBadSort.json && dirBadSort.json.sort}`);
+  const dirHired = await anon.call('GET', '/api/agents/directory?minHires=999');
+  record('agent-directory', "the 'hired through Amico Haus' filter excludes agents below the bar", dirHired.status === 200 && !hasAgent(dirHired, G.id), agentIds(dirHired));
+  const gDirEntry = dirNewest.json && dirNewest.json.agents.find(a => a.userId === G.id);
+  record('agent-directory', "an agent hired on Amico Haus shows that count (G's proposal was accepted at setup)", !!gDirEntry && gDirEntry.hiresOnPlatform >= 1, JSON.stringify(gDirEntry && gDirEntry.hiresOnPlatform));
+
+  sql(`UPDATE users SET status = 'suspended' WHERE id = ${H.id}`);
+  const dirSuspended = await anon.call('GET', '/api/agents/directory');
+  const plWhileHSuspended = await A.call('GET', `/api/pre-listings/${PL}`);
+  sql(`UPDATE users SET status = 'active' WHERE id = ${H.id}`);
+  record('agent-directory', 'a suspended agent drops out of the public directory', dirSuspended.status === 200 && !hasAgent(dirSuspended, H.id) && hasAgent(dirSuspended, G.id), agentIds(dirSuspended));
+  const plBidIds = r => (r.json && r.json.bids || []).map(b => b.id);
+  record('agent-directory', "a suspended agent's proposal drops out of the homeowner's comparison",
+    plWhileHSuspended.status === 200 && !plBidIds(plWhileHSuspended).includes(HBID) && plBidIds(plWhileHSuspended).includes(GBID), JSON.stringify(plBidIds(plWhileHSuspended)));
+  sql(`UPDATE users SET status = 'suspended' WHERE id = ${G.id}`);
+  const plWhileGSuspended = await A.call('GET', `/api/pre-listings/${PL}`);
+  sql(`UPDATE users SET status = 'active' WHERE id = ${G.id}`);
+  record('agent-directory', 'an already-accepted proposal stays visible even if that agent is later suspended',
+    plWhileGSuspended.status === 200 && plBidIds(plWhileGSuspended).includes(GBID), JSON.stringify(plBidIds(plWhileGSuspended)));
+
   // ---------- open-house reminder preview (admin-only, manual trigger, always sends to the admin's own address) ----------
   const reminderAnon = await anon.call('POST', '/api/admin/send-open-house-reminder-preview', {});
   record('open-house-reminder', "anonymous can't trigger an open-house reminder preview", reminderAnon.status === 401, `status ${reminderAnon.status}`);

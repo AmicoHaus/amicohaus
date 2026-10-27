@@ -16,6 +16,9 @@ import { propertyArtUrl } from '../_lib/propertyArt.js';
 import { ASSET_VERSIONS } from '../_lib/assetVersions.js';
 import { withSecurityHeaders } from '../_lib/withSecurityHeaders.js';
 
+// Signed-out visitors can't message anyone, so they get the way in instead of a button that can only fail.
+const SIGN_UP_TO_MESSAGE = '<a class="btn btn-primary btn-sm" href="/signup">Sign up to message</a> <a class="btn btn-ghost btn-sm" href="/login">Log in</a>';
+
 function money(n) {
   n = Number(n) || 0;
   return '$' + n.toLocaleString('en-US');
@@ -76,9 +79,10 @@ function ratingChipHtml(rating, reviewCount) {
     ? `<span class="chip chip-star"><span class="chip-star-mark" aria-hidden="true">★</span>${escapeHtml(String(rating))} <span class="chip-k">· ${reviewCount} review${reviewCount === 1 ? '' : 's'}</span></span>`
     : chipHtml('No reviews yet', 'outline');
 }
+// Same as agent-cards.js: days round up so the label matches the directory's "within N days" filter.
 function formatResponseHours(hours) {
   if (hours === null || hours === undefined) return null;
-  return hours < 24 ? `~${Math.round(hours)}h` : `~${Math.round(hours / 24)}d`;
+  return hours < 24 ? `~${Math.round(hours)}h` : `~${Math.ceil(hours / 24)}d`;
 }
 function renderExternalLinks(links) {
   if (!Array.isArray(links) || links.length === 0) return '';
@@ -121,8 +125,7 @@ ${jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd)}</script
     <nav class="tabs">
       <a class="tab tab-demo" href="/demo">Demo - Start Here!</a>
       <a class="tab" href="/#how">How it works</a>
-      <a class="tab" href="/#directory">Live listings</a>
-      <a class="tab" href="/calculator">Calculator</a>
+      <a class="tab" href="/#for-agents">For agents</a>
       <a class="tab" href="/about">About</a>
     </nav>
     <div class="auth-cta" id="authCta">${authCta || '<a class="btn btn-ghost btn-sm" href="/login">Log In</a> <a class="btn btn-primary btn-sm" href="/signup">Sign Up</a>'}</div>
@@ -131,11 +134,14 @@ ${jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd)}</script
     ${bodyHtml}
   </main>
   <footer class="site-footer">
-    Amico Haus — where homeowners and vetted agents find each other. <a href="/about">About</a> · <a href="/contact">Contact</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a>
+    Amico Haus — where homeowners and vetted agents find each other. <a href="/about">About</a> · <a href="/whats-new">What's New</a> · <a href="/calculator">Calculator</a> · <a href="/assumable-loans">Assumable loans</a> · <a href="/contact">Contact</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="https://www.instagram.com/amicohaus" target="_blank" rel="noopener noreferrer">Instagram</a> · <a href="https://www.tiktok.com/@amicohaus" target="_blank" rel="noopener noreferrer">TikTok</a> · <a href="https://www.youtube.com/@amicohaus" target="_blank" rel="noopener noreferrer">YouTube</a>
   </footer>
 </div>
 <script src="/client.js?v=${ASSET_VERSIONS['/client.js']}"></script>
 <script src="/profile-actions.js?v=${ASSET_VERSIONS['/profile-actions.js']}"></script>
+<!-- Cloudflare Web Analytics -->
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "91a193988b2d45e58aa1c27d5abf6bdb"}'></script>
+<!-- End Cloudflare Web Analytics -->
 </body>
 </html>`;
 }
@@ -173,10 +179,10 @@ async function renderProfilePage(context) {
   if (agentProfile && agentProfile.status === 'approved') {
     return renderAgentProfilePage(context, db, userRow, agentProfile, { viewer, isMine, isAdmin, authCta, backLinkHtml });
   }
-  return renderUserProfilePage(context, db, userRow, { isMine, isAdmin, authCta, backLinkHtml });
+  return renderUserProfilePage(context, db, userRow, { viewer, isMine, isAdmin, authCta, backLinkHtml });
 }
 
-async function renderUserProfilePage(context, db, user, { isMine, isAdmin, authCta, backLinkHtml }) {
+async function renderUserProfilePage(context, db, user, { viewer, isMine, isAdmin, authCta, backLinkHtml }) {
   const listings = await db.prepare(
     `SELECT listings.id, listings.title, listings.neighborhood, listings.city, listings.state,
             listings.property_type, listings.beds, listings.baths, listings.estimated_value, listings.price_tier,
@@ -208,7 +214,8 @@ async function renderUserProfilePage(context, db, user, { isMine, isAdmin, authC
 
   const listingCard = l => `
     <div class="card">
-      <img class="directory-thumb" src="${l.photo_id ? `/api/photos/${l.photo_id}` : propertyArtUrl(l.property_type, l.id)}" alt="" loading="lazy">
+      <img class="directory-thumb" src="${l.photo_id ? `/api/photos/${l.photo_id}` : propertyArtUrl(l.property_type, l.id)}" alt="${l.photo_id ? '' : 'Illustrative photo, not this home'}" loading="lazy">
+      ${l.photo_id ? '' : '<span class="photo-caption">Illustrative photo</span>'}
       <div class="card-head">
         <h3><a class="profile-link" href="/listing/${l.id}">${escapeHtml(l.title || l.property_type)}</a></h3>
         <span class="badge badge-gold">${l.is_portfolio ? `Portfolio · ${(membersByPortfolio.get(l.id) || []).length}` : (l.is_rental ? 'For Rent' : escapeHtml(l.price_tier))}</span>
@@ -241,7 +248,7 @@ async function renderUserProfilePage(context, db, user, { isMine, isAdmin, authC
           ${joined ? `<p class="tiny">Member since ${joined}</p>` : ''}
         </div>
         ${isMine ? '<button type="button" class="btn btn-ghost btn-sm" id="editBioBtn">Edit Profile</button>' : ''}
-        ${!isMine ? `<button type="button" class="btn btn-primary btn-sm" id="messageUserBtn" data-id="${user.id}" data-name="${escapeHtml(user.display_name)}">Message</button>` : ''}
+        ${isMine ? '' : viewer ? `<button type="button" class="btn btn-primary btn-sm" id="messageUserBtn" data-id="${user.id}" data-name="${escapeHtml(user.display_name)}">Message</button>` : SIGN_UP_TO_MESSAGE}
         ${isAdmin ? `<button type="button" class="btn btn-ghost btn-sm" id="toggleVerifiedBtn" data-id="${user.id}" data-action="${user.is_verified ? 'unverify' : 'verify'}">${user.is_verified ? 'Remove Verification' : 'Mark as Verified'}</button>` : ''}
       </div>
       <div id="bioSection" data-bio="${escapeHtml(user.bio || '')}">
@@ -306,7 +313,7 @@ async function renderAgentProfilePage(context, db, user, agentProfile, { viewer,
     agentProfile.carriesEoInsurance ? chipHtml('E&O insured (self-reported)', 'good') : '',
     agentProfile.soloAgent ? chipHtml('Sole point of contact', 'outline') : '',
   ].filter(Boolean);
-  const onPlatformChips = [respLabel ? statChipHtml('Replies in', respLabel) : '', caseStudies.length ? statChipHtml('Case studies', String(caseStudies.length)) : ''].filter(Boolean);
+  const onPlatformChips = [respLabel ? statChipHtml('Proposal speed', respLabel) : '', caseStudies.length ? statChipHtml('Case studies', String(caseStudies.length)) : ''].filter(Boolean);
   const selfReportedChips = [
     agentProfile.homesSoldLastYear ? statChipHtml('Sold, last 12 mo', String(agentProfile.homesSoldLastYear)) : '',
     agentProfile.avgDaysOnMarket ? statChipHtml('On market', `~${agentProfile.avgDaysOnMarket} days`) : '',
@@ -364,7 +371,7 @@ async function renderAgentProfilePage(context, db, user, agentProfile, { viewer,
         chips: [ratingChipHtml(ratingSummary.avgRating, ratingSummary.reviewCount), agentProfile.yearsExperience ? chipHtml(`${agentProfile.yearsExperience} yrs experience`, 'outline') : ''].filter(Boolean),
       })}
       <div class="card-actions">
-        ${!isMine ? `<button type="button" class="btn btn-primary btn-sm" id="messageUserBtn" data-id="${user.id}" data-name="${escapeHtml(user.display_name)}">Message</button>` : ''}
+        ${isMine ? '' : viewer ? `<button type="button" class="btn btn-primary btn-sm" id="messageUserBtn" data-id="${user.id}" data-name="${escapeHtml(user.display_name)}">Message</button>` : SIGN_UP_TO_MESSAGE}
         ${viewer && !isMine ? `<button type="button" class="btn btn-ghost btn-sm" id="favoriteAgentBtn" data-id="${user.id}">${isFavorited ? '★ Favorited' : '☆ Favorite'}</button>` : ''}
         ${isAdmin ? `<button type="button" class="btn btn-ghost btn-sm" id="toggleVerifiedBtn" data-id="${user.id}" data-action="${user.is_verified ? 'unverify' : 'verify'}">${user.is_verified ? 'Remove Verification' : 'Mark as Verified'}</button>` : ''}
       </div>

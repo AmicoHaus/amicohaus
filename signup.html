@@ -35,15 +35,16 @@
         </fieldset>
         <div class="field">
           <label for="displayName">Your name <span class="required-mark">*</span></label>
-          <input type="text" id="displayName" required maxlength="80" placeholder="e.g. Jordan Ellis">
+          <input type="text" id="displayName" required maxlength="80" placeholder="e.g. Jordan Ellis" autocomplete="name">
         </div>
         <div class="field">
           <label for="email">Email <span class="required-mark">*</span></label>
-          <input type="email" id="email" required maxlength="200" placeholder="you@example.com">
+          <input type="email" id="email" required maxlength="200" placeholder="you@example.com" autocomplete="email" inputmode="email">
         </div>
         <div class="form-actions">
           <button type="submit" class="btn btn-primary" id="submitBtn">Email Me a Link</button>
         </div>
+        <p class="inline-alert hidden" id="signupError" role="alert"></p>
       </form>
 
       <p class="form-note">By signing up, you agree to the <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>.</p>
@@ -53,6 +54,11 @@
       <div id="checkEmailPanel" class="hidden">
         <h1>Check your email</h1>
         <p class="section-sub">We sent a link to <strong id="sentTo"></strong>. Open it to confirm your email and choose your password — that finishes creating your account.</p>
+        <p class="email-hint">Look for an email from <strong>Amico Haus</strong> with the subject <strong>"Confirm your email to finish signing up"</strong>. It usually arrives within a minute.</p>
+        <div class="form-actions">
+          <a class="btn btn-ghost btn-sm" href="https://mail.google.com/mail/u/0/#search/%22Confirm+your+email+to+finish+signing+up%22" target="_blank" rel="noopener noreferrer">Open Gmail</a>
+          <a class="btn btn-ghost btn-sm" href="https://outlook.live.com/mail/0/inbox" target="_blank" rel="noopener noreferrer">Open Outlook</a>
+        </div>
         <p class="form-note">Nothing yet? Look in your spam or promotions folder, then <button type="button" class="link-btn" id="resendBtn">send it again</button>.</p>
         <p class="form-note" id="resendStatus" role="status" aria-live="polite"></p>
         <p class="form-note"><a href="/signup">Use a different email</a></p>

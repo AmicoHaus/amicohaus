@@ -34,6 +34,41 @@ if ('serviceWorker' in navigator) {
   });
 })();
 
+// Where this visitor came from (an ad, a video link, another site), kept for 30 days so a signup or
+// contact form sent later can say so. Only the campaign tags, ad click ids, the landing page path and
+// the referring site's name are kept, never a full URL. A new tagged visit replaces an older one; an
+// untagged visit never replaces a recent one.
+const ATTRIBUTION_KEY = 'ah_source';
+const ATTRIBUTION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const ATTRIBUTION_PARAMS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'gclid', 'ttclid'];
+
+function getAttribution() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(ATTRIBUTION_KEY) || 'null');
+    if (!stored || !(Date.now() - stored.at < ATTRIBUTION_MAX_AGE_MS)) return null;
+    const { at, ...source } = stored;
+    return source;
+  } catch { return null; }
+}
+
+(function captureAttribution() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const tags = {};
+    for (const name of ATTRIBUTION_PARAMS) {
+      const value = params.get(name);
+      if (value) tags[name] = value.slice(0, 200);
+    }
+    if (!Object.keys(tags).length && getAttribution()) return;
+    let referrer = '';
+    try {
+      const ref = new URL(document.referrer);
+      if (ref.host !== window.location.host) referrer = ref.host;
+    } catch { /* no referrer */ }
+    localStorage.setItem(ATTRIBUTION_KEY, JSON.stringify({ ...tags, landing: window.location.pathname.slice(0, 200), referrer, at: Date.now() }));
+  } catch { /* storage blocked (private mode etc.): tracking the source is optional */ }
+})();
+
 async function api(path, options = {}) {
   const res = await fetch(path, {
     credentials: 'include',
@@ -57,10 +92,40 @@ const apiPost = (path, body) => api(path, { method: 'POST', body: JSON.stringify
 const apiPut = (path, body) => api(path, { method: 'PUT', body: JSON.stringify(body || {}) });
 const apiDelete = (path) => api(path, { method: 'DELETE' });
 
+// Phone photos are often 4–12MB, over the 5MB upload limit, so big images are scaled down (longest side
+// 2048px) and re-saved as JPEG in the browser first; small JPEG/PNG/WEBP files and GIFs go as they are.
+// Re-saving also drops the photo's hidden location data. If the browser can't read the image, the
+// original is sent and the server's own checks decide.
+const UPLOAD_MAX_SIDE = 2048;
+const UPLOAD_SHRINK_OVER_BYTES = 1.5 * 1024 * 1024;
+const UPLOAD_KEEP_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
+async function shrinkImageForUpload(file) {
+  if (!(file instanceof File) || !file.type.startsWith('image/') || file.type === 'image/gif') return file;
+  if (file.size <= UPLOAD_SHRINK_OVER_BYTES && UPLOAD_KEEP_TYPES.includes(file.type)) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, UPLOAD_MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff'; // JPEG has no transparency; a see-through PNG gets a white background, not black
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    if (bitmap.close) bitmap.close();
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+    if (!blob || (blob.size >= file.size && UPLOAD_KEEP_TYPES.includes(file.type))) return file;
+    return new File([blob], file.name.replace(/\.[^.]*$/, '') + '.jpg', { type: 'image/jpeg', lastModified: file.lastModified });
+  } catch { return file; }
+}
+
 // For file uploads — deliberately bypasses api()'s JSON Content-Type header
 // so the browser can set the correct multipart boundary itself.
 async function apiUpload(path, formData) {
-  const res = await fetch(path, { method: 'POST', credentials: 'include', body: formData });
+  const prepared = new FormData();
+  for (const [key, value] of formData.entries()) prepared.append(key, value instanceof File ? await shrinkImageForUpload(value) : value);
+  const res = await fetch(path, { method: 'POST', credentials: 'include', body: prepared });
   let data = null;
   try { data = await res.json(); } catch { /* no body */ }
   if (!res.ok) throw new Error((data && data.error) || `Upload failed (${res.status})`);
@@ -290,7 +355,7 @@ document.addEventListener('click', e => {
 });
 
 let toastTimer = null;
-function toast(msg) {
+function toast(msg, { durationMs = 2800 } = {}) {
   let el = document.getElementById('toast');
   if (!el) {
     el = document.createElement('div');
@@ -303,7 +368,7 @@ function toast(msg) {
   el.textContent = msg;
   el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
+  toastTimer = setTimeout(() => el.classList.remove('show'), durationMs);
 }
 
 /* ---------------- Agent cards: profile pictures and pill layout ----------------

@@ -20,9 +20,11 @@ const SPECIALTY_TAG_LABELS = {
 
 const PACKAGE_TIER_LABELS = { basic: 'Basic', standard: 'Standard', premium: 'Premium' };
 
+// Days round UP so the label never promises faster than the "Usually sends a proposal within N days" filter allows:
+// 30 hours reads "~2d", not "~1d", since the 1-day filter excludes it.
 function formatResponseHours(hours) {
   if (hours === null || hours === undefined) return null;
-  return hours < 24 ? `~${Math.round(hours)}h` : `~${Math.round(hours / 24)}d`;
+  return hours < 24 ? `~${Math.round(hours)}h` : `~${Math.ceil(hours / 24)}d`;
 }
 
 // Prices are left out of the browse view on purpose — a package shows as a
@@ -45,10 +47,15 @@ function directoryAgentInfo(a) {
       a.isLocalSpecialist && { text: 'Local specialist', tone: 'gold' },
       a.licenseVerified && { text: 'License Verified', tone: 'good' },
       a.carriesEoInsurance && { text: 'E&O insured (self-reported)', tone: 'good' },
+      a.isNewToAmicoHaus && { text: 'New to Amico Haus' },
+      a.offersFlatFee && { text: 'Flat-fee option' },
     ].filter(Boolean),
     stats: [
-      respLabel && { k: 'Replies in', v: respLabel },
+      a.hiresOnPlatform > 0 && { k: 'Hired here', v: `${a.hiresOnPlatform} time${a.hiresOnPlatform === 1 ? '' : 's'}` },
+      // Measures how soon after a request opens (or after an invite) the agent sends a proposal -- not message replies.
+      respLabel && { k: 'Proposal speed', v: respLabel },
       a.caseStudies && a.caseStudies.length > 0 && { k: 'Case studies', v: String(a.caseStudies.length) },
+      a.hasPastWork && !(a.caseStudies && a.caseStudies.length > 0) && { k: 'Past work', v: 'Portfolio photos' },
     ].filter(Boolean),
     selfReported: [
       a.homesSoldLastYear && { k: 'Sold, last 12 mo', v: String(a.homesSoldLastYear) },

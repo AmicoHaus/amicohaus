@@ -1,6 +1,6 @@
 import { getSessionUser } from '../../../../_lib/auth.js';
 import { json, badRequest, unauthorized, forbidden, notFound } from '../../../../_lib/util.js';
-import { acceptBid, withdrawBid } from '../../../../_lib/marketplace.js';
+import { acceptBid, withdrawBid, isAgentActive } from '../../../../_lib/marketplace.js';
 import { notifyBidDecision } from '../../../../_lib/marketplaceNotify.js';
 
 // Either trade partner can accept a proposal on their shared transaction
@@ -32,6 +32,7 @@ export async function onRequestPut(context) {
     if (transaction.user_a_id !== user.id && transaction.user_b_id !== user.id) return forbidden();
     if (transaction.status !== 'open') return badRequest('This transaction request is no longer open.');
     if (bid.status !== 'pending') return badRequest('This proposal is no longer pending.');
+    if (!(await isAgentActive(db, bid.agent_user_id))) return badRequest("This agent's account isn't active right now, so this proposal can't be accepted.");
 
     await acceptBid(db, 'transaction', id, bidId);
     context.waitUntil(notifyBidDecision(context, bid.agent_user_id, 'transaction', id, true));

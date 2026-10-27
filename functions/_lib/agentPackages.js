@@ -68,12 +68,3 @@ export async function fetchAgentPackages(db, agentUserId) {
   ).bind(agentUserId).all();
   return rows.results.map(mapPackageRow);
 }
-
-// A flat-fee price range across whatever packages an agent has defined —
-// commission-based packages are excluded since a percentage of an unknown
-// future sale price isn't a comparable dollar figure the way a flat fee is.
-export function packagePriceRange(packages) {
-  const flatFees = packages.map(p => p.flatFee).filter(f => f !== null && f !== undefined);
-  if (flatFees.length === 0) return null;
-  return { min: Math.min(...flatFees), max: Math.max(...flatFees) };
-}

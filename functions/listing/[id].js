@@ -99,8 +99,7 @@ ${jsonLd}
     <nav class="tabs">
       <a class="tab tab-demo" href="/demo">Demo - Start Here!</a>
       <a class="tab" href="/#how">How it works</a>
-      <a class="tab" href="/#directory">Live listings</a>
-      <a class="tab" href="/calculator">Calculator</a>
+      <a class="tab" href="/#for-agents">For agents</a>
       <a class="tab" href="/about">About</a>
     </nav>
     <div class="auth-cta">${authCta || '<a class="btn btn-ghost btn-sm" href="/login">Log In</a> <a class="btn btn-primary btn-sm" href="/signup">Sign Up</a>'}</div>
@@ -109,11 +108,14 @@ ${jsonLd}
     ${bodyHtml}
   </main>
   <footer class="site-footer">
-    Amico Haus — where homeowners and vetted agents find each other. <a href="/about">About</a> · <a href="/contact">Contact</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a>
+    Amico Haus — where homeowners and vetted agents find each other. <a href="/about">About</a> · <a href="/whats-new">What's New</a> · <a href="/calculator">Calculator</a> · <a href="/assumable-loans">Assumable loans</a> · <a href="/contact">Contact</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="https://www.instagram.com/amicohaus" target="_blank" rel="noopener noreferrer">Instagram</a> · <a href="https://www.tiktok.com/@amicohaus" target="_blank" rel="noopener noreferrer">TikTok</a> · <a href="https://www.youtube.com/@amicohaus" target="_blank" rel="noopener noreferrer">YouTube</a>
   </footer>
 </div>
 <script src="/client.js?v=${ASSET_VERSIONS['/client.js']}"></script>
 <script src="/listing-actions.js?v=${ASSET_VERSIONS['/listing-actions.js']}"></script>
+<!-- Cloudflare Web Analytics -->
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "91a193988b2d45e58aa1c27d5abf6bdb"}'></script>
+<!-- End Cloudflare Web Analytics -->
 </body>
 </html>`;
 }
@@ -184,7 +186,7 @@ async function renderListingPage(context) {
           <p class="tiny" data-rsvp-count>${oh.rsvpCount} ${oh.rsvpCount === 1 ? 'person is' : 'people are'} going</p>
           ${viewer
             ? `<button type="button" class="btn ${oh.imGoing ? 'btn-ghost' : 'btn-primary'} btn-sm" data-action="rsvp-open-house" data-id="${oh.id}" data-going="${oh.imGoing ? '1' : '0'}">${oh.imGoing ? "I'm Going ✓" : "I'm Going"}</button>`
-            : `<a class="btn btn-ghost btn-sm" href="/login">Sign in to RSVP</a>`}
+            : `<a class="btn btn-ghost btn-sm" href="/signup">Sign up free to RSVP</a> <a class="tiny" href="/login">Have an account? Log in</a>`}
         </div>
       `).join('')}
     </div>` : '';
@@ -194,7 +196,7 @@ async function renderListingPage(context) {
   let offerHtml = '';
   if (canOffer) {
     if (!viewer) {
-      offerHtml = `<div class="card about-card"><h2>Make an Offer</h2><p class="tiny">Sign in to submit a structured offer — price, financing, and timeline — directly to the owner.</p><a class="btn btn-primary btn-sm" href="/login">Sign In</a></div>`;
+      offerHtml = `<div class="card about-card"><h2>Make an Offer</h2><p class="tiny">Create a free account to submit a structured offer — price, financing, and timeline — directly to the owner.</p><a class="btn btn-primary btn-sm" href="/signup">Sign Up Free</a> <a class="tiny" href="/login">Have an account? Log in</a></div>`;
     } else {
       const myOffer = await fetchMyOffer(db, id, viewer.id);
       if (myOffer && myOffer.status === 'pending') {
@@ -290,7 +292,7 @@ async function renderListingPage(context) {
              <input type="text" maxlength="1000" placeholder="Write a comment…" required>
              <button type="submit" class="btn btn-ghost btn-sm">Send</button>
            </form>`
-        : `<p class="tiny"><a href="/login">Sign in</a> to join the discussion.</p>`}
+        : `<p class="tiny"><a href="/signup">Sign up free</a> to join the discussion (or <a href="/login">log in</a>).</p>`}
     </div>
   `;
 
@@ -308,7 +310,8 @@ async function renderListingPage(context) {
   const body = `
     <div id="entityMeta" class="hidden" data-kind="listing" data-id="${id}" data-title="${escapeHtml(listing.title || listing.property_type)}" data-amount="${listing.estimated_value}" data-city="${escapeHtml(listing.city)}" data-state="${escapeHtml(listing.state)}"></div>
     <div class="card">
-      <img class="directory-thumb" src="${listing.photo_id ? `/api/photos/${listing.photo_id}` : propertyArtUrl(listing.property_type, listing.id)}" alt="">
+      <img class="directory-thumb" src="${listing.photo_id ? `/api/photos/${listing.photo_id}` : propertyArtUrl(listing.property_type, listing.id)}" alt="${listing.photo_id ? escapeHtml(`Photo of ${listing.title || listing.property_type}`) : 'Illustrative photo, not this home'}">
+      ${listing.photo_id ? '' : '<span class="photo-caption">Illustrative photo, not this home</span>'}
       <div class="card-head">
         <div>
           <h1>${escapeHtml(listing.title || listing.property_type)}</h1>
@@ -374,7 +377,9 @@ async function renderListingPage(context) {
   // schema would misrepresent that, so skip structured data for them entirely rather than force-fit it.
   const pageUrl = `https://amicohaus.com/listing/${id}`;
   // The same photo the page itself shows -- what a link preview in iMessage, Facebook, LinkedIn or a text shows.
-  const shareImage = listing.photo_id ? `https://amicohaus.com/api/photos/${listing.photo_id}` : `https://amicohaus.com${propertyArtUrl(listing.property_type, listing.id)}`;
+  // A listing without its own photo previews with the site image rather than a stock house that a viewer would
+  // take for the real home.
+  const shareImage = listing.photo_id ? `https://amicohaus.com/api/photos/${listing.photo_id}` : 'https://amicohaus.com/og-image.png';
   const jsonLd = listing.is_buyer_only ? '' : realEstateListingJsonLd({
     url: pageUrl,
     name: listing.title || listing.property_type,

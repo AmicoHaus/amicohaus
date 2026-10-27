@@ -15,9 +15,10 @@ function directoryCardHtml(l) {
   return `
     <div class="card ${activityAccentClass(l.recent_activity)}" data-listing-id="${l.id}">
       <div class="directory-thumb-wrap">
-        <img class="directory-thumb" src="${l.photo_id ? `/api/photos/${l.photo_id}` : propertyArtUrl(l.property_type, l.id)}" alt="" loading="lazy">
+        <img class="directory-thumb" src="${l.photo_id ? `/api/photos/${l.photo_id}` : propertyArtUrl(l.property_type, l.id)}" alt="${l.photo_id ? '' : 'Illustrative photo, not this home'}" loading="lazy">
         ${activityRibbonHtml(l.recent_activity)}
       </div>
+      ${l.photo_id ? '' : '<span class="photo-caption">Illustrative photo</span>'}
       <div class="card-head">
         <div>
           <h3><a class="profile-link" href="/listing/${l.id}">${escapeHtml(l.title || l.property_type)}</a></h3>
@@ -145,14 +146,47 @@ async function loadMoreDirectory() {
   if (btn) { btn.disabled = false; btn.textContent = 'Load More'; }
 }
 
-function setView(view) {
+// The map library (~150 KB) is only fetched the first time someone taps "Map", so it never slows down the homepage
+// for the many visitors who never open the map.
+const LEAFLET_BASE = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/';
+let leafletLoading = null;
+let leafletReady = false;
+function loadLeaflet() {
+  if (leafletReady) return Promise.resolve();
+  if (!leafletLoading) {
+    // Waits for the stylesheet as well as the script: a map drawn before its CSS arrives has broken tiles
+    // and markers.
+    const load = (el) => new Promise((resolve, reject) => {
+      el.onload = resolve;
+      el.onerror = () => reject(new Error('map failed to load'));
+      document.head.appendChild(el);
+    });
+    // A retry after a partial failure only adds back what didn't load.
+    const cssLoaded = [...document.styleSheets].some(sheet => (sheet.href || '').startsWith(`${LEAFLET_BASE}leaflet`));
+    const css = Object.assign(document.createElement('link'), { rel: 'stylesheet', href: `${LEAFLET_BASE}leaflet.min.css` });
+    const script = Object.assign(document.createElement('script'), { src: `${LEAFLET_BASE}leaflet.min.js` });
+    leafletLoading = Promise.all([cssLoaded ? null : load(css), typeof L !== 'undefined' ? null : load(script)])
+      .then(() => { L.Icon.Default.imagePath = `${LEAFLET_BASE}images/`; leafletReady = true; })
+      .catch((err) => { leafletLoading = null; throw err; });
+  }
+  return leafletLoading;
+}
+
+let requestedView = 'list';
+async function setView(view) {
   // Leaflet loads from a CDN, so when that's blocked or offline `L` never
   // exists. Stay on the list rather than swap it for a blank map pane (and
   // rather than throw, which the directory loader would report as "could not
   // load the directory").
-  if (view === 'map' && typeof L === 'undefined') {
-    toast("The map couldn't load right now — staying in list view.");
-    return;
+  requestedView = view;
+  if (view === 'map') {
+    let loaded = true;
+    try { await loadLeaflet(); } catch { loaded = false; }
+    if (requestedView !== 'map') return; // they tapped List while the map was still loading
+    if (!loaded || typeof L === 'undefined') {
+      toast("The map couldn't load right now — staying in list view.");
+      return;
+    }
   }
   currentView = view;
   document.getElementById('viewListBtn').classList.toggle('active', view === 'list');
@@ -173,9 +207,10 @@ async function loadRealAgents() {
     const { agents } = await apiGet('/api/agents/directory');
     if (!agents.length) {
       el.innerHTML = `<div class="empty-state agents-empty">
-        <p><strong>No agents have been approved yet.</strong></p>
-        <p>Applications are open, and the first vetted agents will appear here.</p>
-        <a class="btn btn-primary btn-sm" href="/signup?as=agent">Apply as an Agent</a>
+        <p><strong>We're welcoming our founding agents in San Diego County now.</strong></p>
+        <p>Homeowners: post your pre-listing today and you'll be notified as soon as local agents weigh in. Agents: applications are open.</p>
+        <a class="btn btn-primary btn-sm" href="/signup?as=homeowner">Post a Pre-Listing</a>
+        <a class="btn btn-ghost btn-sm" href="/signup?as=agent">Apply as an Agent</a>
       </div>`;
       return;
     }
@@ -187,15 +222,26 @@ async function loadRealAgents() {
 }
 
 // The true counts, straight from the database (demo accounts excluded on the
-// server). A zero is shown as a zero.
+// server). Never inflated -- but a zero isn't shown as "0 vetted agents" either:
+// while the first agents are being approved the strip says so instead, and an
+// empty count is simply left out.
 async function loadLiveNumbers() {
   const strip = document.getElementById('liveNumbers');
   try {
     const stats = await apiGet('/api/public-stats');
-    const item = (id, n, one, many) => { document.getElementById(id).innerHTML = `<strong>${n}</strong> ${n === 1 ? one : many}`; };
+    const item = (id, n, one, many) => {
+      const el = document.getElementById(id);
+      el.innerHTML = `<strong>${n}</strong> ${n === 1 ? one : many}`;
+      el.classList.toggle('hidden', !n);
+    };
     item('liveAgents', stats.agents, 'vetted agent', 'vetted agents');
     item('liveRequests', stats.openRequests, 'open request', 'open requests');
     item('liveListings', stats.listings, 'live listing', 'live listings');
+    if (!stats.agents) {
+      const agentsEl = document.getElementById('liveAgents');
+      agentsEl.textContent = 'Now welcoming founding agents in San Diego County';
+      agentsEl.classList.remove('hidden');
+    }
     strip.classList.remove('hidden');
   } catch { /* the strip just stays hidden */ }
 }

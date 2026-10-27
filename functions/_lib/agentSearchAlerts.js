@@ -33,9 +33,13 @@ function sanitizeFilters(body) {
     maxTurnaroundDays: num(body.maxTurnaroundDays),
     openHouseDay: clampString(body.openHouseDay, 12) || null,
     hasCaseStudiesOnly: !!body.hasCaseStudiesOnly,
+    showsPastWorkOnly: !!body.showsPastWorkOnly,
     acceptingClientsOnly: !!body.acceptingClientsOnly,
     eoInsuranceOnly: !!body.eoInsuranceOnly,
     localSpecialistOnly: !!body.localSpecialistOnly,
+    feeTypeOffered: ['flat', 'commission'].includes(body.feeTypeOffered) ? body.feeTypeOffered : null,
+    // Track-record filters (hires, proposal speed) are deliberately not saved: an alert is only re-checked when an
+    // agent is approved or updates their profile/packages, not each time they're hired or send a proposal.
   };
 }
 

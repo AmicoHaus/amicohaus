@@ -127,7 +127,9 @@ export async function submitAgentApplication(db, userId, body) {
     d.soloAgent ? 1 : 0, d.acceptingClients ? 1 : 0, d.carriesEoInsurance ? 1 : 0
   ).run();
 
-  return { status: nextStatus };
+  // "New" = a first application or a re-application after a rejection -- not an approved or pending agent editing
+  // their profile, which would otherwise alert the admin on every save.
+  return { status: nextStatus, isNewApplication: !existing || existing.status === 'rejected' };
 }
 
 export async function getAgentProfile(db, userId) {

@@ -57,7 +57,7 @@ ${jsonLd}
     <nav class="tabs">
       <a class="tab tab-demo" href="/demo">Demo - Start Here!</a>
       <a class="tab" href="/#how">How it works</a>
-      <a class="tab" href="/#directory">Live listings</a>
+      <a class="tab" href="/#for-agents">For agents</a>
       <a class="tab" href="/about">About</a>
     </nav>
     <div class="auth-cta">${authCta || '<a class="btn btn-ghost btn-sm" href="/login">Log In</a> <a class="btn btn-primary btn-sm" href="/signup">Sign Up</a>'}</div>
@@ -66,10 +66,13 @@ ${jsonLd}
     ${bodyHtml}
   </main>
   <footer class="site-footer">
-    Amico Haus — where homeowners and vetted agents find each other. <a href="/about">About</a> · <a href="/contact">Contact</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a>
+    Amico Haus — where homeowners and vetted agents find each other. <a href="/about">About</a> · <a href="/whats-new">What's New</a> · <a href="/calculator">Calculator</a> · <a href="/assumable-loans">Assumable loans</a> · <a href="/contact">Contact</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="https://www.instagram.com/amicohaus" target="_blank" rel="noopener noreferrer">Instagram</a> · <a href="https://www.tiktok.com/@amicohaus" target="_blank" rel="noopener noreferrer">TikTok</a> · <a href="https://www.youtube.com/@amicohaus" target="_blank" rel="noopener noreferrer">YouTube</a>
   </footer>
 </div>
 <script src="/client.js?v=${ASSET_VERSIONS['/client.js']}"></script>
+<!-- Cloudflare Web Analytics -->
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "91a193988b2d45e58aa1c27d5abf6bdb"}'></script>
+<!-- End Cloudflare Web Analytics -->
 </body>
 </html>`;
 }

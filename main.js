@@ -968,12 +968,8 @@ async function loadMyListing() {
       if (l.is_buyer_only || l.is_portfolio) continue;
       renderPhotoGallery(l.id);
       document.getElementById(`addPhotos-${l.id}`).addEventListener('change', async (e) => {
-        for (const file of [...e.target.files]) {
-          const formData = new FormData();
-          formData.append('photo', file);
-          try { await apiUpload(`/api/listings/${l.id}/photos`, formData); }
-          catch (err) { toast(`Photo upload failed: ${err.message}`); }
-        }
+        const photoResult = await uploadPhotos(`/api/listings/${l.id}/photos`, [...e.target.files]);
+        if (photoResult.failed.length) toastWithPhotoResult('', photoResult);
         e.target.value = '';
         renderPhotoGallery(l.id);
       });
@@ -1298,9 +1294,10 @@ function renderSavedListingCard(l, action, label) {
   return `
     <div class="card ${activityAccentClass(l.recent_activity)}" data-listing-id="${l.id}">
       <div class="directory-thumb-wrap">
-        <img class="directory-thumb" src="${l.photo_id ? `/api/photos/${l.photo_id}` : propertyArtUrl(l.property_type, l.id)}" alt="" loading="lazy">
+        <img class="directory-thumb" src="${l.photo_id ? `/api/photos/${l.photo_id}` : propertyArtUrl(l.property_type, l.id)}" alt="${l.photo_id ? '' : 'Illustrative photo, not this home'}" loading="lazy">
         ${activityRibbonHtml(l.recent_activity)}
       </div>
+      ${l.photo_id ? '' : '<span class="photo-caption">Illustrative photo</span>'}
       <h3><a class="profile-link" href="/listing/${l.id}">${escapeHtml(l.title || l.property_type)}</a></h3>
       <div class="card-agent">${escapeHtml(l.owner_name)}</div>
       <div class="mini-block">${listingLabel(l)} · ${money(l.estimated_value)}${pricePerSqftLabel(l.estimated_value, l.sqft)}</div>
@@ -1491,7 +1488,28 @@ const AGENT_TAB_SECTIONS = {
   'goto-become-agent': 'becomeAgentWrap',
   'goto-open-requests': 'browseOpenRequests',
 };
-const AGENT_TAB_HASHES = { '#post-home': 'postHomeWrap', '#become-agent': 'becomeAgentWrap' };
+// Uploads each chosen photo, one at a time, and collects the ones that didn't make it, so the "posted"
+// message can say "3 of 4 photos uploaded" (a separate failure toast used to be covered by the success
+// one a moment later). apiUpload in client.js shrinks big phone photos first.
+async function uploadPhotos(path, files) {
+  const failed = [];
+  for (const file of files) {
+    const formData = new FormData();
+    formData.append('photo', file);
+    try { await apiUpload(path, formData); }
+    catch (err) { failed.push(`${file.name} (${err.message})`); }
+  }
+  return { total: files.length, failed };
+}
+
+// The success message, plus which photos didn't upload, left up long enough to read when something did.
+function toastWithPhotoResult(message, { total, failed }) {
+  if (!failed.length) { toast(message); return; }
+  const summary = `${total - failed.length} of ${total} photos uploaded. Didn't upload: ${failed.join(', ')}.`;
+  toast(message ? `${message} ${summary}` : summary, { durationMs: 12000 });
+}
+
+const AGENT_TAB_HASHES = { '#post-home': 'postHomeWrap', '#become-agent': 'becomeAgentWrap', '#find-agent': 'agentDirectoryWrap' };
 
 function openAgentTabSection(id) {
   const el = document.getElementById(id);
@@ -1718,7 +1736,7 @@ async function loadAgentStatus() {
     });
 
     if (profile.status === 'pending') {
-      statusEl.innerHTML = '<p class="tiny">⏳ Your application is pending admin review.</p>';
+      statusEl.innerHTML = '<p class="tiny">⏳ Your application is being reviewed. You\'ll get an email and a notification here as soon as it\'s decided.</p>';
       summaryEl.textContent = 'Agent application — pending review';
       toolsSection.classList.add('hidden');
     } else if (profile.status === 'rejected') {
@@ -1920,12 +1938,91 @@ async function loadMarketplaceTab() {
   loadAgentAlerts();
 }
 
+// The homeowner's own proposal comparison (pre-listing or trade). One filtered + sorted list drives both the quick-scan
+// table and the full cards. Controls only appear once there's enough to narrow (3+ proposals), and the accepted
+// proposal is never filtered out -- its engagement (milestones, reviews) hangs off it.
+let proposalView = null; // { bids, backLink } for whichever detail view is open
+
+// Same 3+-reviews-first rule as the agent directory, so one 5-star review can't outrank a 4.8 average over 40.
+const PROPOSAL_SORTS = {
+  newest: (a, b) => (b.createdAt || '').localeCompare(a.createdAt || '') || b.id - a.id,
+  rating: (a, b) => {
+    const tier = x => (x.reviewCount >= 3 ? 0 : x.reviewCount > 0 ? 1 : 2);
+    return tier(a) - tier(b) || (b.rating ?? 0) - (a.rating ?? 0) || b.reviewCount - a.reviewCount;
+  },
+  mostHired: (a, b) => (b.hiresOnPlatform || 0) - (a.hiresOnPlatform || 0) || b.reviewCount - a.reviewCount,
+};
+
+function proposalControlsHtml() {
+  const serviceOptions = Object.entries(SERVICE_TYPE_LABELS).map(([k, v]) => `<option value="${k}">${escapeHtml(v)}</option>`).join('');
+  return `
+    <div class="proposal-controls">
+      <div class="form-row three-col">
+        <div class="field"><label for="proposalSort">Sort by</label>
+          <select id="proposalSort" data-proposal-control><option value="newest">Newest first</option><option value="rating">Highest rated</option><option value="mostHired">Most hired on Amico Haus</option></select>
+        </div>
+        <div class="field"><label for="proposalFeeType">Fee type</label>
+          <select id="proposalFeeType" data-proposal-control><option value="">Any</option><option value="commission">Commission</option><option value="flat">Flat fee</option></select>
+        </div>
+        <div class="field"><label for="proposalMustInclude">Must include</label>
+          <select id="proposalMustInclude" data-proposal-control><option value="">Any service</option>${serviceOptions}</select>
+        </div>
+      </div>
+      <div class="form-row two-col">
+        <label class="checkbox-row"><input type="checkbox" id="proposalLicenseVerified" data-proposal-control><span>License verified by Amico Haus only</span></label>
+        <label class="checkbox-row"><input type="checkbox" id="proposalHideDeclined" data-proposal-control><span>Hide declined proposals</span></label>
+      </div>
+    </div>`;
+}
+
+// opts come from the on-screen controls on a re-render; the first render of a detail view passes nothing, so it can't
+// pick up controls left over from the previously opened listing while the new HTML is still being built.
+function filteredProposals(bids, opts = {}) {
+  const { sort = 'newest', feeType = '', mustInclude = '', licenseOnly = false, hideDeclined = false } = opts;
+  const kept = bids.filter(b => {
+    if (b.status === 'accepted') return true;
+    if (feeType === 'commission' && !b.commissionPct) return false;
+    if (feeType === 'flat' && !b.flatFee) return false;
+    if (mustInclude && !(b.services || []).some(s => s.type === mustInclude)) return false;
+    if (licenseOnly && !b.licenseVerified) return false;
+    if (hideDeclined && b.status === 'declined') return false;
+    return true;
+  });
+  return kept.sort(PROPOSAL_SORTS[sort] || PROPOSAL_SORTS.newest);
+}
+
+function proposalResultsHtml(bids, backLink, opts) {
+  const shown = filteredProposals(bids, opts);
+  const countLine = shown.length < bids.length ? `<p class="tiny">Showing ${shown.length} of ${bids.length} proposals.</p>` : '';
+  if (!shown.length) return `${countLine}<div class="empty-state">No proposals match these filters.</div>`;
+  return `${countLine}${renderBidComparisonTable(shown, true)}${shown.map(b => renderBidCard(b, true, backLink)).join('')}`;
+}
+
+function renderProposalsSection(bids, backLink) {
+  proposalView = { bids, backLink };
+  if (!bids.length) return '<h3>Proposals (0)</h3><div class="empty-state">No proposals yet.</div>';
+  return `<h3>Proposals (${bids.length})</h3>${bids.length >= 3 ? proposalControlsHtml() : ''}<div id="proposalResults">${proposalResultsHtml(bids, backLink)}</div>`;
+}
+
+function rerenderProposalResults() {
+  const el = document.getElementById('proposalResults');
+  if (!el || !proposalView) return;
+  el.innerHTML = proposalResultsHtml(proposalView.bids, proposalView.backLink, {
+    sort: document.getElementById('proposalSort').value,
+    feeType: document.getElementById('proposalFeeType').value,
+    mustInclude: document.getElementById('proposalMustInclude').value,
+    licenseOnly: document.getElementById('proposalLicenseVerified').checked,
+    hideDeclined: document.getElementById('proposalHideDeclined').checked,
+  });
+}
+
 // A quick-scan table above the full proposal cards, once there's something to compare — the whole point of
 // Agent Strategy is comparing agents fairly, so this shouldn't require scrolling through full cards first.
 function renderBidComparisonTable(bids, canAct) {
   if (!bids || bids.length < 2) return '';
   const rows = bids.map(b => {
     const winRatePct = b.winRate !== null && b.winRate !== undefined ? `${Math.round(b.winRate * 100)}%` : '—';
+    const hiredLabel = b.hiresOnPlatform > 0 ? `${b.hiresOnPlatform}×` : b.isNewToAmicoHaus ? 'New here' : '0';
     const respLabel = formatResponseHours(b.avgResponseHours) || '—';
     const feeParts = [b.commissionPct ? `${b.commissionPct}%` : '', b.flatFee ? money(b.flatFee) : ''].filter(Boolean);
     const serviceCount = (b.services || []).length;
@@ -1936,6 +2033,7 @@ function renderBidComparisonTable(bids, canAct) {
       <td>${feeParts.length ? feeParts.join(' + ') : '—'}</td>
       <td>${serviceCount} service${serviceCount === 1 ? '' : 's'}</td>
       <td>${winRatePct}</td>
+      <td>${hiredLabel}</td>
       <td>${respLabel}</td>
       <td>${statusBadge}</td>
       <td>${canAct && b.status === 'pending' ? `<button type="button" class="btn btn-primary btn-sm" data-action="accept-bid" data-bid-id="${b.id}">Accept</button>` : ''}</td>
@@ -1944,7 +2042,7 @@ function renderBidComparisonTable(bids, canAct) {
   return `
     <div class="comparison-table-wrap">
       <table class="comparison-table">
-        <thead><tr><th>Agent</th><th>Rating</th><th>Fee</th><th>Services</th><th>Win rate</th><th>Replies in</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Agent</th><th>Rating</th><th>Fee</th><th>Services</th><th>Win rate</th><th>Hired</th><th>Proposal speed</th><th>Status</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>
@@ -1960,7 +2058,8 @@ function renderBidCard(b, canAct, backLink) {
     status: b.licenseVerified ? [{ text: 'License Verified', tone: 'good' }] : [],
     stats: [
       winRatePct !== null && { k: 'Win rate', v: `${winRatePct}%` },
-      respLabel && { k: 'Replies in', v: respLabel },
+      b.hiresOnPlatform > 0 && { k: 'Hired here', v: `${b.hiresOnPlatform} time${b.hiresOnPlatform === 1 ? '' : 's'}` },
+      respLabel && { k: 'Proposal speed', v: respLabel },
     ].filter(Boolean),
     selfReported: [
       b.homesSoldLastYear && { k: 'Sold, last 12 mo', v: String(b.homesSoldLastYear) },
@@ -2174,13 +2273,8 @@ async function savePreListingEdit(id) {
       prefersExclusive: checked('PrefersExclusive'),
       prefersLocalSpecialist: checked('PrefersLocalSpecialist'),
     });
-    for (const file of [...document.getElementById('plePhotos').files]) {
-      const formData = new FormData();
-      formData.append('photo', file);
-      try { await apiUpload(`/api/pre-listings/${id}/photos`, formData); }
-      catch (err) { toast(`Photo upload failed: ${err.message}`); }
-    }
-    toast(result.votesCleared ? 'Saved — the old price votes were cleared so agents can weigh in on the new price.' : 'Pre-listing updated.');
+    const photoResult = await uploadPhotos(`/api/pre-listings/${id}/photos`, [...document.getElementById('plePhotos').files]);
+    toastWithPhotoResult(result.votesCleared ? 'Saved — the old price votes were cleared so agents can weigh in on the new price.' : 'Pre-listing updated.', photoResult);
     openPreListingDetail(id);
   } catch (err) { toast(err.message); } finally { btn.disabled = false; }
 }
@@ -2253,7 +2347,7 @@ async function openPreListingDetail(id, opts = {}) {
       ${isOwner ? renderDisclosuresChecklist(p) : ''}
       ${isOwner ? '<div id="showingsPanel"></div>' : ''}
       ${isOwner
-        ? `<h3>Proposals (${bids.length})</h3>${bids.length ? `${renderBidComparisonTable(bids, true)}${bids.map(b => renderBidCard(b, true, `pre-listing-${id}`)).join('')}` : '<div class="empty-state">No proposals yet.</div>'}
+        ? `${renderProposalsSection(bids, `pre-listing-${id}`)}
            ${p.status === 'open' ? renderInviteAgentPanel() : ''}
            ${p.status === 'awarded' ? `<div id="milestonesPanel"></div>${renderDisputePanel()}${renderReviewForm()}` : ''}`
         : (currentAgentProfile && currentAgentProfile.status === 'approved'
@@ -2293,7 +2387,7 @@ async function openTransactionDetail(id) {
         <p class="tiny">Either trade partner can accept a proposal — coordinate with your trade partner via messages first.</p>
       </div>
       ${isParty
-        ? `<h3>Proposals (${bids.length})</h3>${bids.length ? `${renderBidComparisonTable(bids, true)}${bids.map(b => renderBidCard(b, true, `transaction-${id}`)).join('')}` : '<div class="empty-state">No proposals yet.</div>'}
+        ? `${renderProposalsSection(bids, `transaction-${id}`)}
            ${t.status === 'open' ? renderInviteAgentPanel() : ''}
            ${t.status === 'awarded' ? `<div id="milestonesPanel"></div>${renderDisputePanel()}${renderReviewForm()}` : ''}`
         : (currentAgentProfile && currentAgentProfile.status === 'approved'
@@ -3193,7 +3287,7 @@ function renderAgentStatsPanel(stats, pendingCount) {
   const respLabel = formatResponseHours(stats.avgResponseHours);
   return `
     <div class="mini-block"><span class="label">Proposals</span>${stats.totalBids} submitted, ${stats.acceptedBids} accepted${winRatePct !== null ? ` (${winRatePct}% win rate)` : ''}</div>
-    <div class="mini-block"><span class="label">Avg response time</span>${respLabel || 'Not enough data yet'}${stats.topRated ? ' · <span class="badge badge-gold">🏆 Top Rated</span>' : ''}</div>
+    <div class="mini-block"><span class="label">Typical proposal speed</span>${respLabel || 'Not enough data yet'}${stats.topRated ? ' · <span class="badge badge-gold">🏆 Top Rated</span>' : ''}</div>
     ${pendingCount !== undefined ? `<div class="mini-block"><span class="label">Your pipeline</span>${pendingCount} proposal${pendingCount === 1 ? '' : 's'} awaiting a homeowner's decision right now</div>` : ''}
   `;
 }
@@ -3330,7 +3424,6 @@ function fillDirectoryFilterOptionsOnce() {
 function collectDirectoryFilters() {
   return {
     q: document.getElementById('agentDirectorySearch').value.trim(),
-    priceMin: document.getElementById('agentDirPriceMin').value,
     priceMax: document.getElementById('agentDirPriceMax').value,
     service: document.getElementById('agentDirService').value,
     minRating: document.getElementById('agentDirMinRating').value,
@@ -3350,16 +3443,18 @@ function collectDirectoryFilters() {
     minReviewCount: document.getElementById('agentDirMinReviews').value,
     openHouseDay: document.getElementById('agentDirOpenHouseDay').value,
     localSpecialistOnly: document.getElementById('agentDirLocalSpecialist').checked,
-    hasCaseStudiesOnly: document.getElementById('agentDirHasCaseStudies').checked,
+    showsPastWorkOnly: document.getElementById('agentDirShowsPastWork').checked,
     acceptingClientsOnly: document.getElementById('agentDirAcceptingClients').checked,
     eoInsuranceOnly: document.getElementById('agentDirEoInsurance').checked,
+    feeTypeOffered: document.getElementById('agentDirFeeType').value,
+    minHires: document.getElementById('agentDirMinHires').value,
+    maxProposalHours: document.getElementById('agentDirMaxProposalHours').value,
   };
 }
 
 function directoryFiltersToParams(f) {
   const params = new URLSearchParams();
   if (f.q) params.set('q', f.q);
-  if (f.priceMin) params.set('priceMin', f.priceMin);
   if (f.priceMax) params.set('priceMax', f.priceMax);
   if (f.service) params.set('service', f.service);
   if (f.minRating) params.set('minRating', f.minRating);
@@ -3379,20 +3474,32 @@ function directoryFiltersToParams(f) {
   if (f.minReviewCount) params.set('minReviewCount', f.minReviewCount);
   if (f.openHouseDay) params.set('openHouseDay', f.openHouseDay);
   if (f.localSpecialistOnly) params.set('localSpecialistOnly', '1');
-  if (f.hasCaseStudiesOnly) params.set('hasCaseStudiesOnly', '1');
+  if (f.showsPastWorkOnly) params.set('showsPastWorkOnly', '1');
   if (f.acceptingClientsOnly) params.set('acceptingClientsOnly', '1');
   if (f.eoInsuranceOnly) params.set('eoInsuranceOnly', '1');
+  if (f.feeTypeOffered) params.set('feeTypeOffered', f.feeTypeOffered);
+  if (f.minHires) params.set('minHires', f.minHires);
+  if (f.maxProposalHours) params.set('maxProposalHours', f.maxProposalHours);
   return params;
 }
 
 async function loadAgentDirectory() {
   const el = document.getElementById('agentDirectoryList');
   fillDirectoryFilterOptionsOnce();
-  const params = directoryFiltersToParams(collectDirectoryFilters());
+  const filters = collectDirectoryFilters();
+  const params = directoryFiltersToParams(filters);
+  const sort = document.getElementById('agentDirSort').value;
+  if (sort) params.set('sort', sort);
 
   try {
     const { agents } = await apiGet(`/api/agents/directory?${params.toString()}`);
-    el.innerHTML = agents.length ? agents.map(a => directoryAgentCardHtml(a, { favorite: true, message: true })).join('') : '<div class="empty-state">No agents match these filters.</div>';
+    const historyFilterOn = filters.minHires || filters.maxProposalHours || filters.minRating || filters.minReviewCount || filters.topRatedOnly;
+    const anyFilterOn = Object.values(filters).some(v => v);
+    el.innerHTML = agents.length
+      ? agents.map(a => directoryAgentCardHtml(a, { favorite: true, message: true })).join('')
+      : !anyFilterOn
+        ? '<div class="empty-state">We\'re welcoming our founding agents in San Diego County now. Post your pre-listing and you\'ll be notified as soon as local agents weigh in.</div>'
+        : `<div class="empty-state">No agents match these filters.${historyFilterOn ? ' Many agents are new to Amico Haus and have no track record here yet, which doesn\'t mean they\'re a bad fit. Try loosening the track-record filters.' : ''}</div>`;
   } catch (e) { el.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
 }
 
@@ -3836,15 +3943,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         ({ id: listingId } = await apiPost('/api/listings', payload));
       }
 
-      const files = [...document.getElementById('listingPhotos').files];
-      for (const file of files) {
-        const formData = new FormData();
-        formData.append('photo', file);
-        try { await apiUpload(`/api/listings/${listingId}/photos`, formData); }
-        catch (err) { toast(`Photo upload failed: ${err.message}`); }
-      }
+      const photoResult = await uploadPhotos(`/api/listings/${listingId}/photos`, [...document.getElementById('listingPhotos').files]);
 
-      toast(wasEditing ? 'Listing updated!' : 'Listing created!');
+      toastWithPhotoResult(wasEditing ? 'Listing updated!' : 'Listing created!', photoResult);
       document.getElementById('listingForm').reset();
       setBuyerOnlyFieldsetState(false);
       setRentalFieldsetState(false);
@@ -4218,14 +4319,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         prefersExclusive: document.getElementById('plPrefersExclusive').checked,
         prefersLocalSpecialist: document.getElementById('plPrefersLocalSpecialist').checked,
       });
-      const files = [...document.getElementById('plPhotos').files];
-      for (const file of files) {
-        const formData = new FormData();
-        formData.append('photo', file);
-        try { await apiUpload(`/api/pre-listings/${id}/photos`, formData); }
-        catch (err) { toast(`Photo upload failed: ${err.message}`); }
-      }
-      toast('Pre-listing posted — agents can now weigh in on your price.');
+      const photoResult = await uploadPhotos(`/api/pre-listings/${id}/photos`, [...document.getElementById('plPhotos').files]);
+      toastWithPhotoResult('Pre-listing posted — agents can now weigh in on your price.', photoResult);
       document.getElementById('postHomeWrap').open = false;
       ['plTitle', 'plAskingPrice', 'plCity', 'plState', 'plZip', 'plNeighborhood', 'plAddress', 'plSqft', 'plDescription', 'plShowingNoticeHours', 'plSpecialInstructions', 'plMinYearsExperience', 'plPreferredLanguage', 'plPreferredAgreementMonths'].forEach(f => document.getElementById(f).value = '');
       document.getElementById('plBeds').value = '';
@@ -4385,11 +4480,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   const directoryFilterIds = [
-    'agentDirPriceMin', 'agentDirPriceMax', 'agentDirService', 'agentDirMinRating', 'agentDirZip', 'agentDirTopRated',
+    'agentDirPriceMax', 'agentDirService', 'agentDirMinRating', 'agentDirZip', 'agentDirTopRated',
     'agentDirLicenseVerified', 'agentDirHasVideo', 'agentDirSpecialty', 'agentDirLanguage', 'agentDirSoloAgent',
     'agentDirMinYears', 'agentDirMaxDom', 'agentDirMinHomesSold', 'agentDirMinSaleToList', 'agentDirMaxCommission',
     'agentDirMaxTurnaround', 'agentDirMinReviews', 'agentDirOpenHouseDay', 'agentDirLocalSpecialist',
-    'agentDirHasCaseStudies', 'agentDirAcceptingClients', 'agentDirEoInsurance',
+    'agentDirShowsPastWork', 'agentDirAcceptingClients', 'agentDirEoInsurance',
+    'agentDirSort', 'agentDirFeeType', 'agentDirMinHires', 'agentDirMaxProposalHours',
   ];
   directoryFilterIds.forEach(id => {
     const el = document.getElementById(id);
@@ -4451,8 +4547,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('saveAgentAlertBtn').addEventListener('click', async () => {
     try {
       const filters = collectDirectoryFilters();
+      // Track-record filters aren't stored with alerts (alerts are only re-checked when an agent's profile changes),
+      // so say so plainly rather than letting the server's generic "pick a filter" message confuse things.
+      const { minHires, maxProposalHours, ...savable } = filters;
+      const hasTrackRecord = !!(minHires || maxProposalHours);
+      const hasSavable = Object.values(savable).some(v => v);
+      if (hasTrackRecord && !hasSavable) {
+        toast('The "hired" and "proposal speed" filters can\'t be saved as an alert. Add another filter, like area or specialty.');
+        return;
+      }
       await apiPost('/api/agent-search-alerts', { label: document.getElementById('agentAlertLabel').value.trim(), filters });
-      toast('Search saved — you\'ll be notified when a new agent matches.');
+      toast(hasTrackRecord
+        ? 'Search saved (without the "hired" and "proposal speed" filters) — you\'ll be notified when a new agent matches.'
+        : 'Search saved — you\'ll be notified when a new agent matches.');
       document.getElementById('agentAlertLabel').value = '';
       loadAgentAlerts();
     } catch (err) { toast(err.message); }
@@ -4658,6 +4765,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   document.getElementById('marketplaceDetailContent').addEventListener('change', async (e) => {
+    if (e.target.closest('[data-proposal-control]')) { rerenderProposalResults(); return; }
     const milestoneCheck = e.target.closest('.milestone-check');
     const disclosureCheck = e.target.closest('.disclosure-check');
     if (milestoneCheck && marketplaceDetail) {
@@ -4726,14 +4834,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         adaptationNotes: document.getElementById('augAdaptationNotes').value.trim(),
         lifeEventTags: [...document.querySelectorAll('.aug-life-event-check:checked')].map(c => c.value),
       });
-      const files = [...document.getElementById('augPhotos').files];
-      for (const file of files) {
-        const formData = new FormData();
-        formData.append('photo', file);
-        try { await apiUpload(`/api/augmented-homes/${id}/photos`, formData); }
-        catch (err) { toast(`Photo upload failed: ${err.message}`); }
-      }
-      toast('Listed on AugmentedHomes.');
+      const photoResult = await uploadPhotos(`/api/augmented-homes/${id}/photos`, [...document.getElementById('augPhotos').files]);
+      toastWithPhotoResult('Listed on AugmentedHomes.', photoResult);
       document.getElementById('postAugmentedWrap').open = false;
       ['augTitle', 'augAskingPrice', 'augCity', 'augState', 'augZip', 'augNeighborhood', 'augAddress', 'augSqft', 'augDescription', 'augAdaptationNotes'].forEach(f => document.getElementById(f).value = '');
       document.getElementById('augBeds').value = '';
@@ -4900,14 +5002,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         featureNotes: document.getElementById('greenFeatureNotes').value.trim(),
         lifeEventTags: [...document.querySelectorAll('.green-life-event-check:checked')].map(c => c.value),
       });
-      const files = [...document.getElementById('greenPhotos').files];
-      for (const file of files) {
-        const formData = new FormData();
-        formData.append('photo', file);
-        try { await apiUpload(`/api/green-homes/${id}/photos`, formData); }
-        catch (err) { toast(`Photo upload failed: ${err.message}`); }
-      }
-      toast('Listed on GreenHomes.');
+      const photoResult = await uploadPhotos(`/api/green-homes/${id}/photos`, [...document.getElementById('greenPhotos').files]);
+      toastWithPhotoResult('Listed on GreenHomes.', photoResult);
       document.getElementById('postGreenWrap').open = false;
       ['greenTitle', 'greenAskingPrice', 'greenCity', 'greenState', 'greenZip', 'greenNeighborhood', 'greenAddress', 'greenSqft', 'greenDescription', 'greenFeatureNotes'].forEach(f => document.getElementById(f).value = '');
       document.getElementById('greenBeds').value = '';
@@ -5073,14 +5169,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         adaptations: [...document.querySelectorAll('.proj-create-check:checked')].map(c => c.value),
         greenFeatures: [...document.querySelectorAll('.proj-green-create-check:checked')].map(c => c.value),
       });
-      const files = [...document.getElementById('projPhotos').files];
-      for (const file of files) {
-        const formData = new FormData();
-        formData.append('photo', file);
-        try { await apiUpload(`/api/dev-projects/${id}/photos`, formData); }
-        catch (err) { toast(`Photo upload failed: ${err.message}`); }
-      }
-      toast('Project posted on FinderMine.');
+      const photoResult = await uploadPhotos(`/api/dev-projects/${id}/photos`, [...document.getElementById('projPhotos').files]);
+      toastWithPhotoResult('Project posted on FinderMine.', photoResult);
       document.getElementById('postProjectWrap').open = false;
       ['projTitle', 'projCity', 'projState', 'projZip', 'projNeighborhood', 'projAddress', 'projFundingGoal', 'projMinInvestment', 'projTargetReturn', 'projTimelineMonths', 'projDescription'].forEach(f => document.getElementById(f).value = '');
       document.getElementById('projPhotos').value = '';

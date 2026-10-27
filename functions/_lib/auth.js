@@ -146,3 +146,12 @@ export async function isRateLimited(db, kind, ip) {
 export async function recordAttempt(db, kind, ip, email) {
   await db.prepare('INSERT INTO login_attempts (kind, ip, email) VALUES (?, ?, ?)').bind(kind, ip, email || null).run();
 }
+
+// When an email never went out, lifts the per-address "one email every couple of minutes" block for
+// that attempt so the person can retry right away. The attempt still counts toward the per-network
+// limit (the row stays, just without its address), so failed sends can't be retried without limit.
+export async function releaseAttemptAddress(db, kind, ip, email) {
+  await db.prepare(
+    'UPDATE login_attempts SET email = NULL WHERE id = (SELECT id FROM login_attempts WHERE kind = ? AND ip = ? AND email IS ? ORDER BY id DESC LIMIT 1)'
+  ).bind(kind, ip, email || null).run();
+}

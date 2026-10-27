@@ -4,7 +4,8 @@ function profileListingCard(l) {
   const loc = `${l.neighborhood ? escapeHtml(l.neighborhood) + ', ' : ''}${escapeHtml(l.city)}, ${escapeHtml(l.state)}`;
   return `
     <div class="card">
-      <img class="directory-thumb" src="${l.photo_id ? `/api/photos/${l.photo_id}` : propertyArtUrl(l.property_type, l.id)}" alt="" loading="lazy">
+      <img class="directory-thumb" src="${l.photo_id ? `/api/photos/${l.photo_id}` : propertyArtUrl(l.property_type, l.id)}" alt="${l.photo_id ? '' : 'Illustrative photo, not this home'}" loading="lazy">
+      ${l.photo_id ? '' : '<span class="photo-caption">Illustrative photo</span>'}
       <div class="card-head">
         <h3><a class="profile-link" href="/listing/${l.id}">${escapeHtml(l.title || l.property_type)}</a></h3>
         <span class="badge badge-gold">${l.is_portfolio ? `Portfolio · ${(l.portfolio_members || []).length}` : (l.is_rental ? 'For Rent' : escapeHtml(l.price_tier))}</span>

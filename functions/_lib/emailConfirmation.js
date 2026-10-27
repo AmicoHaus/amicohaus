@@ -41,5 +41,6 @@ export async function sendConfirmationLink(context, user, { intent = '' } = {}) 
   <p style="font-size:13px;color:#667085">The link works once and expires in ${CONFIRMATION_LINK_HOURS} hours. If you didn't sign up, you can ignore this email — nothing will be created.</p>
 </div>`;
 
-  return sendEmail(context, { to: user.email, subject: 'Confirm your email to finish signing up', text, html });
+  // A network error counts as "not sent" rather than failing the signup request.
+  return sendEmail(context, { to: user.email, subject: 'Confirm your email to finish signing up', text, html }).catch(() => false);
 }

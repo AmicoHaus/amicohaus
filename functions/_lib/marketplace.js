@@ -73,6 +73,7 @@ function mapBidRow(r, stats) {
     openHouseDays: JSON.parse(r.open_house_days_json || '[]'),
     licenseVerified: !!r.license_verified,
     winRate: stats.winRate, topRated: stats.topRated, avgResponseHours: stats.avgResponseHours,
+    hiresOnPlatform: stats.acceptedBids, isNewToAmicoHaus: stats.isNewAgent,
     message: r.message, commissionPct: r.commission_pct, flatFee: r.flat_fee,
     services: JSON.parse(r.services_json || '[]'), status: r.status, createdAt: r.created_at, updatedAt: r.updated_at,
     isStale: isStaleProposal(r.status, r.created_at),
@@ -84,20 +85,26 @@ export async function fetchBids(db, requestType, requestId) {
     `SELECT service_bids.*, users.display_name AS agent_name, users.is_verified,
             agent_profiles.brokerage_name, agent_profiles.years_experience, agent_profiles.video_r2_key,
             agent_profiles.avg_days_on_market, agent_profiles.homes_sold_last_year, agent_profiles.open_house_days_json,
-            agent_profiles.license_verified,
+            agent_profiles.license_verified, agent_profiles.reviewed_at AS agent_approved_at,
             (SELECT ROUND(AVG(rating), 1) FROM agent_reviews WHERE agent_reviews.agent_user_id = service_bids.agent_user_id) AS agent_rating,
             (SELECT COUNT(*) FROM agent_reviews WHERE agent_reviews.agent_user_id = service_bids.agent_user_id) AS agent_review_count
      FROM service_bids
      JOIN users ON users.id = service_bids.agent_user_id
      LEFT JOIN agent_profiles ON agent_profiles.user_id = service_bids.agent_user_id
      WHERE service_bids.request_type = ? AND service_bids.request_id = ? AND service_bids.status != 'withdrawn'
+       -- A suspended agent's proposals drop out of the comparison, except one the homeowner already accepted:
+       -- that engagement (milestones, reviews, disputes) still has to be reachable.
+       AND (users.status = 'active' OR service_bids.status = 'accepted')
      ORDER BY service_bids.created_at DESC`
   ).bind(requestType, requestId).all();
 
   // Win rate / response time / Top Rated pulled from the single shared
   // fetchAgentStats (below) rather than duplicated as SQL subqueries here,
   // so there's one source of truth for what "Top Rated" means.
-  return Promise.all(rows.results.map(async r => mapBidRow(r, await fetchAgentStats(db, r.agent_user_id))));
+  return Promise.all(rows.results.map(async r => mapBidRow(r, await fetchAgentStats(db, r.agent_user_id, {
+    rating: { avgRating: r.agent_rating, reviewCount: r.agent_review_count },
+    approvedAt: r.agent_approved_at || null,
+  }))));
 }
 
 export async function fetchMyBid(db, requestType, requestId, agentUserId) {
@@ -154,6 +161,12 @@ export async function fetchAgentOwnBids(db, agentUserId) {
 // Accepting one proposal declines every other still-pending one on the same
 // request and marks the request itself awarded, all in one batch so there's
 // no window where two proposals could both look accepted.
+// A suspended agent's pending proposal is hidden from the comparison, and can't be accepted by calling the API directly either.
+export async function isAgentActive(db, agentUserId) {
+  const row = await db.prepare("SELECT 1 FROM users WHERE id = ? AND status = 'active'").bind(agentUserId).first();
+  return !!row;
+}
+
 export async function acceptBid(db, requestType, requestId, bidId) {
   const table = requestType === 'pre_listing' ? 'pre_listings' : 'transaction_requests';
   await db.batch([
@@ -262,15 +275,28 @@ export async function fetchHomeownerRatingSummary(db, homeownerUserId) {
   return { avgRating: row.avg_rating, reviewCount: row.n };
 }
 
-// Win rate (accepted / non-withdrawn proposals) and average response time
+// Win rate (accepted / non-withdrawn proposals) and typical proposal speed
 // (how long after a request opened the agent typically got their proposal
 // in) — computed fresh each time rather than stored, same reasoning as
 // matches.js never persisting match scores. "Top Rated" is a simple
 // threshold on top of these plus the existing review average, not a stored
 // flag, so it can never drift out of sync with the underlying numbers.
-export async function fetchAgentStats(db, agentUserId) {
+const NEW_AGENT_DAYS = 60;
+
+// options.rating: a fetchAgentRatingSummary() result the caller already has, to skip re-querying it.
+// options.approvedAt: the agent's agent_profiles.reviewed_at, if the caller already has it (saves a query).
+export async function fetchAgentStats(db, agentUserId, options = {}) {
+  const approvedAt = options.approvedAt !== undefined ? options.approvedAt
+    : ((await db.prepare('SELECT reviewed_at FROM agent_profiles WHERE user_id = ?').bind(agentUserId).first()) || {}).reviewed_at || null;
+  // The invite (if any) rides along so an invited agent's clock starts when they were invited, not when the
+  // request first opened -- otherwise an agent invited to a weeks-old listing looks slow for a delay that wasn't theirs.
   const bidRows = await db.prepare(
-    "SELECT id, request_type, request_id, status, created_at FROM service_bids WHERE agent_user_id = ? AND status != 'withdrawn'"
+    `SELECT service_bids.id, service_bids.request_type, service_bids.request_id, service_bids.status, service_bids.created_at,
+            agent_invites.created_at AS invited_at
+     FROM service_bids
+     LEFT JOIN agent_invites ON agent_invites.request_type = service_bids.request_type
+       AND agent_invites.request_id = service_bids.request_id AND agent_invites.agent_user_id = service_bids.agent_user_id
+     WHERE service_bids.agent_user_id = ? AND service_bids.status != 'withdrawn'`
   ).bind(agentUserId).all();
   const bids = bidRows.results;
   const totalBids = bids.length;
@@ -298,13 +324,28 @@ export async function fetchAgentStats(db, agentUserId) {
   for (const b of bids) {
     const openedAt = openedAtById.get(`${b.request_type}:${b.request_id}`);
     if (!openedAt) continue;
-    const hours = (new Date(b.created_at + 'Z') - new Date(openedAt + 'Z')) / 3600000;
+    // The clock starts at the latest of: the request opening, the agent's invite, and the agent's own approval --
+    // an agent approved after a listing went up shouldn't look slow for days they couldn't have proposed.
+    // All three share the 'YYYY-MM-DD HH:MM:SS' format, so plain string comparison orders them correctly.
+    let startedAt = openedAt;
+    for (const t of [b.invited_at, approvedAt]) {
+      if (t && t > startedAt && t <= b.created_at) startedAt = t;
+    }
+    const hours = (new Date(b.created_at + 'Z') - new Date(startedAt + 'Z')) / 3600000;
     if (Number.isFinite(hours) && hours >= 0) responseHours.push(hours);
   }
-  const avgResponseHours = responseHours.length > 0 ? responseHours.reduce((a, b) => a + b, 0) / responseHours.length : null;
+  // Median, not mean: one proposal sent weeks late shouldn't define an agent who's usually same-day. The field keeps
+  // its original name so existing callers don't change.
+  responseHours.sort((a, b) => a - b);
+  const mid = Math.floor(responseHours.length / 2);
+  const avgResponseHours = responseHours.length === 0 ? null
+    : responseHours.length % 2 ? responseHours[mid] : (responseHours[mid - 1] + responseHours[mid]) / 2;
 
-  const rating = await fetchAgentRatingSummary(db, agentUserId);
+  const rating = options.rating || await fetchAgentRatingSummary(db, agentUserId);
   const topRated = rating.avgRating !== null && rating.avgRating >= 4.5 && rating.reviewCount >= 3 && winRate !== null && winRate >= 0.3;
 
-  return { totalBids, acceptedBids, decidedBids, winRate, avgResponseHours, topRated };
+  // Tenure, not track record: an agent who's been approved for months but never picked is not "new".
+  const isNewAgent = !!approvedAt && Date.now() - new Date(approvedAt + 'Z').getTime() < NEW_AGENT_DAYS * 86400000;
+
+  return { totalBids, acceptedBids, decidedBids, winRate, avgResponseHours, topRated, isNewAgent };
 }

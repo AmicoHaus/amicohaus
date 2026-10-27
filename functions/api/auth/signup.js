@@ -1,6 +1,7 @@
 import { getClientIp, isRateLimited, recordAttempt, generateReferralCode } from '../../_lib/auth.js';
 import { json, badRequest, clampString } from '../../_lib/util.js';
 import { sendConfirmationLink } from '../../_lib/emailConfirmation.js';
+import { sanitizeAttribution } from '../../_lib/attribution.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -23,8 +24,10 @@ export async function onRequestPost(context) {
 
   const email = clampString(body.email, 200).toLowerCase();
   const displayName = clampString(body.displayName, 80);
-  // Which side of the marketplace they came for; only steers where the emailed link lands them.
+  // Which side of the marketplace they came for: steers where the emailed link lands them, and is kept
+  // (with the ad or video link they arrived from) so Rudy can see which campaigns bring which side.
   const intent = ['homeowner', 'agent'].includes(body.intent) ? body.intent : '';
+  const source = sanitizeAttribution(body.source);
 
   if (!EMAIL_RE.test(email)) return badRequest('Enter a valid email address.');
   if (!displayName) return badRequest('Enter your name.');
@@ -39,13 +42,14 @@ export async function onRequestPost(context) {
   }
 
   let userId;
-  let isNewRow = false;
   if (existing) {
     // Started before but never confirmed. There's no password to overwrite, so
     // just refresh the name and send a new link; whoever owns the mailbox is
     // the only one who can finish it.
     userId = existing.id;
-    await db.prepare("UPDATE users SET display_name = ?, created_at = datetime('now') WHERE id = ?").bind(displayName, userId).run();
+    await db.prepare(
+      "UPDATE users SET display_name = ?, signup_intent = COALESCE(?, signup_intent), signup_source = COALESCE(signup_source, ?), created_at = datetime('now') WHERE id = ?"
+    ).bind(displayName, intent || null, source, userId).run();
   } else {
     let referredBy = null;
     const refCode = clampString(body.referralCode, 20);
@@ -55,9 +59,9 @@ export async function onRequestPost(context) {
     }
 
     const insert = (code) => db.prepare(
-      `INSERT INTO users (email, password_hash, display_name, role, referral_code, referred_by, email_confirmation_pending)
-       VALUES (?, NULL, ?, 'user', ?, ?, 1)`
-    ).bind(email, displayName, code, referredBy).run();
+      `INSERT INTO users (email, password_hash, display_name, role, referral_code, referred_by, email_confirmation_pending, signup_intent, signup_source)
+       VALUES (?, NULL, ?, 'user', ?, ?, 1, ?, ?)`
+    ).bind(email, displayName, code, referredBy, intent || null, source).run();
 
     let result;
     try {
@@ -77,15 +81,15 @@ export async function onRequestPost(context) {
       }
     }
     userId = result.meta.last_row_id;
-    isNewRow = true;
   }
 
   const sent = await sendConfirmationLink(context, { id: userId, email, displayName }, { intent });
   if (!sent) {
-    // Fail loudly rather than leave someone with an account they can never
-    // finish. A row we just created is removed so they can simply try again.
-    if (isNewRow) await db.prepare('DELETE FROM users WHERE id = ?').bind(userId).run();
-    return json({ error: "We couldn't send your confirmation email right now. Please try again in a few minutes." }, { status: 503 });
+    // Keep the pending account (nothing is usable until the link is opened) and say so on the next
+    // screen, where "send it again" retries; signing up again with the same email also works. The
+    // attempt still counts toward this network's signup limit: otherwise addresses the email service
+    // rejects could create pending accounts without limit.
+    return json({ pendingConfirmation: true, email, emailDelayed: true }, { status: 202 });
   }
 
   return json({ pendingConfirmation: true, email }, { status: 201 });

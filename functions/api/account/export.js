@@ -18,7 +18,7 @@ export async function onRequestGet(context) {
   ]);
 
   const exportData = {
-    account: { id: user.id, email: user.email, displayName: user.display_name, createdAt: user.created_at },
+    account: { id: user.id, email: user.email, displayName: user.display_name, createdAt: user.created_at, signupIntent: user.signup_intent, signupSource: user.signup_source },
     listings: listings.results,
     posts: posts.results,
     comments: comments.results,

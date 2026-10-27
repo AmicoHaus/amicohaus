@@ -4,6 +4,7 @@ import { validatePreListingInput, insertPreListing, fetchPreListingPhotos, getVo
 import { getAgentProfile } from '../../_lib/agents.js';
 import { lookupZipCoords, nearestServiceDistance, SERVICE_RADIUS_MILES } from '../../_lib/geo.js';
 import { notifyAgentsNewRequest } from '../../_lib/marketplaceNotify.js';
+import { alertAdmin } from '../../_lib/adminAlerts.js';
 import { fetchPriceSeriesBatch } from '../../_lib/priceSeries.js';
 
 const LIST_FIELDS = `pre_listings.id, pre_listings.user_id, pre_listings.title, pre_listings.city, pre_listings.state,
@@ -69,7 +70,12 @@ export async function onRequestGet(context) {
     // card, which nobody browsing someone else's open pre-listing needs to see.
     let pendingBidCount = null, pendingShowingCount = null;
     if (mine) {
-      pendingBidCount = (await db.prepare("SELECT COUNT(*) AS n FROM service_bids WHERE request_type = 'pre_listing' AND request_id = ? AND status = 'pending'").bind(r.id).first()).n;
+      // Same rule as the proposal comparison (fetchBids): a suspended agent's pending proposal is hidden there and
+      // can't be accepted, so it mustn't count as one "waiting on you" either.
+      pendingBidCount = (await db.prepare(
+        `SELECT COUNT(*) AS n FROM service_bids JOIN users ON users.id = service_bids.agent_user_id
+         WHERE service_bids.request_type = 'pre_listing' AND service_bids.request_id = ? AND service_bids.status = 'pending' AND users.status = 'active'`
+      ).bind(r.id).first()).n;
       pendingShowingCount = (await db.prepare("SELECT COUNT(*) AS n FROM pre_listing_showings WHERE pre_listing_id = ? AND status = 'pending'").bind(r.id).first()).n;
     }
     preListings.push({
@@ -98,5 +104,16 @@ export async function onRequestPost(context) {
 
   const id = await insertPreListing(context.env.DB, user.id, validated.data);
   context.waitUntil(notifyAgentsNewRequest(context, 'pre_listing', id, validated.data.zip));
+  const d = validated.data;
+  alertAdmin(context, user, {
+    kind: 'pre_listing',
+    subject: `New pre-listing: ${d.propertyType} in ${d.city}, ${d.state}`,
+    lines: [
+      `${user.display_name} (${user.email}) just posted a pre-listing on Amico Haus.`,
+      '',
+      `${d.title || d.propertyType} · ${d.beds}bd/${d.baths}ba · ${d.city}, ${d.state} ${d.zip}`,
+      `Asking: $${Number(d.askingPrice).toLocaleString('en-US')}`,
+    ],
+  });
   return json({ id }, { status: 201 });
 }

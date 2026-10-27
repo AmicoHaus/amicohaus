@@ -34,6 +34,9 @@ export function renderFlyerShell(title, bodyHtml) {
   </main>
 </div>
 <script src="/client.js?v=${ASSET_VERSIONS['/client.js']}"></script>
+<!-- Cloudflare Web Analytics -->
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "91a193988b2d45e58aa1c27d5abf6bdb"}'></script>
+<!-- End Cloudflare Web Analytics -->
 </body>
 </html>`;
 }

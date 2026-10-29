@@ -66,7 +66,7 @@ ${jsonLd}
     ${bodyHtml}
   </main>
   <footer class="site-footer">
-    Amico Haus — where homeowners and vetted agents find each other. <a href="/about">About</a> · <a href="/whats-new">What's New</a> · <a href="/calculator">Calculator</a> · <a href="/assumable-loans">Assumable loans</a> · <a href="/contact">Contact</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="https://www.instagram.com/amicohaus" target="_blank" rel="noopener noreferrer">Instagram</a> · <a href="https://www.tiktok.com/@amicohaus" target="_blank" rel="noopener noreferrer">TikTok</a> · <a href="https://www.youtube.com/@amicohaus" target="_blank" rel="noopener noreferrer">YouTube</a>
+    <span class="footer-tagline">Amico Haus: the real estate marketplace of tomorrow! Everything that's missing from the real estate market for the homeowner!</span> <a href="/about">About</a> · <a href="/whats-new">What's New</a> · <a href="/calculator">Calculator</a> · <a href="/assumable-loans">Assumable loans</a> · <a href="/contact">Contact</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="https://www.instagram.com/amicohaus" target="_blank" rel="noopener noreferrer">Instagram</a> · <a href="https://www.tiktok.com/@amicohaus" target="_blank" rel="noopener noreferrer">TikTok</a> · <a href="https://www.youtube.com/@amicohaus" target="_blank" rel="noopener noreferrer">YouTube</a>
   </footer>
 </div>
 <script src="/client.js?v=${ASSET_VERSIONS['/client.js']}"></script>

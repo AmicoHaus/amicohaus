@@ -788,7 +788,10 @@ main > .demo-section:first-of-type > [data-pills] { display: none; }
 @media (max-width: 420px) { .choice-row { grid-template-columns: 1fr; } }
 
 /* ---- Home page: agent-first story ---- */
-.platform-tagline { margin: 0 0 10px; font-size: 1.35rem; font-weight: 700; color: var(--gold); }
+.platform-tagline { margin: 0 0 10px; font-size: 1.35rem; font-weight: 700; color: var(--gold); line-height: 1.35; }
+.platform-tagline .tagline-lead, .platform-tagline .tagline-sub { display: block; }
+.platform-tagline .tagline-sub { font-size: 1.05rem; font-weight: 600; color: var(--ink); }
+.footer-tagline { display: block; margin-bottom: 6px; font-weight: 600; color: var(--gold); }
 .eyebrow { margin: 0 0 8px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--gold); }
 .hero .lede { font-size: 1.08rem; line-height: 1.6; }
 .trust-line { margin: 14px 0 0; font-size: 0.82rem; color: var(--muted); }

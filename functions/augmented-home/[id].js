@@ -2,6 +2,7 @@ import { getSessionUser } from '../_lib/auth.js';
 import { escapeHtml } from '../_lib/util.js';
 import { ASSET_VERSIONS } from '../_lib/assetVersions.js';
 import { withSecurityHeaders } from '../_lib/withSecurityHeaders.js';
+import { homeCostsFromRow, homeCostsLines } from '../_lib/homeCosts.js';
 import { ADAPTATION_ITEMS } from '../_lib/adaptations.js';
 import { LIFE_EVENT_ITEMS } from '../_lib/lifeEvents.js';
 import { fetchSimilarEntities, similarEntitiesHtml } from '../_lib/similarEntities.js';
@@ -125,6 +126,7 @@ async function renderPage(context) {
         ${escapeHtml(home.property_type)} · ${home.beds}bd/${home.baths}ba${home.sqft ? ` · ${home.sqft.toLocaleString('en-US')} sqft` : ''}<br>
         ${loc}<br>
         ${money(home.asking_price)} asking
+        ${(() => { const lines = homeCostsLines(homeCostsFromRow(home)); return lines.length ? `<p class="tiny"><span class="label">Costs</span> ${escapeHtml(lines.join(' · '))}</p>` : ''; })()}
       </div>
 
       ${lifeEventTags.length ? `<p class="tiny">${lifeEventTags.map(k => `<span class="badge badge-gold">${escapeHtml(LIFE_EVENT_LABELS[k] || k)}</span>`).join(' ')}</p>` : ''}

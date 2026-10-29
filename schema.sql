@@ -65,6 +65,9 @@ CREATE TABLE IF NOT EXISTS listings (
   views INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','paused')),
   life_event_tags_json TEXT NOT NULL DEFAULT '[]',
+  mello_roos_annual INTEGER,
+  hoa_monthly INTEGER,
+  hoa_details_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -414,6 +417,9 @@ CREATE TABLE IF NOT EXISTS pre_listings (
   status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','awarded','closed')),
   awarded_bid_id INTEGER,
   disclosure_checklist_json TEXT NOT NULL DEFAULT '[]',
+  mello_roos_annual INTEGER,
+  hoa_monthly INTEGER,
+  hoa_details_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -488,6 +494,27 @@ CREATE TABLE IF NOT EXISTS pre_listing_price_votes (
   UNIQUE(pre_listing_id, agent_user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_pre_listing_votes_listing ON pre_listing_price_votes(pre_listing_id);
+
+-- Sealed price opinions on pre-listings: the list price an agent would suggest, up to 3 sold comps that back it
+-- up, and one presentation file (PDF, PowerPoint or Word, stored in R2). Only the homeowner and that agent ever
+-- see these; other agents never do. Kept apart from pre_listing_price_votes because a vote is about the asking
+-- price (and is cleared when the owner changes it), while an opinion is about what the home is worth.
+CREATE TABLE IF NOT EXISTS pre_listing_price_opinions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pre_listing_id INTEGER NOT NULL REFERENCES pre_listings(id) ON DELETE CASCADE,
+  agent_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  price_opinion INTEGER,
+  comps_json TEXT NOT NULL DEFAULT '[]',
+  note TEXT NOT NULL DEFAULT '',
+  deck_r2_key TEXT,
+  deck_name TEXT,
+  deck_type TEXT,
+  deck_size INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(pre_listing_id, agent_user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_pre_listing_opinions_listing ON pre_listing_price_opinions(pre_listing_id);
 
 CREATE TABLE IF NOT EXISTS pre_listing_showings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -690,6 +717,9 @@ CREATE TABLE IF NOT EXISTS augmented_homes (
   adaptation_notes TEXT NOT NULL DEFAULT '',
   life_event_tags_json TEXT NOT NULL DEFAULT '[]',
   status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','under_contract','sold','withdrawn')),
+  mello_roos_annual INTEGER,
+  hoa_monthly INTEGER,
+  hoa_details_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -886,6 +916,9 @@ CREATE TABLE IF NOT EXISTS green_homes (
   feature_notes TEXT NOT NULL DEFAULT '',
   life_event_tags_json TEXT NOT NULL DEFAULT '[]',
   status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','under_contract','sold','withdrawn')),
+  mello_roos_annual INTEGER,
+  hoa_monthly INTEGER,
+  hoa_details_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

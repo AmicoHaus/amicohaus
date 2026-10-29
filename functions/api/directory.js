@@ -32,6 +32,10 @@ export async function onRequestGet(context) {
   const limit = Math.min(Number(url.searchParams.get('limit')) || 40, 60);
   const offset = Math.max(Number(url.searchParams.get('offset')) || 0, 0);
   const kind = url.searchParams.get('kind'); // 'trade' | 'rental' | 'portfolio' | null (all)
+  // Only homes whose owner shared these costs can match them (an unknown isn't "no Mello-Roos").
+  const noMelloRoos = url.searchParams.get('noMelloRoos') === '1';
+  const hoaMaxParam = url.searchParams.get('hoaMax');
+  const hoaMax = hoaMaxParam === null || hoaMaxParam === '' ? NaN : Number(hoaMaxParam);
 
   // First-time/primary-buyer profiles have no home to show off — they only
   // ever surface as a one-directional match on a seller's own Matches tab.
@@ -59,6 +63,8 @@ export async function onRequestGet(context) {
   if (PROPERTY_TYPES.includes(propertyType)) { conditions.push('listings.property_type = ?'); params.push(propertyType); }
   if (Number.isFinite(priceMin) && priceMin > 0) { conditions.push('listings.estimated_value >= ?'); params.push(priceMin); }
   if (Number.isFinite(priceMax) && priceMax > 0) { conditions.push('listings.estimated_value <= ?'); params.push(priceMax); }
+  if (noMelloRoos) conditions.push('listings.mello_roos_annual = 0');
+  if (Number.isFinite(hoaMax) && hoaMax >= 0) { conditions.push('listings.hoa_monthly IS NOT NULL AND listings.hoa_monthly <= ?'); params.push(hoaMax); }
   if (viewer) {
     conditions.push(`listings.id NOT IN (SELECT listing_id FROM listing_feedback WHERE user_id = ? AND feedback = 'down')`);
     params.push(viewer.id);
@@ -79,7 +85,7 @@ export async function onRequestGet(context) {
     `SELECT listings.id, listings.title, listings.neighborhood, listings.city, listings.state,
             listings.property_type, listings.beds, listings.baths, listings.sqft, listings.estimated_value, listings.price_tier,
             listings.external_links, listings.is_rental, listings.rent_amount, listings.min_lease_months, listings.is_portfolio,
-            listings.life_event_tags_json, listings.created_at,
+            listings.life_event_tags_json, listings.created_at, listings.mello_roos_annual, listings.hoa_monthly,
             users.display_name AS owner_name,
             desired_criteria.locations, desired_criteria.property_type AS desired_type,
             desired_criteria.price_min, desired_criteria.price_max,

@@ -4,6 +4,7 @@ import { validateGreenHomeInput, updateGreenHome, fetchGreenHomePhotos, setGreen
 import { isFavorited, fetchFavoriterIds } from '../../_lib/greenHomeFavorites.js';
 import { notifyPriceDrop } from '../../_lib/marketplaceNotify.js';
 import { logMarketEventUnlessDemo } from '../../_lib/marketEvents.js';
+import { homeCostsFromRow } from '../../_lib/homeCosts.js';
 
 export async function onRequestGet(context) {
   const id = context.params.id;
@@ -29,7 +30,7 @@ export async function onRequestGet(context) {
     propertyType: row.property_type, beds: row.beds, baths: row.baths, sqft: row.sqft, askingPrice: row.asking_price,
     greenFeatures: JSON.parse(row.green_features_json || '[]'), featureNotes: row.feature_notes,
     lifeEventTags: JSON.parse(row.life_event_tags_json || '[]'),
-    status: row.status, createdAt: row.created_at, photoIds: photos.map(p => p.id),
+    status: row.status, createdAt: row.created_at, photoIds: photos.map(p => p.id), costs: homeCostsFromRow(row),
     priceHistory: priceHistoryRows.results.map(r => ({ oldPrice: r.old_price, newPrice: r.new_price, changedAt: r.changed_at })),
     isFavorited: isOwner ? false : await isFavorited(db, user.id, id),
   };

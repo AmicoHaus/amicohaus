@@ -26,6 +26,11 @@ export async function onRequestPost(context) {
        WHERE listings.user_id = ?`
     ).bind(user.id).all();
     await Promise.all(rows.results.map(row => photos.delete(row.r2_key).catch(() => {})));
+    const decks = await db.prepare(
+      `SELECT deck_r2_key FROM pre_listing_price_opinions
+       WHERE deck_r2_key IS NOT NULL AND (agent_user_id = ? OR pre_listing_id IN (SELECT id FROM pre_listings WHERE user_id = ?))`
+    ).bind(user.id, user.id).all();
+    await Promise.all(decks.results.map(row => photos.delete(row.deck_r2_key).catch(() => {})));
   }
 
   await db.prepare('DELETE FROM users WHERE id = ?').bind(user.id).run();

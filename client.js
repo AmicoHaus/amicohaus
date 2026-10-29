@@ -132,6 +132,44 @@ async function apiUpload(path, formData) {
   return data;
 }
 
+// Mello-Roos / HOA snapshot (functions/_lib/homeCosts.js holds the same keys). null = the owner didn't say, 0 = none.
+const HOA_INCLUDE_LABELS = {
+  water: 'Water', trash: 'Trash', sewer: 'Sewer', internet: 'Cable or internet', pool: 'Pool or spa',
+  clubhouse: 'Clubhouse or gym', landscaping: 'Landscaping', exterior: 'Exterior upkeep', insurance: 'Building insurance',
+  security: 'Gated or security',
+};
+// California HOAs can't ban renting out (only rentals of 30 days or less) or all pets, so there's no "not allowed".
+const HOA_RULE_LABELS = { allowed: 'Allowed', no_short_term: 'Allowed, no short-term (30 days or less)', limited: 'Limited (see HOA rules)' };
+
+function homeCostChipsHtml(melloRoosAnnual, hoaMonthly) {
+  const chips = [];
+  if (melloRoosAnnual === 0) chips.push(chipHtml('No Mello-Roos', 'good'));
+  else if (melloRoosAnnual > 0) chips.push(chipHtml(`Mello-Roos ${money(melloRoosAnnual)}/yr`, 'outline'));
+  if (hoaMonthly === 0) chips.push(chipHtml('No HOA', 'good'));
+  else if (hoaMonthly > 0) chips.push(chipHtml(`HOA ${money(hoaMonthly)}/mo`, 'outline'));
+  return chips.length ? `<div class="chip-row">${chips.join('')}</div>` : '';
+}
+
+// The full snapshot for a detail view; costs uses the API's camelCase shape ({ melloRoosAnnual, hoaMonthly, hoaDetails }).
+function homeCostsDetailHtml(costs) {
+  if (!costs || (costs.melloRoosAnnual === null && costs.hoaMonthly === null)) return '';
+  const d = costs.hoaDetails || {};
+  const mello = costs.melloRoosAnnual === null ? 'Not shared' : costs.melloRoosAnnual === 0 ? 'None' : `About ${money(costs.melloRoosAnnual)} a year`;
+  const hoa = costs.hoaMonthly === null ? 'Not shared' : costs.hoaMonthly === 0 ? 'None' : `${money(costs.hoaMonthly)} a month`;
+  const inc = (d.includes || []).map(k => HOA_INCLUDE_LABELS[k]).filter(Boolean);
+  const extras = [
+    inc.length && `Includes ${inc.join(', ').toLowerCase()}`,
+    d.rentals && HOA_RULE_LABELS[d.rentals] && `Renting out: ${HOA_RULE_LABELS[d.rentals].toLowerCase()}`,
+    d.pets && HOA_RULE_LABELS[d.pets] && `Pets: ${HOA_RULE_LABELS[d.pets].toLowerCase()}`,
+    d.specialAssessment && `Special assessment: ${d.specialAssessment}`,
+  ].filter(Boolean);
+  return `
+    <div class="mini-two">
+      <div class="mini-block"><span class="label">Mello-Roos</span>${escapeHtml(mello)}</div>
+      <div class="mini-block"><span class="label">HOA</span>${escapeHtml(hoa)}${extras.length ? `<br><span class="tiny">${escapeHtml(extras.join(' · '))}</span>` : ''}</div>
+    </div>`;
+}
+
 function escapeHtml(str) {
   return String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }

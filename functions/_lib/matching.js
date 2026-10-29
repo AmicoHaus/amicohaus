@@ -16,7 +16,7 @@ const MIN_RENTAL_YEARS = 1;
 // down to 91% ... wiggle room on both ends for a negotiation."
 const NEGOTIATION_FLEX = 0.09;
 
-const STATE_NAMES = {
+export const STATE_NAMES = {
   CA: 'california', MT: 'montana', MA: 'massachusetts', FL: 'florida', CO: 'colorado',
   NY: 'new york', AR: 'arkansas', NC: 'north carolina', ID: 'idaho', AZ: 'arizona',
   TX: 'texas', WA: 'washington', OR: 'oregon', NV: 'nevada', UT: 'utah', HI: 'hawaii',

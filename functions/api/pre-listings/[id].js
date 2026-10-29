@@ -1,9 +1,11 @@
 import { getSessionUser } from '../../_lib/auth.js';
 import { json, badRequest, unauthorized, forbidden, notFound } from '../../_lib/util.js';
-import { validatePreListingInput, updatePreListing, fetchPreListingPhotos, getVoteTally, fetchMyVote } from '../../_lib/preListings.js';
+import { validatePreListingInput, updatePreListing, fetchPreListingPhotos, getVoteTally, fetchMyVote, sealTally, fetchPriceOpinions, deleteOpinionDecks } from '../../_lib/preListings.js';
 import { fetchBids, fetchMyBid, fetchHomeownerRatingSummary } from '../../_lib/marketplace.js';
 import { getAgentProfile } from '../../_lib/agents.js';
 import { lookupZipCoords, nearestServiceDistance, SERVICE_RADIUS_MILES } from '../../_lib/geo.js';
+import { buyerDemandForDisplay } from '../../_lib/buyerDemand.js';
+import { homeCostsFromRow } from '../../_lib/homeCosts.js';
 
 export async function onRequestGet(context) {
   const id = context.params.id;
@@ -41,7 +43,7 @@ export async function onRequestGet(context) {
     disclosureChecklist: isOwner ? JSON.parse(row.disclosure_checklist_json || '[]') : undefined,
     propertyType: row.property_type, beds: row.beds, baths: row.baths, sqft: row.sqft, askingPrice: row.asking_price,
     status: row.status, awardedBidId: row.awarded_bid_id, createdAt: row.created_at,
-    photoIds: photos.map(p => p.id), votes,
+    photoIds: photos.map(p => p.id), votes, costs: homeCostsFromRow(row),
     priceHistory: priceHistoryRows.results.map(r => ({ oldPrice: r.old_price, newPrice: r.new_price, changedAt: r.changed_at })),
   };
 
@@ -51,12 +53,16 @@ export async function onRequestGet(context) {
   let bids = null;
   let myBid = null;
   let myVote = null;
+  let priceOpinions = null;
 
   if (isOwner) {
     bids = await fetchBids(db, 'pre_listing', id);
+    priceOpinions = await fetchPriceOpinions(db, id);
   } else if (isApprovedAgentViewer) {
     myBid = await fetchMyBid(db, 'pre_listing', id, user.id);
     myVote = await fetchMyVote(db, id, user.id);
+    // Sealed until this agent has voted: they see how many agents weighed in, not how.
+    if (!(myVote && myVote.vote) && user.role !== 'admin') preListing.votes = sealTally(votes);
   }
 
   if (isApprovedAgentViewer && agentProfile.serviceZips.length > 0) {
@@ -66,9 +72,17 @@ export async function onRequestGet(context) {
     preListing.inServiceArea = d === null ? null : d <= SERVICE_RADIUS_MILES;
   }
 
+  // The owner and approved agents see how many buyers are looking for a home like this (3 or more only).
+  if (isOwner || isApprovedAgentViewer) {
+    preListing.buyerDemand = await buyerDemandForDisplay(db, {
+      userId: row.user_id, city: row.city, state: row.state, neighborhood: row.neighborhood,
+      propertyType: row.property_type, price: row.asking_price, beds: row.beds, baths: row.baths,
+    });
+  }
+
   const homeownerRating = await fetchHomeownerRatingSummary(db, row.user_id);
 
-  return json({ preListing, bids, myBid, myVote, isOwner: !!isOwner, homeownerRating });
+  return json({ preListing, bids, myBid, myVote, priceOpinions, isOwner: !!isOwner, homeownerRating });
 }
 
 export async function onRequestPut(context) {
@@ -123,6 +137,7 @@ export async function onRequestDelete(context) {
   // attached; it isn't the owner's to delete out from under them. An admin can still override for moderation.
   if (existing.status === 'awarded' && user.role !== 'admin') return badRequest('An awarded pre-listing can\'t be deleted — close it instead once the engagement wraps up.');
 
+  await deleteOpinionDecks(db, context.env.PHOTOS, id);
   await db.prepare('DELETE FROM pre_listings WHERE id = ?').bind(id).run();
   return json({ ok: true });
 }

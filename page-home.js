@@ -32,6 +32,7 @@ function directoryCardHtml(l) {
         ${escapeHtml(l.neighborhood ? l.neighborhood + ', ' : '')}${escapeHtml(l.city)}, ${escapeHtml(l.state)}${l.is_portfolio ? ' (primary property)' : ''}
       </div>
       <p class="tiny">${daysOnMarketLabel(l.created_at)}</p>
+      ${homeCostChipsHtml(l.mello_roos_annual, l.hoa_monthly)}
       ${socialProofHtml(l.favorite_count, l.comment_count)}
       ${l.is_portfolio ? `<div class="mini-block"><span class="label">Includes</span>${(l.portfolio_members || []).map(m => `${escapeHtml(m.propertyType)} in ${escapeHtml(m.city)}, ${escapeHtml(m.state)} (${money(m.estimatedValue)})`).join('<br>')}</div>` : ''}
       ${l.is_rental
@@ -97,6 +98,8 @@ function directoryFilterParams() {
   const priceMax = document.getElementById('filterPriceMax').value;
   const sort = document.getElementById('filterSort').value;
   const kind = document.getElementById('filterKind').value;
+  const mello = document.getElementById('filterMello').value;
+  const hoaMax = document.getElementById('filterHoaMax').value;
   if (city) params.set('city', city);
   if (state) params.set('state', state);
   if (propertyType) params.set('propertyType', propertyType);
@@ -104,6 +107,8 @@ function directoryFilterParams() {
   if (priceMax) params.set('priceMax', priceMax);
   if (sort && sort !== 'newest') params.set('sort', sort);
   if (kind) params.set('kind', kind);
+  if (mello === 'none') params.set('noMelloRoos', '1');
+  if (hoaMax !== '') params.set('hoaMax', hoaMax);
   return { params, city, state };
 }
 
@@ -271,10 +276,12 @@ async function loadLiveNumbers() {
     typeSelect.appendChild(opt);
   });
 
+  ['directoryFilters', 'directoryFilters2', 'directoryFilters3'].forEach(formId => document.getElementById(formId).addEventListener('submit', e => e.preventDefault()));
   document.getElementById('directoryFilters').addEventListener('input', () => loadDirectory());
   document.getElementById('directoryFilters2').addEventListener('input', () => loadDirectory());
   document.getElementById('directoryFilters2').addEventListener('change', () => loadDirectory());
   document.getElementById('directoryFilters3').addEventListener('change', () => loadDirectory());
+  document.getElementById('directoryFilters3').addEventListener('input', () => loadDirectory());
   document.getElementById('viewListBtn').addEventListener('click', () => setView('list'));
   document.getElementById('viewMapBtn').addEventListener('click', () => setView('map'));
   document.getElementById('directoryLoadMoreBtn')?.addEventListener('click', () => loadMoreDirectory());

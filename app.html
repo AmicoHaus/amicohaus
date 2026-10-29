@@ -206,6 +206,7 @@
               </div>
               <div class="field"><label>Virtual tour URL (optional)</label><input type="url" id="virtualTourUrl" maxlength="500" placeholder="https://my.matterport.com/show/?m=..."></div>
               <div class="field"><label>External links (Airbnb, Zillow, etc — one per line)</label><textarea id="externalLinks" maxlength="800" placeholder="https://airbnb.com/rooms/..."></textarea></div>
+              <div id="listingCostsFields"></div>
               <div class="field"><label>Photos (up to 8, added after you create the listing)</label><input type="file" id="listingPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple></div>
               <label class="checkbox-row"><input type="checkbox" id="showExactAddress"><span>Reveal exact address once matched</span></label>
               <div class="field">
@@ -366,6 +367,7 @@
           </div>
           <label class="checkbox-row"><input type="checkbox" id="plPrefersLocalSpecialist"><span>I'd prefer an agent who specializes in my specific area, not one covering a huge territory</span></label>
 
+          <div id="plCostsFields"></div>
           <div class="field"><label>Photos (up to 8, added after posting)</label><input type="file" id="plPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple></div>
           <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="createPreListingBtn">Post for Proposals</button></div>
         </details>
@@ -678,6 +680,7 @@
             <div id="augLifeEventFields"></div>
           </div>
 
+          <div id="augCostsFields"></div>
           <div class="field"><label>Photos (up to 8, added after posting)</label><input type="file" id="augPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple></div>
           <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="createAugmentedHomeBtn">Post Listing</button></div>
         </details>
@@ -756,6 +759,7 @@
             <div id="greenLifeEventFields"></div>
           </div>
 
+          <div id="greenCostsFields"></div>
           <div class="field"><label>Photos (up to 8, added after posting)</label><input type="file" id="greenPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple></div>
           <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="createGreenHomeBtn">Post Listing</button></div>
         </details>

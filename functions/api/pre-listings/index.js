@@ -1,6 +1,6 @@
 import { getSessionUser } from '../../_lib/auth.js';
 import { json, badRequest, unauthorized } from '../../_lib/util.js';
-import { validatePreListingInput, insertPreListing, fetchPreListingPhotos, getVoteTally } from '../../_lib/preListings.js';
+import { validatePreListingInput, insertPreListing, fetchPreListingPhotos, getVoteTally, sealTally, fetchVotedIds } from '../../_lib/preListings.js';
 import { getAgentProfile } from '../../_lib/agents.js';
 import { lookupZipCoords, nearestServiceDistance, SERVICE_RADIUS_MILES } from '../../_lib/geo.js';
 import { notifyAgentsNewRequest } from '../../_lib/marketplaceNotify.js';
@@ -47,11 +47,16 @@ export async function onRequestGet(context) {
   // agent set up on their profile, not a separate filter to configure here.
   let agentZipCoords = null;
   let serviceZips = null;
+  // An approved agent sees vote tallies only on pre-listings they've voted on themselves (see sealTally).
+  let votedIds = null;
   if (user) {
     const agentProfile = await getAgentProfile(db, user.id);
-    if (agentProfile && agentProfile.status === 'approved' && agentProfile.serviceZips.length > 0) {
-      serviceZips = agentProfile.serviceZips;
-      agentZipCoords = await lookupZipCoords(db, serviceZips);
+    if (agentProfile && agentProfile.status === 'approved') {
+      if (user.role !== 'admin') votedIds = await fetchVotedIds(db, user.id);
+      if (agentProfile.serviceZips.length > 0) {
+        serviceZips = agentProfile.serviceZips;
+        agentZipCoords = await lookupZipCoords(db, serviceZips);
+      }
     }
   }
   const listingZipCoords = serviceZips ? await lookupZipCoords(db, rows.results.map(r => r.zip)) : null;
@@ -61,7 +66,8 @@ export async function onRequestGet(context) {
   const preListings = [];
   for (const r of rows.results) {
     const photos = await fetchPreListingPhotos(db, r.id);
-    const votes = await getVoteTally(db, r.id);
+    const tally = await getVoteTally(db, r.id);
+    const votes = votedIds && r.user_id !== user.id && !votedIds.has(r.id) ? sealTally(tally) : tally;
     let distanceMiles = null;
     if (serviceZips) {
       distanceMiles = nearestServiceDistance(listingZipCoords.get(r.zip), serviceZips, agentZipCoords);

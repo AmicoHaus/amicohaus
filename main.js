@@ -184,8 +184,87 @@ let editingListingId = null;
 let editingPortfolioId = null;
 let myListings = [];
 
+// ---- Mello-Roos / HOA fields, shared by the four home forms (regular listing, pre-listing, AugmentedHomes,
+// GreenHomes) and the edit forms. Saved separately right after the home itself (PUT /api/home-costs/...), the same
+// way photos upload afterwards. readHomeCosts runs before the home is created, so a missing amount stops the
+// submit instead of leaving a half-saved home.
+function homeCostsFromRow(row) {
+  if (!row) return null;
+  let d = row.hoa_details_json;
+  if (typeof d === 'string') { try { d = JSON.parse(d); } catch { d = {}; } }
+  return { melloRoosAnnual: row.mello_roos_annual ?? null, hoaMonthly: row.hoa_monthly ?? null, hoaDetails: d || {} };
+}
+
+function homeCostsFieldsHtml(prefix, costs) {
+  const c = costs || { melloRoosAnnual: null, hoaMonthly: null, hoaDetails: {} };
+  const d = c.hoaDetails || {};
+  const status = v => (v === null || v === undefined ? '' : v === 0 ? 'none' : 'yes');
+  const statusOptions = v => [['', 'Not sure'], ['none', 'None'], ['yes', 'Yes']].map(([k, label]) => `<option value="${k}"${status(v) === k ? ' selected' : ''}>${label}</option>`).join('');
+  const ruleOptions = (choices, sel) => `<option value="">Not sure</option>${choices.map(k => `<option value="${k}"${sel === k ? ' selected' : ''}>${HOA_RULE_LABELS[k]}</option>`).join('')}`;
+  const includes = new Set(d.includes || []);
+  return `
+    <details class="score-breakdown home-costs-fields" data-costs-prefix="${prefix}"${status(c.melloRoosAnnual) || status(c.hoaMonthly) ? ' open' : ''}>
+      <summary>Mello-Roos and HOA (optional; buyers ask about these first)</summary>
+      <div class="form-row two-col">
+        <div class="field"><label for="${prefix}MelloStatus">Mello-Roos</label><select id="${prefix}MelloStatus">${statusOptions(c.melloRoosAnnual)}</select></div>
+        <div class="field"><label for="${prefix}Mello">Mello-Roos per year ($)</label><input type="number" id="${prefix}Mello" min="1" max="100000" step="1" inputmode="numeric" value="${c.melloRoosAnnual > 0 ? c.melloRoosAnnual : ''}"></div>
+      </div>
+      <p class="tiny">Your property tax bill lists it as a special tax or "CFD".</p>
+      <div class="form-row two-col">
+        <div class="field"><label for="${prefix}HoaStatus">HOA</label><select id="${prefix}HoaStatus">${statusOptions(c.hoaMonthly)}</select></div>
+        <div class="field"><label for="${prefix}Hoa">HOA dues per month ($)</label><input type="number" id="${prefix}Hoa" min="1" max="20000" step="1" inputmode="numeric" value="${c.hoaMonthly > 0 ? c.hoaMonthly : ''}"></div>
+      </div>
+      <fieldset class="hoa-includes">
+        <legend class="label">Dues include</legend>
+        ${Object.entries(HOA_INCLUDE_LABELS).map(([k, label]) => `<label class="checkbox-row"><input type="checkbox" data-hoa-include value="${k}"${includes.has(k) ? ' checked' : ''}><span>${label}</span></label>`).join('')}
+      </fieldset>
+      <div class="form-row three-col">
+        <div class="field"><label for="${prefix}Rentals">Renting out</label><select id="${prefix}Rentals">${ruleOptions(['allowed', 'no_short_term', 'limited'], d.rentals)}</select></div>
+        <div class="field"><label for="${prefix}Pets">Pets</label><select id="${prefix}Pets">${ruleOptions(['allowed', 'limited'], d.pets)}</select></div>
+        <div class="field"><label for="${prefix}Assessment">Special assessment, if any</label><input type="text" id="${prefix}Assessment" maxlength="120" placeholder="e.g. $40/mo for the roof, through 2027" value="${escapeHtml(d.specialAssessment || '')}"></div>
+      </div>
+    </details>`;
+}
+
+function readHomeCosts(prefix) {
+  const get = idName => document.getElementById(prefix + idName);
+  if (!get('MelloStatus')) return null;
+  const amount = (statusId, amountId, label, max) => {
+    const st = get(statusId).value;
+    const typed = get(amountId).value.trim();
+    if (st === 'none' || (typed !== '' && Number(typed) === 0)) return 0;
+    if (st !== 'yes' && !typed) return null; // "Not sure" with an amount typed in counts as Yes
+    const n = Number(typed);
+    if (!typed || !Number.isInteger(n) || n <= 0) throw new Error(`Add the ${label} amount in whole dollars, or pick "Not sure".`);
+    if (n > max) throw new Error(`The ${label} amount looks too high (the most is ${money(max)}).`);
+    return n;
+  };
+  const hoaMonthly = amount('HoaStatus', 'Hoa', 'HOA dues per month', 20000);
+  return {
+    melloRoosAnnual: amount('MelloStatus', 'Mello', 'Mello-Roos per year', 100000),
+    hoaMonthly,
+    hoaDetails: hoaMonthly === 0 ? {} : {
+      includes: [...document.querySelectorAll(`[data-costs-prefix="${prefix}"] [data-hoa-include]:checked`)].map(i => i.value),
+      rentals: get('Rentals').value,
+      pets: get('Pets').value,
+      specialAssessment: get('Assessment').value.trim(),
+    },
+  };
+}
+
+async function saveHomeCosts(kind, id, costs) {
+  if (costs) await apiPut(`/api/home-costs/${kind}/${id}`, costs);
+}
+
+function resetHomeCostsFields(containerId, prefix) {
+  const box = document.getElementById(containerId);
+  if (box) box.innerHTML = homeCostsFieldsHtml(prefix);
+}
+
+
 function resetListingFormToCreateMode() {
   editingListingId = null;
+  resetHomeCostsFields('listingCostsFields', 'lc');
   document.getElementById('listingSubmitBtn').textContent = 'Create Listing';
   document.getElementById('isBuyerOnly').disabled = false;
   document.getElementById('isRental').disabled = false;
@@ -195,6 +274,8 @@ function resetListingFormToCreateMode() {
 // pre-filled from an existing one) — the field list is the same either way,
 // only what happens with the kind toggle and identity-specific fields differs.
 function fillListingFormFields(l, { forClone } = {}) {
+  const costsBox = document.getElementById('listingCostsFields');
+  if (costsBox) costsBox.innerHTML = homeCostsFieldsHtml('lc', forClone ? null : homeCostsFromRow(l));
   document.getElementById('isBuyerOnly').checked = !!l.is_buyer_only;
   document.getElementById('isRental').checked = !!l.is_rental;
   setBuyerOnlyFieldsetState(!!l.is_buyer_only);
@@ -1951,15 +2032,17 @@ const PROPOSAL_SORTS = {
     return tier(a) - tier(b) || (b.rating ?? 0) - (a.rating ?? 0) || b.reviewCount - a.reviewCount;
   },
   mostHired: (a, b) => (b.hiresOnPlatform || 0) - (a.hiresOnPlatform || 0) || b.reviewCount - a.reviewCount,
+  // Pre-listings only: the lowest fee at the owner's expected sale price leaves them the most.
+  takeHome: (a, b) => proposalFeeDollars(a, takeHomePrice()) - proposalFeeDollars(b, takeHomePrice()),
 };
 
-function proposalControlsHtml() {
+function proposalControlsHtml(feeSort) {
   const serviceOptions = Object.entries(SERVICE_TYPE_LABELS).map(([k, v]) => `<option value="${k}">${escapeHtml(v)}</option>`).join('');
   return `
     <div class="proposal-controls">
       <div class="form-row three-col">
         <div class="field"><label for="proposalSort">Sort by</label>
-          <select id="proposalSort" data-proposal-control><option value="newest">Newest first</option><option value="rating">Highest rated</option><option value="mostHired">Most hired on Amico Haus</option></select>
+          <select id="proposalSort" data-proposal-control><option value="newest">Newest first</option><option value="rating">Highest rated</option><option value="mostHired">Most hired on Amico Haus</option>${feeSort ? '<option value="takeHome">Most take-home for you</option>' : ''}</select>
         </div>
         <div class="field"><label for="proposalFeeType">Fee type</label>
           <select id="proposalFeeType" data-proposal-control><option value="">Any</option><option value="commission">Commission</option><option value="flat">Flat fee</option></select>
@@ -1991,34 +2074,37 @@ function filteredProposals(bids, opts = {}) {
   return kept.sort(PROPOSAL_SORTS[sort] || PROPOSAL_SORTS.newest);
 }
 
-function proposalResultsHtml(bids, backLink, opts) {
+function proposalResultsHtml(bids, backLink, opts, feePrice = null) {
   const shown = filteredProposals(bids, opts);
   const countLine = shown.length < bids.length ? `<p class="tiny">Showing ${shown.length} of ${bids.length} proposals.</p>` : '';
   if (!shown.length) return `${countLine}<div class="empty-state">No proposals match these filters.</div>`;
-  return `${countLine}${renderBidComparisonTable(shown, true)}${shown.map(b => renderBidCard(b, true, backLink)).join('')}`;
+  return `${countLine}${renderBidComparisonTable(shown, true, feePrice)}${shown.map(b => renderBidCard(b, true, backLink)).join('')}`;
 }
 
-function renderProposalsSection(bids, backLink) {
-  proposalView = { bids, backLink };
+// feeSort (pre-listings): adds the "most take-home" sort and a fee-in-dollars column at the owner's expected price.
+function renderProposalsSection(bids, backLink, { feeSort = false, startPrice = 0 } = {}) {
+  proposalView = { bids, backLink, feeSort, startPrice };
   if (!bids.length) return '<h3>Proposals (0)</h3><div class="empty-state">No proposals yet.</div>';
-  return `<h3>Proposals (${bids.length})</h3>${bids.length >= 3 ? proposalControlsHtml() : ''}<div id="proposalResults">${proposalResultsHtml(bids, backLink)}</div>`;
+  return `<h3>Proposals (${bids.length})</h3>${bids.length >= 3 ? proposalControlsHtml(feeSort) : ''}<div id="proposalResults">${proposalResultsHtml(bids, backLink, {}, feeSort ? startPrice : null)}</div>`;
 }
 
 function rerenderProposalResults() {
   const el = document.getElementById('proposalResults');
   if (!el || !proposalView) return;
+  // The sort/filter controls only exist once there are 3+ proposals; the take-home inputs re-render this too.
+  const ctl = idName => document.getElementById(idName);
   el.innerHTML = proposalResultsHtml(proposalView.bids, proposalView.backLink, {
-    sort: document.getElementById('proposalSort').value,
-    feeType: document.getElementById('proposalFeeType').value,
-    mustInclude: document.getElementById('proposalMustInclude').value,
-    licenseOnly: document.getElementById('proposalLicenseVerified').checked,
-    hideDeclined: document.getElementById('proposalHideDeclined').checked,
-  });
+    sort: ctl('proposalSort') ? ctl('proposalSort').value : 'newest',
+    feeType: ctl('proposalFeeType') ? ctl('proposalFeeType').value : '',
+    mustInclude: ctl('proposalMustInclude') ? ctl('proposalMustInclude').value : '',
+    licenseOnly: !!(ctl('proposalLicenseVerified') && ctl('proposalLicenseVerified').checked),
+    hideDeclined: !!(ctl('proposalHideDeclined') && ctl('proposalHideDeclined').checked),
+  }, proposalView.feeSort ? takeHomePrice() : null);
 }
 
 // A quick-scan table above the full proposal cards, once there's something to compare — the whole point of
 // Agent Strategy is comparing agents fairly, so this shouldn't require scrolling through full cards first.
-function renderBidComparisonTable(bids, canAct) {
+function renderBidComparisonTable(bids, canAct, feePrice = null) {
   if (!bids || bids.length < 2) return '';
   const rows = bids.map(b => {
     const winRatePct = b.winRate !== null && b.winRate !== undefined ? `${Math.round(b.winRate * 100)}%` : '—';
@@ -2031,6 +2117,7 @@ function renderBidComparisonTable(bids, canAct) {
       <td><a class="profile-link" href="/profile/${b.agentUserId}">${escapeHtml(b.agentName)}</a>${b.topRated ? ' 🏆' : ''}</td>
       <td>${ratingChipHtml(b.rating, b.reviewCount)}</td>
       <td>${feeParts.length ? feeParts.join(' + ') : '—'}</td>
+      ${feePrice ? `<td>${money(proposalFeeDollars(b, feePrice))}</td>` : ''}
       <td>${serviceCount} service${serviceCount === 1 ? '' : 's'}</td>
       <td>${winRatePct}</td>
       <td>${hiredLabel}</td>
@@ -2042,7 +2129,7 @@ function renderBidComparisonTable(bids, canAct) {
   return `
     <div class="comparison-table-wrap">
       <table class="comparison-table">
-        <thead><tr><th>Agent</th><th>Rating</th><th>Fee</th><th>Services</th><th>Win rate</th><th>Hired</th><th>Proposal speed</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Agent</th><th>Rating</th><th>Fee</th>${feePrice ? `<th>Fee at ${money(feePrice)}</th>` : ''}<th>Services</th><th>Win rate</th><th>Hired</th><th>Proposal speed</th><th>Status</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>
@@ -2116,16 +2203,180 @@ function renderBidFormAndVote(myBid, myVote, showVote) {
         ${myBid && myBid.status === 'pending' ? '<button type="button" class="btn btn-danger btn-sm" data-action="withdraw-bid" data-bid-id="' + myBid.id + '">Withdraw</button>' : ''}
       </div>
     </div>
-    ${showVote ? `
-    <div class="panel">
-      <h3>Is the price right?</h3>
-      <div class="card-actions">
-        <button type="button" class="btn ${myVote && myVote.vote === 'too_high' ? 'btn-primary' : 'btn-ghost'} btn-sm" data-action="cast-vote" data-vote="too_high">Too High</button>
-        <button type="button" class="btn ${myVote && myVote.vote === 'just_right' ? 'btn-primary' : 'btn-ghost'} btn-sm" data-action="cast-vote" data-vote="just_right">Just Right</button>
-        <button type="button" class="btn ${myVote && myVote.vote === 'too_low' ? 'btn-primary' : 'btn-ghost'} btn-sm" data-action="cast-vote" data-vote="too_low">Too Low</button>
-      </div>
-    </div>` : ''}
+    ${showVote ? renderPriceOpinionForm(myVote) : ''}
   `;
+}
+
+// ---- Take-home estimate (homeowner's own pre-listing) ----
+// Turns each proposal's fee into dollars at the owner's expected sale price, after the usual selling costs, so
+// "2.5% vs $9,500 flat" becomes what they'd actually keep. All math happens here in the browser; the loan payoff
+// is saved only on this device (localStorage), never sent anywhere.
+function proposalFeeDollars(b, price) {
+  return Math.round(((Number(b.commissionPct) || 0) / 100) * price + (Number(b.flatFee) || 0));
+}
+
+// Before the take-home panel is on screen (the first render builds everything as one string), the start price
+// it will show stands in.
+function takeHomePrice() {
+  const el = document.getElementById('thPrice');
+  if (el) return Math.max(0, Number(el.value) || 0);
+  return proposalView && proposalView.startPrice ? proposalView.startPrice : 0;
+}
+
+function takeHomeStartPrice(p, opinions) {
+  return opinions && opinions.summary ? opinions.summary.median : p.askingPrice;
+}
+
+function keepMoney(n) {
+  return n < 0 ? `-${money(-n)}` : money(n);
+}
+
+function takeHomeInputs() {
+  const num = (idName, fallback) => {
+    const el = document.getElementById(idName);
+    const n = el && el.value !== '' ? Number(el.value) : NaN;
+    return Number.isFinite(n) && n >= 0 ? n : fallback;
+  };
+  return { price: takeHomePrice(), payoff: num('thPayoff', 0), buyerPct: num('thBuyerPct', 0), transfer: num('thTransfer', 1.1), closingPct: num('thClosing', 1) };
+}
+
+function takeHomeResultHtml(bids, inp) {
+  const costs = Math.round(inp.price * inp.buyerPct / 100 + inp.price / 1000 * inp.transfer + inp.price * inp.closingPct / 100);
+  const beforeFee = inp.price - inp.payoff - costs;
+  const live = (bids || []).filter(b => b.status === 'pending' || b.status === 'accepted')
+    .map(b => ({ b, fee: proposalFeeDollars(b, inp.price) }))
+    .sort((x, y) => x.fee - y.fee);
+  const rows = live.map(({ b, fee }) => `<tr><td>${escapeHtml(b.agentName)}${b.status === 'accepted' ? ' <span class="badge badge-active">hired</span>' : ''}</td><td><strong>${keepMoney(beforeFee - fee)}</strong></td><td>${money(fee)}</td></tr>`).join('');
+  return `
+    <p class="take-home-base">Before any listing agent's fee: <strong>${keepMoney(beforeFee)}</strong> <span class="tiny">(${money(inp.price)} sale, minus ${money(inp.payoff)} payoff and about ${money(costs)} in other selling costs)</span></p>
+    ${rows ? `<div class="comparison-table-wrap"><table class="comparison-table"><thead><tr><th>Agent</th><th>You'd keep</th><th>Their fee</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<p class="tiny">Proposals will show up here with what you'd keep from each.</p>`}`;
+}
+
+function renderTakeHomePanel(p, bids, opinions) {
+  const startPrice = takeHomeStartPrice(p, opinions);
+  let payoff = '';
+  try { payoff = localStorage.getItem(`ah_payoff_${p.id}`) || ''; } catch { /* storage blocked */ }
+  const inp = { price: startPrice, payoff: Number(payoff) || 0, buyerPct: 0, transfer: 1.1, closingPct: 1 };
+  return `
+    <details class="panel" id="takeHomePanel" data-pre-listing-id="${p.id}" open>
+      <summary>Your take-home estimate</summary>
+      <p class="tiny">A rough estimate for comparing proposals in dollars${opinions && opinions.summary ? ", starting from the middle of the agents' price opinions" : ''}. Your loan payoff stays on this device. Your escrow officer will give you the real numbers.</p>
+      <div class="form-row three-col">
+        <div class="field"><label for="thPrice">Expected sale price ($)</label><input type="number" id="thPrice" data-take-home min="0" step="1000" inputmode="numeric" value="${startPrice}"></div>
+        <div class="field"><label for="thPayoff">Loan payoff ($)</label><input type="number" id="thPayoff" data-take-home min="0" step="1000" inputmode="numeric" placeholder="0 if paid off" value="${escapeHtml(payoff)}"></div>
+        <div class="field"><label for="thBuyerPct">Buyer's agent pay you'll offer (%)</label><input type="number" id="thBuyerPct" data-take-home min="0" max="10" step="0.25" inputmode="decimal" value="0"></div>
+      </div>
+      <div class="form-row two-col">
+        <div class="field"><label for="thTransfer">County transfer tax ($ per $1,000)</label><input type="number" id="thTransfer" data-take-home min="0" step="0.05" inputmode="decimal" value="1.10"></div>
+        <div class="field"><label for="thClosing">Title, escrow and other costs (% of price)</label><input type="number" id="thClosing" data-take-home min="0" max="10" step="0.1" inputmode="decimal" value="1"></div>
+      </div>
+      <p class="tiny">$1.10 per $1,000 is San Diego County's transfer tax; a few California cities add their own.</p>
+      <div id="takeHomeResult">${takeHomeResultHtml(bids, inp)}</div>
+    </details>`;
+}
+
+function refreshTakeHome() {
+  const panel = document.getElementById('takeHomePanel');
+  if (!panel || !proposalView) return;
+  try { localStorage.setItem(`ah_payoff_${panel.dataset.preListingId}`, document.getElementById('thPayoff').value); } catch { /* storage blocked */ }
+  document.getElementById('takeHomeResult').innerHTML = takeHomeResultHtml(proposalView.bids, takeHomeInputs());
+  if (document.getElementById('proposalResults')) rerenderProposalResults();
+}
+
+const VOTE_LABELS = { too_high: 'Too high', just_right: 'Just right', too_low: 'Too low' };
+const DECK_ACCEPT = '.pdf,.pptx,.ppt,.docx,.doc,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword';
+
+// "2026-09-14" -> "Sep 14, 2026" (read as a calendar date, so no time-zone shift).
+function compDateLabel(iso) {
+  const [y, m, d] = String(iso).split('-').map(Number);
+  if (!y || !m || !d) return iso;
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+}
+
+function formatFileSize(bytes) {
+  if (!bytes) return '';
+  return bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+const DECK_MAX_BYTES = 20 * 1024 * 1024;
+const DECK_EXTENSIONS = ['pdf', 'pptx', 'ppt', 'docx', 'doc'];
+
+function deckLineHtml(deck) {
+  if (!deck || !marketplaceDetail) return '';
+  return `📎 <a href="/api/pre-listings/${marketplaceDetail.id}/votes/deck">${escapeHtml(deck.name)}</a> · ${formatFileSize(deck.size)} <button type="button" class="link-btn" data-action="remove-deck">Remove</button>`;
+}
+
+function deckHint(deck) {
+  return deck ? 'Choosing a new file replaces this one. Saving your price opinion is separate.' : 'A pricing deck, a CMA or a marketing plan. It uploads as soon as you pick it; your other answers stay as they are.';
+}
+
+// The agent's sealed price opinion: their vote on the asking price, the list price they'd suggest, up to 3 sold
+// comps, a note, and one presentation file. Only the homeowner ever sees any of it.
+function renderPriceOpinionForm(myVote) {
+  const mine = myVote || { vote: null, note: '', priceOpinion: null, comps: [], deck: null };
+  const comps = [0, 1, 2].map(i => mine.comps[i] || {});
+  const v = x => escapeHtml(x ?? '');
+  const today = new Date().toISOString().slice(0, 10);
+  return `
+    <div class="panel" id="priceOpinionPanel" data-vote="${v(mine.vote)}">
+      <div class="card-head"><h3>Your price opinion</h3><span class="badge badge-gold">Sealed</span></div>
+      <p class="tiny">Only the homeowner sees your suggested price, comps, note and file. Your vote counts toward the too high / just right / too low totals, which other agents see only after casting their own.</p>
+      ${myVote && !myVote.vote && (myVote.priceOpinion || myVote.comps.length) ? '<p class="tiny gone-quiet-nudge">The homeowner changed the asking price, so votes were reset. Your suggested price, comps and file are still here. Pick your vote again and save.</p>' : ''}
+      <div class="field"><span class="label">Is the asking price right?</span>
+        <div class="card-actions" role="group" aria-label="Your vote on the asking price">
+          ${Object.entries(VOTE_LABELS).map(([key, label]) => `<button type="button" class="btn ${mine.vote === key ? 'btn-primary' : 'btn-ghost'} btn-sm" data-action="pick-vote" data-vote="${key}" aria-pressed="${mine.vote === key}">${label}</button>`).join('')}
+        </div>
+      </div>
+      <div class="field"><label for="opinionPrice">The list price you'd suggest ($)</label><input type="number" id="opinionPrice" min="10000" max="500000000" step="1000" inputmode="numeric" value="${v(mine.priceOpinion)}"></div>
+      <details class="score-breakdown"${mine.comps.length ? ' open' : ''}>
+        <summary>Comps that back it up (up to 3)</summary>
+        ${comps.map((c, i) => `
+          <div class="comp-row" data-comp-row="${i}">
+            <div class="field"><label for="compAddress${i}">Comp ${i + 1} address</label><input type="text" id="compAddress${i}" maxlength="120" value="${v(c.address)}"></div>
+            <div class="form-row three-col">
+              <div class="field"><label for="compPrice${i}">Sold for ($)</label><input type="number" id="compPrice${i}" min="1000" step="1000" inputmode="numeric" value="${v(c.soldPrice)}"></div>
+              <div class="field"><label for="compDate${i}">Sold on</label><input type="date" id="compDate${i}" max="${today}" value="${v(c.soldDate)}"></div>
+              <div class="field"><label for="compSqft${i}">Sq ft</label><input type="number" id="compSqft${i}" min="100" step="1" inputmode="numeric" value="${v(c.sqft)}"></div>
+            </div>
+          </div>`).join('')}
+      </details>
+      <div class="field"><label for="opinionNote">Note for the homeowner (optional)</label><textarea id="opinionNote" maxlength="300" placeholder="e.g. Priced to the two most recent sales on the same street.">${v(mine.note)}</textarea></div>
+      <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="save-opinion">Save price opinion</button></div>
+      <div class="field">
+        <label for="opinionDeck">Your presentation (PDF, PowerPoint or Word, up to 20MB)</label>
+        <p class="tiny deck-current" id="deckCurrent">${deckLineHtml(mine.deck)}</p>
+        <input type="file" id="opinionDeck" accept="${DECK_ACCEPT}">
+        <p class="tiny" id="deckHint" role="status" aria-live="polite">${deckHint(mine.deck)}</p>
+      </div>
+    </div>`;
+}
+
+// What the homeowner sees: each agent's sealed opinion, and the range and middle once 3+ agents have suggested a
+// price. Opinions, not appraisals.
+function renderPriceOpinionsPanel(data, preListingId) {
+  if (!data) return '';
+  const { opinions, summary } = data;
+  const priced = opinions.filter(o => o.priceOpinion).length;
+  const summaryHtml = summary
+    ? `<div class="opinion-summary"><div><span class="label">Range</span>${money(summary.low)} to ${money(summary.high)}</div><div><span class="label">Middle</span>${money(summary.median)}</div><div><span class="label">From</span>${summary.count} agents</div></div>`
+    : `<p class="tiny">The range and middle show up once 3 agents have suggested a price (${priced} so far).</p>`;
+  const cards = opinions.map(o => {
+    const comps = (o.comps || []).map(c => `<li><strong>${escapeHtml(c.address)}</strong> sold for ${money(c.soldPrice)}${c.soldDate ? ` on ${escapeHtml(compDateLabel(c.soldDate))}` : ''}${c.sqft ? ` · ${c.sqft.toLocaleString('en-US')} sq ft (${money(Math.round(c.soldPrice / c.sqft))}/sq ft)` : ''}</li>`).join('');
+    return `
+      <div class="card opinion-card">
+        <div class="card-head"><h4><a class="profile-link" href="/profile/${o.agentUserId}">${escapeHtml(o.agentName)}</a></h4>${o.vote ? `<span class="badge badge-gold">${VOTE_LABELS[o.vote] || ''}</span>` : ''}</div>
+        ${o.priceOpinion ? `<p class="opinion-price">Suggests ${money(o.priceOpinion)}</p>` : '<p class="tiny">No suggested price yet.</p>'}
+        ${o.note ? `<p>${escapeHtml(o.note)}</p>` : ''}
+        ${comps ? `<span class="label">Comps</span><ul class="comp-list">${comps}</ul>` : ''}
+        ${o.deck ? `<p class="tiny">📎 <a href="/api/pre-listings/${preListingId}/votes/deck?agent=${o.agentUserId}">${escapeHtml(o.deck.name)}</a> · ${formatFileSize(o.deck.size)}</p>` : ''}
+      </div>`;
+  }).join('');
+  return `
+    <div class="panel" id="priceOpinionsPanel">
+      <h3>Agents' price opinions (${opinions.length})</h3>
+      <p class="tiny">Agents never see each other's suggested prices, comps or files, and can't see the vote totals until they've voted. These are professional opinions, not appraisals.</p>
+      ${opinions.length ? summaryHtml + cards : '<div class="empty-state">No agent has weighed in yet. You\'ll get a notification when one does.</div>'}
+    </div>`;
 }
 
 // ---- Owner tools for their own pre-listing: edit the details, or close it ----
@@ -2220,6 +2471,7 @@ function renderPreListingEditForm(p) {
         <input type="file" id="plePhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple>
         <p class="tiny">Up to 8 in total. Added photos upload when you save.</p>
       </div>
+      ${homeCostsFieldsHtml('plec', p.costs)}
       <div class="form-actions">
         <button type="button" class="btn btn-primary btn-sm" data-action="save-pre-listing">Save changes</button>
         <button type="button" class="btn btn-ghost btn-sm" data-action="cancel-edit-pre-listing">Cancel</button>
@@ -2250,6 +2502,7 @@ async function savePreListingEdit(id) {
   const btn = panel.querySelector('[data-action="save-pre-listing"]');
   btn.disabled = true;
   try {
+    const costs = readHomeCosts('plec');
     const result = await apiPut(`/api/pre-listings/${id}`, {
       title: val('Title').trim(),
       askingPrice: val('AskingPrice'),
@@ -2273,6 +2526,7 @@ async function savePreListingEdit(id) {
       prefersExclusive: checked('PrefersExclusive'),
       prefersLocalSpecialist: checked('PrefersLocalSpecialist'),
     });
+    await saveHomeCosts('pre_listing', id, costs);
     const photoResult = await uploadPhotos(`/api/pre-listings/${id}/photos`, [...document.getElementById('plePhotos').files]);
     toastWithPhotoResult(result.votesCleared ? 'Saved — the old price votes were cleared so agents can weigh in on the new price.' : 'Pre-listing updated.', photoResult);
     openPreListingDetail(id);
@@ -2315,7 +2569,7 @@ function backToMarketplaceList() {
 async function openPreListingDetail(id, opts = {}) {
   const contentEl = document.getElementById('marketplaceDetailContent');
   try {
-    const { preListing: p, bids, myBid, myVote, isOwner, homeownerRating } = await apiGet(`/api/pre-listings/${id}`);
+    const { preListing: p, bids, myBid, myVote, priceOpinions, isOwner, homeownerRating } = await apiGet(`/api/pre-listings/${id}`);
     marketplaceDetail = { kind: 'pre_listing', id };
     showMarketplaceDetail();
 
@@ -2333,27 +2587,30 @@ async function openPreListingDetail(id, opts = {}) {
           <div class="mini-block"><span class="label">Showing notice</span>${p.showingNoticeHours > 0 ? `${p.showingNoticeHours} hours required` : 'None required'}</div>
         </div>
         ${p.specialInstructions ? `<p class="tiny"><span class="label">Special instructions</span> ${escapeHtml(p.specialInstructions)}</p>` : ''}
+        ${homeCostsDetailHtml(p.costs)}
         ${renderStipulations(p)}
         ${p.distanceMiles !== null && p.distanceMiles !== undefined ? `<p class="tiny">${p.inServiceArea ? `✅ ${p.distanceMiles} miles from your nearest service zip — within your 20-mile area.` : `⚠️ ${p.distanceMiles} miles from your nearest service zip — outside your declared 20-mile area.`}</p>` : ''}
         ${!isOwner ? renderHomeownerRatingBadge(homeownerRating, 'Homeowner rating') : ''}
         ${p.description ? `<p>${escapeHtml(p.description)}</p>` : ''}
         ${photosHtml}
-        <p class="tiny">${voteSummary(p.votes, 'Agent votes')}</p>
+        <p class="tiny">${voteSummary(p.votes, 'Agent votes', p.status)}</p>
+        ${p.buyerDemand ? `<p class="demand-meter">👀 <strong>${p.buyerDemand} buyers</strong> on Amico Haus are looking for a home like this in ${escapeHtml(p.city)} at this price.</p>` : ''}
         ${renderPriceHistory(p.priceHistory)}
         ${isOwner ? `<p class="form-note trust"><strong>Talk to a lender.</strong> If selling here means financing your next place, rates, loan programs and approvals come from lenders, not from websites or real estate agents. Talk to your own mortgage broker, or use our preferred lender, <strong>Point Mortgage Corporation</strong> (NMLS #231073), at <a href="tel:+16194754095">(619) 475-4095</a>. You are always free to choose any lender you like, and you can verify any lender's license at nmlsconsumeraccess.org.</p>` : ''}
         ${isOwner ? renderPreListingOwnerBar(p) : ''}
       </div>
+      ${isOwner ? renderPriceOpinionsPanel(priceOpinions, id) : ''}
       ${isOwner && p.status === 'open' ? renderPreListingEditForm(p) : ''}
       ${isOwner ? renderDisclosuresChecklist(p) : ''}
       ${isOwner ? '<div id="showingsPanel"></div>' : ''}
       ${isOwner
-        ? `${renderProposalsSection(bids, `pre-listing-${id}`)}
+        ? `${renderTakeHomePanel(p, bids, priceOpinions)}${renderProposalsSection(bids, `pre-listing-${id}`, { feeSort: true, startPrice: takeHomeStartPrice(p, priceOpinions) })}
            ${p.status === 'open' ? renderInviteAgentPanel() : ''}
            ${p.status === 'awarded' ? `<div id="milestonesPanel"></div>${renderDisputePanel()}${renderReviewForm()}` : ''}`
         : (currentAgentProfile && currentAgentProfile.status === 'approved'
           ? (isAwardedAgent
             ? `<div id="milestonesPanel"></div>${renderDisputePanel()}${renderHomeownerReviewForm()}`
-            : `${renderBidFormAndVote(myBid, myVote, true)}${p.status === 'open' ? renderRequestShowingForm() : ''}`)
+            : `${renderBidFormAndVote(myBid, myVote, p.status === 'open')}${p.status === 'open' ? renderRequestShowingForm() : ''}`)
           : '<p class="tiny">Only approved agents can submit proposals or vote on pricing.</p>')}
     `;
     if (!isOwner && currentAgentProfile && currentAgentProfile.status === 'approved' && !isAwardedAgent) {
@@ -2587,6 +2844,8 @@ async function openAugmentedHomeDetail(id) {
         <p class="tiny">${h.adaptations.map(k => `<span class="badge badge-gold">${escapeHtml(adaptationLabel(k))}</span>`).join(' ')}</p>
         ${isOwner ? `<div class="form-actions"><a class="btn btn-ghost btn-sm" href="/augmented-home/${h.id}/flyer" target="_blank" rel="noopener noreferrer">🖨️ Print Flyer</a> <a class="btn btn-ghost btn-sm" href="/api/augmented-homes/${h.id}/performance.csv" download>📊 Export Performance</a> <button type="button" class="btn btn-danger btn-sm" data-action="delete-augmented-home" data-id="${h.id}">Delete Listing</button></div>` : ''}
         ${h.adaptationNotes ? `<p class="tiny"><span class="label">Seller's notes</span> ${escapeHtml(h.adaptationNotes)}</p>` : ''}
+        ${homeCostsDetailHtml(h.costs)}
+        ${isOwner ? `<div class="panel home-costs-editor">${homeCostsFieldsHtml('ahc', h.costs)}<div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="save-home-costs" data-kind="augmented_home" data-id="${h.id}" data-prefix="ahc">Save Mello-Roos and HOA</button></div></div>` : ''}
         ${renderPriceHistory(h.priceHistory)}
         ${sparklineHtml(seriesFromPriceHistory(h.priceHistory, h.askingPrice))}
         ${!isOwner ? `
@@ -2890,6 +3149,8 @@ async function openGreenHomeDetail(id) {
         <p class="tiny">${h.greenFeatures.map(k => `<span class="badge badge-gold">${escapeHtml(greenFeatureLabel(k))}</span>`).join(' ')}</p>
         ${isOwner ? `<div class="form-actions"><a class="btn btn-ghost btn-sm" href="/green-home/${h.id}/flyer" target="_blank" rel="noopener noreferrer">🖨️ Print Flyer</a> <a class="btn btn-ghost btn-sm" href="/api/green-homes/${h.id}/performance.csv" download>📊 Export Performance</a> <button type="button" class="btn btn-danger btn-sm" data-action="delete-green-home" data-id="${h.id}">Delete Listing</button></div>` : ''}
         ${h.featureNotes ? `<p class="tiny"><span class="label">Seller's notes</span> ${escapeHtml(h.featureNotes)}</p>` : ''}
+        ${homeCostsDetailHtml(h.costs)}
+        ${isOwner ? `<div class="panel home-costs-editor">${homeCostsFieldsHtml('ghc', h.costs)}<div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="save-home-costs" data-kind="green_home" data-id="${h.id}" data-prefix="ghc">Save Mello-Roos and HOA</button></div></div>` : ''}
         ${renderPriceHistory(h.priceHistory)}
         ${sparklineHtml(seriesFromPriceHistory(h.priceHistory, h.askingPrice))}
         ${!isOwner ? `
@@ -3656,7 +3917,9 @@ function renderDisputePanel() {
 // "Agent votes: 1 too high · 0 too low · 5 just right — 4 of 6 from agents within 20 miles of this home".
 // The server counts votes from agents whose service area covers the home (`nearby`); it is null when the
 // home's zip is unknown, and then we simply don't claim anything about distance.
-function voteSummary(v, label) {
+function voteSummary(v, label, status = 'open') {
+  if (v.sealed && status !== 'open') return `${label}: voting is closed.`;
+  if (v.sealed) return v.total ? `${label}: ${v.total} agent${v.total === 1 ? ' has' : 's have'} weighed in. Sealed until you cast yours, so nobody anchors on the crowd.` : `${label}: none yet. Be the first to weigh in.`;
   if (!v.total) return `${label}: none yet`;
   const base = `${label}: ${v.too_high} too high · ${v.too_low} too low · ${v.just_right} just right`;
   if (v.nearby === null || v.nearby === undefined) return base;
@@ -3936,6 +4199,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
     const wasEditing = !!editingListingId;
     try {
+      const costs = readHomeCosts('lc');
       let listingId = editingListingId;
       if (editingListingId) {
         await apiPut(`/api/listings/${editingListingId}`, { ...payload, action: 'edit' });
@@ -3943,6 +4207,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         ({ id: listingId } = await apiPost('/api/listings', payload));
       }
 
+      await saveHomeCosts('listing', listingId, costs);
       const photoResult = await uploadPhotos(`/api/listings/${listingId}/photos`, [...document.getElementById('listingPhotos').files]);
 
       toastWithPhotoResult(wasEditing ? 'Listing updated!' : 'Listing created!', photoResult);
@@ -4292,10 +4557,28 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('onboardingCreateBtn').addEventListener('click', () => goToTab('listing'));
 
   /* ---- Marketplace wiring ---- */
+  resetHomeCostsFields('listingCostsFields', 'lc');
+  resetHomeCostsFields('plCostsFields', 'plc');
+  // The owner's Mello-Roos / HOA editor on an AugmentedHomes or GreenHomes detail view.
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-action="save-home-costs"]');
+    if (!btn) return;
+    btn.disabled = true;
+    try {
+      await saveHomeCosts(btn.dataset.kind, btn.dataset.id, readHomeCosts(btn.dataset.prefix));
+      toast('Mello-Roos and HOA saved.');
+      if (btn.dataset.kind === 'augmented_home') openAugmentedHomeDetail(btn.dataset.id);
+      else if (btn.dataset.kind === 'green_home') openGreenHomeDetail(btn.dataset.id);
+    } catch (err) { toast(err.message); } finally { btn.disabled = false; }
+  });
+  resetHomeCostsFields('augCostsFields', 'augc');
+  resetHomeCostsFields('greenCostsFields', 'grc');
+
   document.getElementById('createPreListingBtn').addEventListener('click', async () => {
     const btn = document.getElementById('createPreListingBtn');
     btn.disabled = true;
     try {
+      const costs = readHomeCosts('plc');
       const { id } = await apiPost('/api/pre-listings', {
         title: document.getElementById('plTitle').value.trim(),
         askingPrice: document.getElementById('plAskingPrice').value,
@@ -4319,6 +4602,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         prefersExclusive: document.getElementById('plPrefersExclusive').checked,
         prefersLocalSpecialist: document.getElementById('plPrefersLocalSpecialist').checked,
       });
+      await saveHomeCosts('pre_listing', id, costs);
+      resetHomeCostsFields('plCostsFields', 'plc');
       const photoResult = await uploadPhotos(`/api/pre-listings/${id}/photos`, [...document.getElementById('plPhotos').files]);
       toastWithPhotoResult('Pre-listing posted — agents can now weigh in on your price.', photoResult);
       document.getElementById('postHomeWrap').open = false;
@@ -4632,7 +4917,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const acceptBtn = e.target.closest('[data-action="accept-bid"]');
     const submitBidBtn = e.target.closest('[data-action="submit-bid"]');
     const withdrawBtn = e.target.closest('[data-action="withdraw-bid"]');
-    const voteBtn = e.target.closest('[data-action="cast-vote"]');
+    const pickVoteBtn = e.target.closest('[data-action="pick-vote"]');
+    const saveOpinionBtn = e.target.closest('[data-action="save-opinion"]');
+    const removeDeckBtn = e.target.closest('[data-action="remove-deck"]');
     const reviewBtn = e.target.closest('[data-action="submit-review"]');
     const favoriteBtn = e.target.closest('[data-action="toggle-favorite-agent"]');
     const msgBtn = e.target.closest('[data-action="message-user"]');
@@ -4712,10 +4999,37 @@ document.addEventListener('DOMContentLoaded', async () => {
         await apiPut(`${basePath}/bids/${withdrawBtn.dataset.bidId}`, { action: 'withdraw' });
         toast('Proposal withdrawn.');
         refreshDetail(kind, id);
-      } else if (voteBtn) {
-        await apiPost(`${basePath}/votes`, { vote: voteBtn.dataset.vote });
-        toast('Vote saved!');
+      } else if (pickVoteBtn) {
+        // Picking only marks the choice; "Save price opinion" sends it with the price and comps.
+        const panel = document.getElementById('priceOpinionPanel');
+        panel.dataset.vote = pickVoteBtn.dataset.vote;
+        panel.querySelectorAll('[data-action="pick-vote"]').forEach(b => {
+          const on = b === pickVoteBtn;
+          b.classList.toggle('btn-primary', on);
+          b.classList.toggle('btn-ghost', !on);
+          b.setAttribute('aria-pressed', String(on));
+        });
+      } else if (saveOpinionBtn) {
+        const panel = document.getElementById('priceOpinionPanel');
+        if (!panel.dataset.vote) { toast('Pick too high, just right or too low first.'); return; }
+        const val = idName => document.getElementById(idName).value.trim();
+        const comps = [0, 1, 2].map(i => ({ address: val(`compAddress${i}`), soldPrice: val(`compPrice${i}`), soldDate: val(`compDate${i}`), sqft: val(`compSqft${i}`) }))
+          .filter(c => c.address || c.soldPrice || c.soldDate || c.sqft)
+          .map(c => ({ ...c, soldPrice: c.soldPrice === '' ? '' : Number(c.soldPrice), sqft: c.sqft === '' ? '' : Number(c.sqft) }));
+        await apiPost(`${basePath}/votes`, {
+          vote: panel.dataset.vote,
+          note: val('opinionNote'),
+          priceOpinion: val('opinionPrice') === '' ? '' : Number(val('opinionPrice')),
+          comps,
+        });
+        toast('Price opinion saved. Only the homeowner can see it.');
         openPreListingDetail(id);
+      } else if (removeDeckBtn) {
+        if (!confirm('Remove your presentation file?')) return;
+        await apiDelete(`${basePath}/votes/deck`);
+        document.getElementById('deckCurrent').innerHTML = '';
+        document.getElementById('deckHint').textContent = deckHint(null);
+        toast('Presentation removed.');
       } else if (reviewBtn) {
         await apiPost(`${basePath}/review`, {
           rating: document.getElementById('reviewRating').value,
@@ -4764,8 +5078,35 @@ document.addEventListener('DOMContentLoaded', async () => {
     } catch (err) { toast(err.message); }
   });
 
+  // The take-home estimate recalculates as the owner types.
+  document.getElementById('marketplaceDetailContent').addEventListener('input', (e) => {
+    if (e.target.closest('[data-take-home]')) refreshTakeHome();
+  });
+
   document.getElementById('marketplaceDetailContent').addEventListener('change', async (e) => {
     if (e.target.closest('[data-proposal-control]')) { rerenderProposalResults(); return; }
+    if (e.target.id === 'opinionDeck' && marketplaceDetail && e.target.files[0]) {
+      // Updates the file line in place, so anything typed but not yet saved in the opinion form stays.
+      const input = e.target;
+      const file = input.files[0];
+      const hint = document.getElementById('deckHint');
+      const ext = file.name.split('.').pop().toLowerCase();
+      if (!DECK_EXTENSIONS.includes(ext)) { hint.textContent = 'Pick a PDF, PowerPoint (.pptx or .ppt) or Word (.docx or .doc) file.'; input.value = ''; return; }
+      if (file.size > DECK_MAX_BYTES) { hint.textContent = `That file is ${formatFileSize(file.size)}; the limit is 20 MB. Saving a PowerPoint as a PDF usually makes it much smaller.`; input.value = ''; return; }
+      const formData = new FormData();
+      formData.append('file', file);
+      input.disabled = true;
+      hint.textContent = `Uploading ${file.name}…`;
+      try {
+        const { deck } = await apiUpload(`/api/pre-listings/${marketplaceDetail.id}/votes/deck`, formData);
+        document.getElementById('deckCurrent').innerHTML = deckLineHtml(deck);
+        hint.textContent = deckHint(deck);
+        toast('Presentation attached. Only the homeowner can open it.');
+      } catch (err) { hint.textContent = err.message; }
+      input.disabled = false;
+      input.value = '';
+      return;
+    }
     const milestoneCheck = e.target.closest('.milestone-check');
     const disclosureCheck = e.target.closest('.disclosure-check');
     if (milestoneCheck && marketplaceDetail) {
@@ -4817,6 +5158,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     btn.disabled = true;
     try {
       const adaptations = [...document.querySelectorAll('.augmented-create-check:checked')].map(c => c.value);
+      const costs = readHomeCosts('augc');
       const { id } = await apiPost('/api/augmented-homes', {
         title: document.getElementById('augTitle').value.trim(),
         askingPrice: document.getElementById('augAskingPrice').value,
@@ -4834,6 +5176,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         adaptationNotes: document.getElementById('augAdaptationNotes').value.trim(),
         lifeEventTags: [...document.querySelectorAll('.aug-life-event-check:checked')].map(c => c.value),
       });
+      await saveHomeCosts('augmented_home', id, costs);
+      resetHomeCostsFields('augCostsFields', 'augc');
       const photoResult = await uploadPhotos(`/api/augmented-homes/${id}/photos`, [...document.getElementById('augPhotos').files]);
       toastWithPhotoResult('Listed on AugmentedHomes.', photoResult);
       document.getElementById('postAugmentedWrap').open = false;
@@ -4985,6 +5329,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     btn.disabled = true;
     try {
       const greenFeatures = [...document.querySelectorAll('.green-create-check:checked')].map(c => c.value);
+      const costs = readHomeCosts('grc');
       const { id } = await apiPost('/api/green-homes', {
         title: document.getElementById('greenTitle').value.trim(),
         askingPrice: document.getElementById('greenAskingPrice').value,
@@ -5002,6 +5347,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         featureNotes: document.getElementById('greenFeatureNotes').value.trim(),
         lifeEventTags: [...document.querySelectorAll('.green-life-event-check:checked')].map(c => c.value),
       });
+      await saveHomeCosts('green_home', id, costs);
+      resetHomeCostsFields('greenCostsFields', 'grc');
       const photoResult = await uploadPhotos(`/api/green-homes/${id}/photos`, [...document.getElementById('greenPhotos').files]);
       toastWithPhotoResult('Listed on GreenHomes.', photoResult);
       document.getElementById('postGreenWrap').open = false;

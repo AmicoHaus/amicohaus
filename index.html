@@ -176,7 +176,15 @@
             <option value="portfolio">Property portfolios only</option>
           </select>
         </div>
+        <div class="field"><label for="filterMello">Mello-Roos</label>
+          <select id="filterMello">
+            <option value="">Any</option>
+            <option value="none">No Mello-Roos only</option>
+          </select>
+        </div>
+        <div class="field"><label for="filterHoaMax">Max HOA ($ per month)</label><input type="number" id="filterHoaMax" min="0" max="20000" step="25" inputmode="numeric" placeholder="Any"></div>
       </form>
+      <p class="tiny">The Mello-Roos and HOA filters only show homes whose owner shared those costs.</p>
       <div id="directoryMomentum"></div>
       <div class="grid" id="directoryGrid"><div class="empty-state">Loading…</div></div>
       <div id="directoryMap" class="hidden"></div>

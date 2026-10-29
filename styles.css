@@ -253,7 +253,7 @@ main { flex: 1; width: 100%; max-width: 1080px; margin: 0 auto; padding: 28px 24
 .hint { margin: 0; font-size: 0.76rem; color: var(--muted); }
 .required-mark { color: var(--danger); }
 .form-note { font-size: 0.82rem; color: var(--muted); margin: 10px 0 18px; }
-.form-note.trust { display: flex; gap: 8px; align-items: flex-start; background: var(--cream); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; }
+.form-note.trust { display: block; background: var(--cream); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; }
 :root[data-theme="dark"] .form-note.trust { background: var(--navy-2); }
 
 .mirror-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; position: relative; }
@@ -1008,6 +1008,25 @@ main > .demo-section:first-of-type > [data-pills] { display: none; }
 .photo-caption { display: block; font-size: 0.72rem; color: var(--muted); margin: -4px 0 8px; }
 .noscript-note { max-width: 640px; margin: 40px auto; padding: 0 20px; font-family: Georgia, serif; color: #1c2128; }
 
+/* Sealed price opinions, take-home estimate, buyer demand, Mello-Roos / HOA */
+.opinion-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 10px 0 14px; padding: 12px 14px; background: var(--cream); border: 1px solid var(--border); border-radius: var(--radius-sm); font-weight: 600; }
+.opinion-summary .label { display: block; font-weight: 500; }
+.opinion-card { margin-top: 10px; }
+.opinion-card h4 { margin: 0; }
+.opinion-price { margin: 6px 0; font-size: 1.15rem; font-weight: 700; color: var(--gold); }
+.comp-list { margin: 4px 0 8px; padding-left: 18px; font-size: 0.9rem; }
+.comp-list li { margin-bottom: 4px; }
+.comp-row { padding: 8px 0; border-top: 1px dashed var(--border); }
+.comp-row:first-of-type { border-top: none; }
+.deck-current { margin: 4px 0 8px; }
+.take-home-base { margin: 10px 0; }
+.demand-meter { margin: 8px 0; padding: 8px 12px; border-radius: var(--radius-sm); background: var(--success-bg); color: var(--success); font-size: 0.9rem; }
+.hoa-includes { border: none; padding: 0; margin: 8px 0; display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.hoa-includes legend { width: 100%; margin-bottom: 4px; }
+.hoa-includes .checkbox-row { margin: 0; }
+.home-costs-editor { margin-top: 12px; }
+:root[data-theme="dark"] .opinion-summary { background: var(--navy-2); }
+
 /* Phones. Kept at the END of the file on purpose: several rules it overrides (e.g. #globalSearchInput) appear
    after the main 720px block above, so source order matters here. */
 @media (max-width: 720px) {
@@ -1019,4 +1038,5 @@ main > .demo-section:first-of-type > [data-pills] { display: none; }
   .auth-cta { flex-wrap: wrap; flex-shrink: 1; row-gap: 8px; }
   .search-box { flex-basis: 100%; }
   #globalSearchInput { width: 100%; }
+  .opinion-summary { grid-template-columns: 1fr; }
 }

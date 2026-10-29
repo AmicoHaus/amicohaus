@@ -5,6 +5,7 @@ import { fetchPortfolioMembers } from '../_lib/portfolios.js';
 import { ASSET_VERSIONS } from '../_lib/assetVersions.js';
 import { DEMO_EMAIL_PATTERN } from '../_lib/util.js';
 import { withSecurityHeaders } from '../_lib/withSecurityHeaders.js';
+import { homeCostsFromRow, homeCostsLines } from '../_lib/homeCosts.js';
 import { LIFE_EVENT_ITEMS } from '../_lib/lifeEvents.js';
 import { fetchOpenHouses } from '../_lib/openHouses.js';
 import { fetchMyOffer } from '../_lib/listingOffers.js';
@@ -327,6 +328,7 @@ async function renderListingPage(context) {
           ${showAddress ? escapeHtml(listing.address) + '<br>' : ''}${loc}${listing.is_portfolio ? ' (primary property)' : ''}<br>
           ${money(listing.estimated_value)}${listing.is_portfolio ? ' combined' : ''} ${listing.is_portfolio ? '' : sparklineHtml(priceSeries)}
           ${listing.is_portfolio ? '' : `<div class="tiny">${daysOnMarketLabel(listing.created_at)}</div>`}
+          ${(() => { const lines = homeCostsLines(homeCostsFromRow(listing)); return lines.length ? `<p class="tiny"><span class="label">Costs</span> ${escapeHtml(lines.join(' · '))}</p>` : ''; })()}
         </div>
         ${listing.is_rental
           ? `<div class="mini-block">

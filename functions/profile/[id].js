@@ -15,6 +15,7 @@ import { fetchPortfolioMembers } from '../_lib/portfolios.js';
 import { propertyArtUrl } from '../_lib/propertyArt.js';
 import { ASSET_VERSIONS } from '../_lib/assetVersions.js';
 import { withSecurityHeaders } from '../_lib/withSecurityHeaders.js';
+import { fetchFoundingZips } from '../_lib/zipBoard.js';
 
 // Signed-out visitors can't message anyone, so they get the way in instead of a button that can only fail.
 const SIGN_UP_TO_MESSAGE = '<a class="btn btn-primary btn-sm" href="/signup">Sign up to message</a> <a class="btn btn-ghost btn-sm" href="/login">Log in</a>';
@@ -285,6 +286,7 @@ function renderFinal(title, description, body, authCta, jsonLd, canonicalPath) {
 }
 
 async function renderAgentProfilePage(context, db, user, agentProfile, { viewer, isMine, isAdmin, authCta, backLinkHtml }) {
+  const foundingZips = (await fetchFoundingZips(db, [user.id])).get(user.id) || [];
   const [photos, reviews, ratingSummary, stats, packages, caseStudies, teamName] = await Promise.all([
     fetchAgentPortfolioPhotos(db, user.id),
     fetchAgentReviews(db, user.id),
@@ -309,7 +311,8 @@ async function renderAgentProfilePage(context, db, user, agentProfile, { viewer,
   const respLabel = formatResponseHours(stats.avgResponseHours);
   const statusChips = [
     chipHtml(agentProfile.acceptingClients ? 'Accepting new clients' : 'Not accepting new clients', agentProfile.acceptingClients ? 'good' : 'bad'),
-    agentProfile.licenseVerified ? chipHtml('License Verified', 'good') : '',
+    agentProfile.licenseVerified ? chipHtml('License checked on DRE', 'good') : '',
+    foundingZips.length ? chipHtml(`Founding agent · ${foundingZips.join(', ')}`, 'good') : '',
     agentProfile.carriesEoInsurance ? chipHtml('E&O insured (self-reported)', 'good') : '',
     agentProfile.soloAgent ? chipHtml('Sole point of contact', 'outline') : '',
   ].filter(Boolean);
@@ -377,7 +380,7 @@ async function renderAgentProfilePage(context, db, user, agentProfile, { viewer,
       </div>
       ${agentProfile.bio ? `<p>${escapeHtml(agentProfile.bio)}</p>` : ''}
       ${agentProfile.certifications ? `<p class="tiny"><span class="label">Certifications (self-reported)</span> ${escapeHtml(agentProfile.certifications)}</p>` : ''}
-      <p class="tiny">Amico Haus vets agents by reviewing what they self-report (license number, brokerage) — it does not independently confirm license numbers with any state licensing board. Always verify a license yourself before engaging anyone.</p>
+      <p class="tiny">Before approving an agent, Amico Haus looks up their license on the California DRE's public license lookup. It's still worth confirming a license yourself before engaging anyone.</p>
       <div class="agent-details">${agentDetailsBody}</div>
     </div>
 

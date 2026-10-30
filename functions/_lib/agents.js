@@ -40,7 +40,9 @@ export function validateServices(input) {
 
 export function validateAgentApplication(body) {
   const brokerageName = clampString(body.brokerageName, 150);
-  const licenseNumber = clampString(body.licenseNumber, 60);
+  // A California DRE license ID is 8 digits (leading zeros included); "DRE #1234567" becomes "01234567".
+  const licenseDigits = String(body.licenseNumber ?? '').replace(/\D/g, '');
+  const licenseNumber = licenseDigits.length >= 5 && licenseDigits.length <= 8 ? licenseDigits.padStart(8, '0') : '';
   const yearsExperience = num(body.yearsExperience, { min: 0, max: 80 }) || 0;
   const bio = clampString(body.bio, 2000);
   const defaultCommissionPct = body.defaultCommissionPct ? num(body.defaultCommissionPct, { min: 0, max: 100 }) : null;
@@ -61,12 +63,9 @@ export function validateAgentApplication(body) {
   const acceptingClients = body.acceptingClients !== false;
   const carriesEoInsurance = !!body.carriesEoInsurance;
 
-  if (!brokerageName || !licenseNumber) {
-    return { error: 'Enter your brokerage name and license number.' };
-  }
-  if (defaultCommissionPct === null && defaultFlatFee === null) {
-    return { error: 'Enter at least one of a default commission % or flat fee — proposals can still override it per listing.' };
-  }
+  if (!licenseNumber) return { error: 'Enter your California DRE license number (8 digits, for example 01234567).' };
+  if (!brokerageName) return { error: 'Enter your brokerage name.' };
+  // Fees are optional at apply time: every proposal sets its own fee anyway.
 
   return {
     data: {
@@ -95,7 +94,7 @@ export async function submitAgentApplication(db, userId, body) {
     if (unknown.length > 0) return { error: `Not a recognized US zip code: ${unknown.join(', ')}.` };
   }
 
-  const existing = await db.prepare('SELECT status FROM agent_profiles WHERE user_id = ?').bind(userId).first();
+  const existing = await db.prepare('SELECT status, license_number FROM agent_profiles WHERE user_id = ?').bind(userId).first();
   const nextStatus = existing && existing.status === 'approved' ? 'approved' : 'pending';
 
   // An admin verified the license number they were shown, so an approved agent
@@ -129,7 +128,10 @@ export async function submitAgentApplication(db, userId, body) {
 
   // "New" = a first application or a re-application after a rejection -- not an approved or pending agent editing
   // their profile, which would otherwise alert the admin on every save.
-  return { status: nextStatus, isNewApplication: !existing || existing.status === 'rejected' };
+  return {
+    status: nextStatus, isNewApplication: !existing || existing.status === 'rejected', licenseNumber: d.licenseNumber,
+    licenseChanged: !!existing && existing.license_number !== d.licenseNumber,
+  };
 }
 
 export async function getAgentProfile(db, userId) {
@@ -207,4 +209,9 @@ export async function fetchServiceEstimates(db) {
     };
   }
   return estimates;
+}
+
+// The California DRE's public license lookup for one license ID (name, status, expiration, responsible broker).
+export function dreLookupUrl(licenseNumber) {
+  return `https://www2.dre.ca.gov/PublicASP/pplinfo.asp?License_id=${encodeURIComponent(String(licenseNumber || ''))}`;
 }

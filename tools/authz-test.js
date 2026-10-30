@@ -151,7 +151,7 @@ const denied = r => r.status >= 400 && r.status < 500;
   const bDb = sql(`SELECT role, is_verified FROM users WHERE id = ${B.id}`)[0];
   record('privilege', 'attacker row in DB is role=user, unverified', bDb.role === 'user' && !bDb.is_verified, JSON.stringify(bDb));
 
-  sql(`INSERT INTO agent_profiles (user_id, status, brokerage_name, license_number, years_experience, bio) VALUES (${G.id}, 'approved', 'Authz Realty One', 'TESTLIC-1', 5, 'bio'), (${H.id}, 'approved', 'Authz Realty Two', 'TESTLIC-2', 6, 'bio')`);
+  sql(`INSERT INTO agent_profiles (user_id, status, brokerage_name, license_number, years_experience, bio) VALUES (${G.id}, 'approved', 'Authz Realty One', '09999901', 5, 'bio'), (${H.id}, 'approved', 'Authz Realty Two', 'TESTLIC-2', 6, 'bio')`);
 
   const listingBody = (over) => ({ title: 'AUTHZ Home', city: 'San Diego', state: 'CA', propertyType: 'Single Family Home', beds: 3, baths: 2, estimatedValue: 600000,
     address: MARK.address, clientName: MARK.clientName, description: 'authz test', locations: 'Sacramento, CA', desiredType: 'Condo', priceMin: 500000, priceMax: 700000,
@@ -394,7 +394,7 @@ const denied = r => r.status >= 400 && r.status < 500;
   await B.call('PUT', '/api/me', { role: 'admin', isVerified: true, is_verified: 1, email: 'x@example.com', displayName: 'Authz attacker' });
   const bNow = sql(`SELECT role, is_verified, email FROM users WHERE id = ${B.id}`)[0];
   record('privilege', 'PUT /api/me cannot change role, verification or email', bNow.role === 'user' && !bNow.is_verified && bNow.email === B.email, JSON.stringify(bNow));
-  const apply = await B.call('POST', '/api/agents/apply', { brokerageName: 'Attacker Realty', licenseNumber: 'FAKE-1', yearsExperience: 3, bio: 'x', defaultCommissionPct: 2,
+  const apply = await B.call('POST', '/api/agents/apply', { brokerageName: 'Attacker Realty', licenseNumber: '09999900', yearsExperience: 3, bio: 'x', defaultCommissionPct: 2,
     services: [{ type: 'photography' }], serviceZips: ['92104'], status: 'approved', licenseVerified: true, license_verified: 1, isApproved: true });
   const bAgent = sql(`SELECT status, license_verified FROM agent_profiles WHERE user_id = ${B.id}`)[0] || {};
   record('privilege', 'applying as an agent cannot self-approve or self-verify', apply.status === 201 && bAgent.status === 'pending' && !bAgent.license_verified, JSON.stringify(bAgent) + ` apply=${apply.status} ${apply.status !== 201 ? apply.text.slice(0, 100) : ''}`);
@@ -404,10 +404,10 @@ const denied = r => r.status >= 400 && r.status < 500;
   // An approved agent changing their license number must lose the admin's "verified" badge.
   sql(`UPDATE agent_profiles SET license_verified = 1, license_verified_by = ${H.id} WHERE user_id = ${G.id}`);
   const editBody = (lic) => ({ brokerageName: 'Authz Realty One', licenseNumber: lic, yearsExperience: 5, bio: 'bio', defaultCommissionPct: 2, services: [{ type: 'photography' }], serviceZips: ['92104'] });
-  await G.call('POST', '/api/agents/apply', editBody('TESTLIC-1'));
+  await G.call('POST', '/api/agents/apply', editBody('9999901'));
   const same = sql(`SELECT status, license_verified FROM agent_profiles WHERE user_id = ${G.id}`)[0];
   record('agent', 'editing a profile without touching the license number keeps "verified"', same.status === 'approved' && same.license_verified === 1, JSON.stringify(same));
-  await G.call('POST', '/api/agents/apply', editBody('CHANGED-LICENSE-9'));
+  await G.call('POST', '/api/agents/apply', editBody('09999909'));
   const changed = sql(`SELECT status, license_verified, license_verified_by FROM agent_profiles WHERE user_id = ${G.id}`)[0];
   record('agent', 'changing the license number voids "verified" (approval itself is kept)', changed.status === 'approved' && changed.license_verified === 0 && changed.license_verified_by === null, JSON.stringify(changed));
 

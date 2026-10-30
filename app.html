@@ -303,7 +303,7 @@
     <section id="tab-marketplace" class="tab-panel active">
       <h1>Agent Strategy</h1>
       <p class="section-sub">A pre-listing showcase for a mutual evaluation of your home's price. Post your home before you list it and local agent experts weigh in on the asking price — too high, about right, or too low — and share their strategy for selling it: fee, included services and timeline. You compare their strategies, portfolios and reviews; they assess your home; and you review each other afterward. Already have an agent you trust? Skip all this — it's entirely optional.</p>
-      <p class="form-note">Amico Haus vets agents by reviewing what they self-report (license number, brokerage) — it does not independently confirm license numbers with any state licensing board. Always verify a license yourself before engaging anyone. Nothing here is a guarantee of a sale, a fee quote, or legal/financial advice, and Amico Haus is not a party to any resulting engagement.</p>
+      <p class="form-note">Before approving an agent, Amico Haus looks up their license on the California DRE's public license lookup. It's still worth confirming a license yourself before engaging anyone. Nothing here is a guarantee of a sale, a fee quote, or legal/financial advice, and Amico Haus is not a party to any resulting engagement.</p>
 
       <div id="marketplaceListView">
         <div id="attentionStrip" class="hidden"></div>
@@ -388,12 +388,26 @@
 
         <details class="panel bulk-upload" id="becomeAgentWrap">
           <summary id="becomeAgentSummary">Become a vetted agent</summary>
-          <p class="section-sub">Apply to bid on pre-listings and transaction requests. Reviewed by an Amico Haus admin based on what you enter here — <strong>your license number is not independently verified with any state board.</strong></p>
+          <p class="section-sub">Takes about 3 minutes: your DRE license number, brokerage and service area. Everything else is optional and can be added later. <strong>How we approve agents:</strong> an active California real estate license (we look it up on the DRE's public lookup), a service area in San Diego County, and following the Amico Haus agent rules.</p>
           <div id="agentApplicationStatus"></div>
           <div class="form-row two-col">
             <div class="field"><label>Brokerage name <span class="required-mark">*</span></label><input type="text" id="agentBrokerage" maxlength="150"></div>
-            <div class="field"><label>License number <span class="required-mark">*</span></label><input type="text" id="agentLicense" maxlength="60"></div>
+            <div class="field"><label>California DRE license # <span class="required-mark">*</span></label><input type="text" id="agentLicense" maxlength="20" inputmode="numeric" placeholder="8 digits, e.g. 01234567"></div>
           </div>
+          <div class="field">
+            <label>Service area — up to 4 zip codes <span class="required-mark">*</span></label>
+            <div class="form-row two-col">
+              <input type="text" id="agentZip1" maxlength="10" placeholder="Zip 1" inputmode="numeric">
+              <input type="text" id="agentZip2" maxlength="10" placeholder="Zip 2 (optional)" inputmode="numeric">
+            </div>
+            <div class="form-row two-col">
+              <input type="text" id="agentZip3" maxlength="10" placeholder="Zip 3 (optional)" inputmode="numeric">
+              <input type="text" id="agentZip4" maxlength="10" placeholder="Zip 4 (optional)" inputmode="numeric">
+            </div>
+            <p class="tiny">You'll be shown pre-listings within 20 miles of any of these.</p>
+          </div>
+          <details class="score-breakdown agent-more">
+            <summary>Add more now or later (optional): experience, fees, specialties, languages, services</summary>
           <div class="form-row two-col">
             <div class="field"><label>Years of experience</label><input type="number" id="agentYears" min="0" max="80"></div>
             <div class="field"><label>Homes sold last 12 months (self-reported)</label><input type="number" id="agentHomesSold" min="0" max="10000"></div>
@@ -420,18 +434,6 @@
             <div class="field"><label>…or default flat fee ($)</label><input type="number" id="agentFlatFee" min="0" max="500000" step="100"></div>
           </div>
           <div class="field">
-            <label>Service area — up to 4 zip codes <span class="required-mark">*</span></label>
-            <div class="form-row two-col">
-              <input type="text" id="agentZip1" maxlength="10" placeholder="Zip 1" inputmode="numeric">
-              <input type="text" id="agentZip2" maxlength="10" placeholder="Zip 2 (optional)" inputmode="numeric">
-            </div>
-            <div class="form-row two-col">
-              <input type="text" id="agentZip3" maxlength="10" placeholder="Zip 3 (optional)" inputmode="numeric">
-              <input type="text" id="agentZip4" maxlength="10" placeholder="Zip 4 (optional)" inputmode="numeric">
-            </div>
-            <p class="tiny">You'll be shown pre-listings within 20 miles of any of these.</p>
-          </div>
-          <div class="field">
             <label>Which days do you typically hold open houses?</label>
             <div id="agentOpenHouseDays"></div>
           </div>
@@ -439,6 +441,7 @@
             <label>Services you typically offer</label>
             <div id="agentServicesEditor"></div>
           </div>
+          </details>
           <label class="checkbox-row"><input type="checkbox" id="agentNotifyNewRequests" checked><span>Notify me when a new pre-listing or transaction request opens near me (in-app and email)</span></label>
           <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="submitAgentApplicationBtn">Submit Application</button></div>
         </details>
@@ -466,8 +469,8 @@
           <div class="field"><label>Upload / replace video (MP4, WebM, or MOV — under 95MB)</label><input type="file" id="agentVideoInput" accept="video/mp4,video/webm,video/quicktime"></div>
           <p class="tiny" id="agentVideoStatus"></p>
 
-          <h3>License Photo (for admin verification)</h3>
-          <p class="section-sub">Only visible to you and Amico Haus admins — never shown to homeowners. An admin compares it to your state's public license lookup and marks your license number "Verified" when it checks out.</p>
+          <h3>License Photo (optional)</h3>
+          <p class="section-sub">Optional. We check every license number on the DRE's public lookup, with or without a photo. If you add one, it's only visible to you and Amico Haus admins, never to homeowners.</p>
           <div id="agentLicensePhotoWrap"></div>
           <div class="field"><label>Upload / replace license photo (JPEG, PNG, or WEBP — under 5MB)</label><input type="file" id="agentLicensePhotoInput" accept="image/jpeg,image/png,image/webp"></div>
 
@@ -537,7 +540,7 @@
                 <label class="checkbox-row"><input type="checkbox" id="agentDirTopRated"><span>Top Rated only</span></label>
               </div>
               <div class="field field-end">
-                <label class="checkbox-row"><input type="checkbox" id="agentDirLicenseVerified"><span>License verified by Amico Haus</span></label>
+                <label class="checkbox-row"><input type="checkbox" id="agentDirLicenseVerified"><span>License checked on the DRE by Amico Haus</span></label>
               </div>
             </div>
           </details>

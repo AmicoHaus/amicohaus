@@ -42,6 +42,15 @@ const ATTRIBUTION_KEY = 'ah_source';
 const ATTRIBUTION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const ATTRIBUTION_PARAMS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'gclid', 'ttclid'];
 
+// TikTok's, Instagram's and Facebook's built-in browsers name themselves in the user agent.
+function inAppBrowser() {
+  const ua = navigator.userAgent || '';
+  if (/BytedanceWebview|musical_ly|TikTok/i.test(ua)) return 'tiktok';
+  if (/Instagram/i.test(ua)) return 'instagram';
+  if (/FBAN|FBAV|FB_IAB/i.test(ua)) return 'facebook';
+  return '';
+}
+
 function getAttribution() {
   try {
     const stored = JSON.parse(localStorage.getItem(ATTRIBUTION_KEY) || 'null');
@@ -65,7 +74,8 @@ function getAttribution() {
       const ref = new URL(document.referrer);
       if (ref.host !== window.location.host) referrer = ref.host;
     } catch { /* no referrer */ }
-    localStorage.setItem(ATTRIBUTION_KEY, JSON.stringify({ ...tags, landing: window.location.pathname.slice(0, 200), referrer, at: Date.now() }));
+    const inApp = inAppBrowser();
+    localStorage.setItem(ATTRIBUTION_KEY, JSON.stringify({ ...tags, landing: window.location.pathname.slice(0, 200), referrer, ...(inApp ? { in_app: inApp } : {}), at: Date.now() }));
   } catch { /* storage blocked (private mode etc.): tracking the source is optional */ }
 })();
 

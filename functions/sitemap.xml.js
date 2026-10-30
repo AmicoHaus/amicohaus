@@ -11,6 +11,7 @@ const STATIC_URLS = [
   { loc: 'https://amicohaus.com/about', freq: 'monthly', priority: '0.7' },
   { loc: 'https://amicohaus.com/assumable-loans', freq: 'monthly', priority: '0.7' },
   { loc: 'https://amicohaus.com/sell-or-buy-first', freq: 'monthly', priority: '0.7' },
+  { loc: 'https://amicohaus.com/unlock-your-zip', freq: 'daily', priority: '0.8' },
   { loc: 'https://amicohaus.com/whats-new', freq: 'weekly', priority: '0.5' },
   { loc: 'https://amicohaus.com/contact', freq: 'monthly', priority: '0.6' },
   { loc: 'https://amicohaus.com/terms', freq: 'yearly', priority: '0.3' },

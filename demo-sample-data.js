@@ -136,7 +136,7 @@ function demoAgentInfo(a) {
     status: [
       { text: a.accepting ? 'Accepting new clients' : 'Not accepting new clients', tone: a.accepting ? 'good' : 'bad' },
       a.localSpecialist && { text: 'Local specialist', tone: 'gold' },
-      a.licenseVerified && { text: 'License Verified', tone: 'good' },
+      a.licenseVerified && { text: 'License checked on DRE', tone: 'good' },
       a.eo && { text: 'E&O insured (self-reported)', tone: 'good' },
     ].filter(Boolean),
     stats: [

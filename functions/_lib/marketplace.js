@@ -8,6 +8,7 @@ import { clampString } from './util.js';
 import { validateServices } from './agents.js';
 import { seedDefaultMilestones } from './milestones.js';
 import { markInviteResponded } from './agentInvites.js';
+import { fetchFoundingZips } from './zipBoard.js';
 
 // A pending proposal that's sat untouched this long gets flagged so the
 // homeowner sees a nudge — same idea as matches.js's "gone quiet" flag for
@@ -101,10 +102,14 @@ export async function fetchBids(db, requestType, requestId) {
   // Win rate / response time / Top Rated pulled from the single shared
   // fetchAgentStats (below) rather than duplicated as SQL subqueries here,
   // so there's one source of truth for what "Top Rated" means.
-  return Promise.all(rows.results.map(async r => mapBidRow(r, await fetchAgentStats(db, r.agent_user_id, {
-    rating: { avgRating: r.agent_rating, reviewCount: r.agent_review_count },
-    approvedAt: r.agent_approved_at || null,
-  }))));
+  const founding = await fetchFoundingZips(db, rows.results.map(r => r.agent_user_id));
+  return Promise.all(rows.results.map(async r => ({
+    ...mapBidRow(r, await fetchAgentStats(db, r.agent_user_id, {
+      rating: { avgRating: r.agent_rating, reviewCount: r.agent_review_count },
+      approvedAt: r.agent_approved_at || null,
+    })),
+    foundingZips: founding.get(r.agent_user_id) || [],
+  })));
 }
 
 export async function fetchMyBid(db, requestType, requestId, agentUserId) {

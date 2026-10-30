@@ -7,6 +7,7 @@ import { fetchAgentPackages } from './agentPackages.js';
 import { fetchCaseStudies } from './caseStudies.js';
 import { fetchActiveTeamName } from './agentTeams.js';
 import { lookupZipCoords, nearestServiceDistance, serviceAreaSpread, SERVICE_RADIUS_MILES, LOCAL_SPECIALIST_SPREAD_MILES } from './geo.js';
+import { fetchFoundingZips } from './zipBoard.js';
 
 // A commission range across every commission-based offering an agent has
 // (their profile default plus any package) — the reciprocal of
@@ -78,6 +79,7 @@ export async function buildAgentDirectoryEntry(db, agentUserId) {
     soloAgent: !!row.solo_agent,
     acceptingClients: !!row.accepting_clients, carriesEoInsurance: !!row.carries_eo_insurance,
     serviceZips, distanceMiles: null,
+    foundingZips: (await fetchFoundingZips(db, [agentUserId])).get(agentUserId) || [],
     serviceAreaSpreadMiles, isLocalSpecialist: serviceAreaSpreadMiles !== null && serviceAreaSpreadMiles <= LOCAL_SPECIALIST_SPREAD_MILES,
   };
 }

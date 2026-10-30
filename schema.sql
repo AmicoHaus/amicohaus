@@ -27,6 +27,9 @@ CREATE TABLE IF NOT EXISTS users (
   is_verified INTEGER NOT NULL DEFAULT 0,
   signup_intent TEXT,
   signup_source TEXT,
+  verify_code_hash TEXT,
+  verify_code_attempts INTEGER NOT NULL DEFAULT 0,
+  verify_sent_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code);
@@ -558,6 +561,19 @@ CREATE TABLE IF NOT EXISTS pre_listing_interviews (
   UNIQUE(pre_listing_id, agent_user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_pre_listing_interviews_agent ON pre_listing_interviews(agent_user_id, status);
+
+-- Founding agents: the first 3 approved agents who list a given service ZIP (in the ZIPs Amico Haus is launching
+-- in) get a "Founding agent" ribbon for that ZIP while they stay approved and keep serving it (see LIVE_FOUNDERS_SQL
+-- in functions/_lib/zipBoard.js). Recognition only: no ranking boost, no head start.
+-- In return they aim to send a price opinion within 48 hours on new pre-listings in that ZIP.
+CREATE TABLE IF NOT EXISTS founding_agents (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  zip TEXT NOT NULL,
+  agent_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  granted_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(zip, agent_user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_founding_agents_agent ON founding_agents(agent_user_id);
 
 CREATE TABLE IF NOT EXISTS pre_listing_showings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1144,3 +1160,4 @@ CREATE TABLE IF NOT EXISTS market_pulse_alerts (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_market_pulse_alerts_user ON market_pulse_alerts(user_id);
+

@@ -132,6 +132,85 @@ check('no alerts at all past 40 in a day', sentAlerts.length === 3, String(sentA
 check('every alert went to Rudy', sentAlerts.every(m => m.to === 'rudypabloflores@gmail.com'));
 globalThis.fetch = realFetch;
 
+// 10) The 6-digit code (for people who signed up inside an app's built-in browser).
+const verifyCode = (await import(pathToFileURL(`${root}/functions/api/auth/verify-code.js`).href)).onRequestPost;
+const codeCall = async (email, code, ip = '203.0.113.40') => {
+  const res = await verifyCode({ request: new Request('https://amicohaus.com/api/auth/verify-code', { method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': ip }, body: JSON.stringify({ email, code }) }), env: { DB, RESEND_API_KEY: 'key' }, waitUntil() {} });
+  return { status: res.status, body: await res.json() };
+};
+const signupAs = (email, ip, extra = {}) => signup({ request: new Request('https://amicohaus.com/api/auth/signup', { method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': ip }, body: JSON.stringify({ displayName: 'Code Person', email, ...extra }) }), env: { DB, RESEND_API_KEY: 'key' }, waitUntil() {} });
+const sentCode = () => globalThis.__sent.text.match(/instead: (\d{3}) (\d{3})/).slice(1).join('');
+globalThis.fetch = async (url, opts) => { globalThis.__sent = JSON.parse(opts.body); return new Response('{}', { status: 200 }); };
+await signup({ request: new Request('https://amicohaus.com/api/auth/signup', { method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '203.0.113.41' }, body: JSON.stringify({ displayName: 'Code Person', email: 'code@example.test', intent: 'agent' }) }), env: { DB, RESEND_API_KEY: 'key' }, waitUntil() {} });
+const codeMatch = globalThis.__sent.text.match(/code on the sign-up page instead: (\d{3}) (\d{3})/);
+check('the confirmation email carries a 6-digit code', !!codeMatch && globalThis.__sent.html.includes(`${codeMatch[1]} ${codeMatch[2]}`), globalThis.__sent.text);
+const goodCode = codeMatch ? codeMatch[1] + codeMatch[2] : '000000';
+const badCode = goodCode === '111111' ? '222222' : '111111';
+let cr = await codeCall('code@example.test', badCode);
+check('a wrong code is refused', cr.status === 400 && /didn't match/.test(cr.body.error), JSON.stringify(cr));
+cr = await codeCall('nobody@example.test', goodCode);
+check('an unknown address gets the same answer (no account lookup)', cr.status === 400 && /didn't match/.test(cr.body.error));
+cr = await codeCall('code@example.test', `${goodCode.slice(0, 3)} ${goodCode.slice(3)}`, '203.0.113.42');
+check('the right code (spaces are fine) returns a one-time link token and the agent path', cr.status === 200 && /^[0-9a-f]{64}$/.test(cr.body.token) && cr.body.as === 'agent', JSON.stringify(cr));
+const verifyEmail = (await import(pathToFileURL(`${root}/functions/api/auth/verify-email.js`).href));
+const peek = await verifyEmail.onRequestGet({ request: new Request(`https://amicohaus.com/api/auth/verify-email?token=${cr.body.token}`), env: { DB } });
+check('...which opens the usual choose-a-password screen', peek.status === 200 && (await peek.json()).email === 'code@example.test');
+cr = await codeCall('code@example.test', goodCode, '203.0.113.43');
+check('a code works only once', cr.status === 400);
+// Brute force: 5 wrong tries kill the code, even from different networks.
+await signup({ request: new Request('https://amicohaus.com/api/auth/signup', { method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '203.0.113.44' }, body: JSON.stringify({ displayName: 'Guess Target', email: 'guess@example.test' }) }), env: { DB, RESEND_API_KEY: 'key' }, waitUntil() {} });
+const realCode = globalThis.__sent.text.match(/instead: (\d{3}) (\d{3})/).slice(1).join('');
+const wrong = realCode === '333333' ? '444444' : '333333';
+for (let i = 0; i < 5; i++) await codeCall('guess@example.test', wrong, `198.51.100.${i + 1}`);
+cr = await codeCall('guess@example.test', realCode, '198.51.100.99');
+check('after 5 wrong tries the code stops working, even the right one', cr.status === 400 && /didn't match/.test(cr.body.error), JSON.stringify(cr));
+const guessTries = [];
+for (let i = 0; i < 9; i++) guessTries.push((await codeCall('nobody2@example.test', '123456', '198.51.100.200')).status);
+check('one network guessing many addresses hits the login limit', guessTries.includes(429), JSON.stringify(guessTries));
+
+// A burst of parallel guesses (under the per-address cap): each spends an attempt before it's compared, so at most 5
+// are ever compared. (A bigger burst is refused outright: every try is recorded before any is counted.)
+await signupAs('burst@example.test', '203.0.113.50');
+const burstCode = sentCode();
+const burstWrong = burstCode === '555555' ? '666666' : '555555';
+await Promise.all(Array.from({ length: 9 }, (_, i) => codeCall('burst@example.test', burstWrong, `192.0.2.${i + 1}`)));
+const burstRow = sqlite.prepare("SELECT verify_code_attempts FROM users WHERE email = 'burst@example.test'").get();
+check('9 parallel wrong guesses spend exactly the 5 attempts', burstRow.verify_code_attempts === 5, JSON.stringify(burstRow));
+cr = await codeCall('burst@example.test', burstCode, '192.0.2.99');
+check('...and the right code is refused afterwards', cr.status === 400, JSON.stringify(cr));
+
+// The stored value is keyed with a server secret: a plain hash of "id:code" doesn't match it.
+const { hashToken } = await import(pathToFileURL(`${root}/functions/_lib/auth.js`).href);
+const keyedRow = sqlite.prepare("SELECT id, verify_code_hash FROM users WHERE email = 'burst@example.test'").get();
+check('the stored code is an HMAC, not a plain hash', keyedRow.verify_code_hash && keyedRow.verify_code_hash !== await hashToken(`${keyedRow.id}:${burstCode}`));
+
+// Signing up again with the same pending address within 2 minutes doesn't send another email.
+let sends = 0;
+globalThis.fetch = async (url, opts) => { sends++; globalThis.__sent = JSON.parse(opts.body); return new Response('{}', { status: 200 }); };
+await signupAs('twice@example.test', '203.0.113.51');
+const again = await signupAs('twice@example.test', '203.0.113.52');
+check('a repeat signup within 2 minutes sends no second email (and still shows check-your-email)', sends === 1 && again.status === 201, `sends=${sends} status=${again.status}`);
+
+// ...but a send that failed never starts that wait: signing up again right away tries again.
+sends = 0;
+globalThis.fetch = async () => new Response('{"message":"down"}', { status: 500 });
+const failedFirst = await signupAs('retry@example.test', '203.0.113.53');
+globalThis.fetch = async (url, opts) => { sends++; globalThis.__sent = JSON.parse(opts.body); return new Response('{}', { status: 200 }); };
+const retried = await signupAs('retry@example.test', '203.0.113.54');
+check('after a failed send, signing up again right away sends the email', failedFirst.status === 202 && retried.status === 201 && sends === 1, `first=${failedFirst.status} retry=${retried.status} sends=${sends}`);
+
+// Per address: 10 code tries a day across every code sent, then only the emailed link works.
+const { sendConfirmationLink } = await import(pathToFileURL(`${root}/functions/_lib/emailConfirmation.js`).href);
+const capUser = sqlite.prepare("SELECT id, email, display_name FROM users WHERE email = 'twice@example.test'").get();
+const resendCtx = { env: { DB, RESEND_API_KEY: 'key' }, request: new Request('https://amicohaus.com/x') };
+for (let i = 0; i < 5; i++) await codeCall('twice@example.test', '000001', `192.0.2.${100 + i}`);
+await sendConfirmationLink(resendCtx, { id: capUser.id, email: capUser.email, displayName: capUser.display_name });
+for (let i = 0; i < 5; i++) await codeCall('twice@example.test', '000001', `192.0.2.${110 + i}`);
+await sendConfirmationLink(resendCtx, { id: capUser.id, email: capUser.email, displayName: capUser.display_name });
+cr = await codeCall('twice@example.test', sentCode(), '192.0.2.120');
+check('after 10 tries in a day, even a fresh right code is refused on that address', cr.status === 400 && /Too many tries on this address/.test(cr.body.error), JSON.stringify(cr));
+globalThis.fetch = realFetch;
+
 console.log = silence;
 console.log(failed ? `\n${failed} FAILED` : '\nall passed');
 process.exit(failed ? 1 : 0);

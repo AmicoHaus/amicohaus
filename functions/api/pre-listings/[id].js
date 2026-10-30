@@ -1,5 +1,5 @@
 import { getSessionUser } from '../../_lib/auth.js';
-import { json, badRequest, unauthorized, forbidden, notFound } from '../../_lib/util.js';
+import { json, badRequest, unauthorized, forbidden, notFound, DEMO_EMAIL_PATTERN } from '../../_lib/util.js';
 import { validatePreListingInput, updatePreListing, fetchPreListingPhotos, getVoteTally, fetchMyVote, sealTally, fetchPriceOpinions, deleteOpinionDecks } from '../../_lib/preListings.js';
 import { fetchBids, fetchMyBid, fetchHomeownerRatingSummary } from '../../_lib/marketplace.js';
 import { getAgentProfile } from '../../_lib/agents.js';
@@ -7,6 +7,7 @@ import { lookupZipCoords, nearestServiceDistance, SERVICE_RADIUS_MILES } from '.
 import { buyerDemandForDisplay } from '../../_lib/buyerDemand.js';
 import { homeCostsFromRow } from '../../_lib/homeCosts.js';
 import { wrapUpSellerPrep } from '../../_lib/sellerPrepWrapUp.js';
+import { LAUNCH_ZIPS, FOUNDING_SPOTS, LIVE_FOUNDERS_SQL } from '../../_lib/zipBoard.js';
 
 export async function onRequestGet(context) {
   const id = context.params.id;
@@ -82,6 +83,21 @@ export async function onRequestGet(context) {
       userId: row.user_id, city: row.city, state: row.state, neighborhood: row.neighborhood,
       propertyType: row.property_type, price: row.asking_price, beds: row.beds, baths: row.baths,
     });
+  }
+
+  // Founding agents in this ZIP aim to send a first price opinion within 48 hours of posting; the owner also sees how
+  // many approved agents serve the ZIP, to invite more when there are few.
+  if (Object.hasOwn(LAUNCH_ZIPS, String(row.zip)) && (isOwner || isApprovedAgentViewer)) {
+    const founding = await db.prepare(`SELECT agent_user_id FROM (${LIVE_FOUNDERS_SQL}) WHERE zip = ?`).bind(String(row.zip)).all();
+    const serving = await db.prepare(
+      `SELECT COUNT(DISTINCT agent_profiles.user_id) AS n FROM agent_profiles JOIN users ON users.id = agent_profiles.user_id, json_each(agent_profiles.service_zips_json) z
+       WHERE agent_profiles.status = 'approved' AND users.status = 'active' AND users.email NOT LIKE ? AND CAST(z.value AS TEXT) = ?`
+    ).bind(DEMO_EMAIL_PATTERN, String(row.zip)).first();
+    preListing.zipCoverage = {
+      zip: String(row.zip), agentsServing: serving.n, foundingAgents: founding.results.length, foundingSpots: FOUNDING_SPOTS,
+      firstOpinionBy: founding.results.length ? new Date(Date.parse(row.created_at.replace(' ', 'T') + 'Z') + 48 * 3600000).toISOString() : null,
+      viewerIsFounding: !isOwner && founding.results.some(f => f.agent_user_id === user.id),
+    };
   }
 
   const homeownerRating = await fetchHomeownerRatingSummary(db, row.user_id);

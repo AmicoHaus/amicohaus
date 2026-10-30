@@ -738,7 +738,7 @@ function renderSearchResults(results) {
   const el = document.getElementById('globalSearchResults');
   if (!el) return;
   if (!results.length) {
-    el.innerHTML = '<div class="tiny" style="padding:8px 10px">No matches.</div>';
+    el.innerHTML = '<div class="tiny search-empty">No matches.</div>';
     el.classList.remove('hidden');
     return;
   }
@@ -1776,6 +1776,29 @@ function checkVideoDuration(file, maxSeconds) {
   });
 }
 
+// What an approved agent can still add to their profile, most valuable first. Homeowners compare agents on these,
+// so a fuller profile wins more proposals; agents who used the 3-minute apply see what's left.
+function agentProfileProgress(profile, photos, packages, caseStudies) {
+  const steps = [
+    { done: !!profile.bio, label: 'a short bio' },
+    { done: (profile.services || []).length > 0, label: 'the services you include' },
+    { done: !!profile.hasVideo, label: 'an intro video' },
+    { done: (photos || []).length > 0, label: 'portfolio photos' },
+    { done: (packages || []).length > 0, label: 'a service package' },
+    { done: (caseStudies || []).length > 0, label: 'a case study' },
+    { done: !!profile.yearsExperience, label: 'your years of experience' },
+    { done: (profile.specialtyTags || []).length > 0, label: 'your specialties' },
+  ];
+  const done = steps.filter(s => s.done).length;
+  const missing = steps.filter(s => !s.done).map(s => s.label);
+  const pct = Math.round((done / steps.length) * 100);
+  return `
+    <div class="profile-progress" role="group" aria-label="Profile completeness">
+      <div class="progress-bar"><span class="progress-fill progress-${Math.round(pct / 10) * 10}"></span></div>
+      <p class="tiny"><strong>Profile ${pct}% complete.</strong> ${missing.length ? `Next: add ${escapeHtml(missing.slice(0, 2).join(' and '))}. Homeowners compare agents on these.` : 'Everything homeowners compare is filled in. Nice!'}</p>
+    </div>`;
+}
+
 async function loadAgentStatus() {
   const statusEl = document.getElementById('agentApplicationStatus');
   const toolsSection = document.getElementById('agentToolsSection');
@@ -1792,6 +1815,7 @@ async function loadAgentStatus() {
       renderOpenHouseDaysEditor('agentOpenHouseDays', []);
       renderTagCheckboxes('agentSpecialtyTags', 'specialty-check', SPECIALTY_TAGS, SPECIALTY_TAG_LABELS, []);
       renderTagCheckboxes('agentLanguages', 'language-check', LANGUAGES, null, ['English']);
+      prefillClaimedZip([]);
       return;
     }
 
@@ -1816,6 +1840,7 @@ async function loadAgentStatus() {
     ['agentZip1', 'agentZip2', 'agentZip3', 'agentZip4'].forEach((id, i) => {
       document.getElementById(id).value = profile.serviceZips[i] || '';
     });
+    prefillClaimedZip(profile.serviceZips);
 
     if (profile.status === 'pending') {
       statusEl.innerHTML = '<p class="tiny">⏳ Your application is being reviewed. You\'ll get an email and a notification here as soon as it\'s decided.</p>';
@@ -1826,7 +1851,7 @@ async function loadAgentStatus() {
       summaryEl.textContent = 'Agent application — not approved, edit & resubmit';
       toolsSection.classList.add('hidden');
     } else {
-      statusEl.innerHTML = '<p class="tiny">✅ You\'re an approved agent — edit your profile any time below.</p>';
+      statusEl.innerHTML = '<p class="tiny">✅ You\'re an approved agent — edit your profile any time below.</p>' + agentProfileProgress(profile, photos, packages, caseStudies);
       summaryEl.textContent = 'My agent application (approved)';
       toolsSection.classList.remove('hidden');
       document.getElementById('agentPortfolioGallery').innerHTML = photos.length
@@ -1849,9 +1874,9 @@ async function loadAgentStatus() {
       const licenseWrap = document.getElementById('agentLicensePhotoWrap');
       licenseWrap.innerHTML = profile.hasLicensePhoto
         ? `<img src="/api/license-photos/${profile.userId}" alt="License photo" class="media-photo">
-           <p class="tiny">${profile.licenseVerified ? '✅ Verified by an admin.' : '⏳ Uploaded, awaiting admin review.'}</p>
+           <p class="tiny">${profile.licenseVerified ? '✅ Your license number was checked on the DRE.' : 'Saved. Your license number is checked on the DRE either way.'}</p>
            <button type="button" class="btn btn-danger btn-sm" data-action="remove-license-photo">Remove</button>`
-        : '<p class="tiny">No license photo uploaded yet.</p>';
+        : '<p class="tiny">No license photo (optional).</p>';
 
       renderPackagesEditor(packages);
       document.getElementById('agentCaseStudiesGallery').innerHTML = (caseStudies || []).length
@@ -2053,7 +2078,7 @@ function proposalControlsHtml(feeSort) {
         </div>
       </div>
       <div class="form-row two-col">
-        <label class="checkbox-row"><input type="checkbox" id="proposalLicenseVerified" data-proposal-control><span>License verified by Amico Haus only</span></label>
+        <label class="checkbox-row"><input type="checkbox" id="proposalLicenseVerified" data-proposal-control><span>License checked on the DRE only</span></label>
         <label class="checkbox-row"><input type="checkbox" id="proposalHideDeclined" data-proposal-control><span>Hide declined proposals</span></label>
       </div>
     </div>`;
@@ -2143,7 +2168,10 @@ function renderBidCard(b, canAct, backLink) {
   const respLabel = formatResponseHours(b.avgResponseHours);
   const statusBadge = `<span class="badge ${b.status === 'accepted' ? 'badge-active' : b.status === 'declined' ? 'badge-paused' : 'badge-gold'}">${b.status}</span>`;
   const details = agentDetailsHtml({
-    status: b.licenseVerified ? [{ text: 'License Verified', tone: 'good' }] : [],
+    status: [
+      b.licenseVerified && { text: 'License checked on DRE', tone: 'good' },
+      (b.foundingZips || []).length > 0 && { text: `Founding agent · ${b.foundingZips.join(', ')}`, tone: 'good' },
+    ].filter(Boolean),
     stats: [
       winRatePct !== null && { k: 'Win rate', v: `${winRatePct}%` },
       b.hiresOnPlatform > 0 && { k: 'Hired here', v: `${b.hiresOnPlatform} time${b.hiresOnPlatform === 1 ? '' : 's'}` },
@@ -2283,6 +2311,35 @@ function refreshTakeHome() {
   try { localStorage.setItem(`ah_payoff_${panel.dataset.preListingId}`, document.getElementById('thPayoff').value); } catch { /* storage blocked */ }
   document.getElementById('takeHomeResult').innerHTML = takeHomeResultHtml(proposalView.bids, takeHomeInputs());
   if (document.getElementById('proposalResults')) rerenderProposalResults();
+}
+
+// The founding agents' first-opinion promise, and (for the owner) how many agents serve the ZIP so far.
+function zipCoverageHtml(p, isOwner, myVote) {
+  const z = p.zipCoverage;
+  if (!z) return '';
+  const by = z.firstOpinionBy ? new Date(z.firstOpinionBy) : null;
+  const when = by ? by.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+  const lines = [];
+  if (z.viewerIsFounding && p.status === 'open') {
+    if (myVote && myVote.vote) lines.push(`Thanks, founding agent: your price opinion on this ${escapeHtml(z.zip)} home is in.`);
+    else if (by && by.getTime() > Date.now()) lines.push(`You're a founding agent in ${escapeHtml(z.zip)}: aim to send your price opinion by ${escapeHtml(when)}.`);
+  }
+  if (isOwner && by && by.getTime() > Date.now() && p.status === 'open' && !(p.votes && p.votes.total)) lines.push(`Founding agents in ${escapeHtml(z.zip)} aim to send their first price opinion by ${escapeHtml(when)}.`);
+  if (isOwner && z.agentsServing < z.foundingSpots && p.status === 'open') {
+    const serving = z.agentsServing === 0 ? 'No approved agents list' : `${z.agentsServing} approved agent${z.agentsServing === 1 ? ' lists' : 's list'}`;
+    lines.push(`${serving} ${escapeHtml(z.zip)} in their service area on Amico Haus so far. Know a great local agent? <button type="button" class="link-btn" data-action="copy-agent-invite" data-zip="${escapeHtml(z.zip)}">Copy an invite link for them</button>, invite one already here below, or <a href="/unlock-your-zip#zip-${escapeHtml(z.zip)}" target="_blank" rel="noopener">share the ZIP board</a>.`);
+  }
+  return lines.map(l => `<p class="tiny zip-coverage">${l}</p>`).join('');
+}
+
+// Came from "Unlock your ZIP" (or an invite link with ?zip=): put that ZIP in the first empty service-ZIP box, unless
+// the profile already lists it. Cleared once the application is saved.
+function prefillClaimedZip(currentZips) {
+  let claimed = '';
+  try { claimed = localStorage.getItem('ah_claim_zip') || ''; } catch { return; }
+  if (!/^\d{5}$/.test(claimed) || (currentZips || []).map(String).includes(claimed)) return;
+  const slot = ['agentZip1', 'agentZip2', 'agentZip3', 'agentZip4'].map(id => document.getElementById(id)).find(el => el && !el.value.trim());
+  if (slot) slot.value = claimed;
 }
 
 const VOTE_LABELS = { too_high: 'Too high', just_right: 'Just right', too_low: 'Too low' };
@@ -2599,6 +2656,7 @@ async function openPreListingDetail(id, opts = {}) {
         ${p.description ? `<p>${escapeHtml(p.description)}</p>` : ''}
         ${photosHtml}
         <p class="tiny">${voteSummary(p.votes, 'Agent votes', p.status)}</p>
+        ${zipCoverageHtml(p, isOwner, myVote)}
         ${p.buyerDemand ? `<p class="demand-meter">👀 <strong>${p.buyerDemand} buyers</strong> on Amico Haus are looking for a home like this in ${escapeHtml(p.city)} at this price.</p>` : ''}
         ${renderPriceHistory(p.priceHistory)}
         ${isOwner ? `<p class="form-note trust"><strong>Talk to a lender.</strong> If selling here means financing your next place, rates, loan programs and approvals come from lenders, not from websites or real estate agents. Talk to your own mortgage broker, or use our preferred lender, <strong>Point Mortgage Corporation</strong> (NMLS #231073), at <a href="tel:+16194754095">(619) 475-4095</a>. You are always free to choose any lender you like, and you can verify any lender's license at nmlsconsumeraccess.org.</p>` : ''}
@@ -4660,6 +4718,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         notifyNewRequests: document.getElementById('agentNotifyNewRequests').checked,
       });
       toast('Application submitted!');
+      try { localStorage.removeItem('ah_claim_zip'); } catch { /* optional */ }
       loadAgentStatus();
     } catch (err) { toast(err.message); } finally { btn.disabled = false; }
   });
@@ -4749,7 +4808,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       await apiUpload('/api/agents/license-photo', formData);
       e.target.value = '';
-      toast('License photo uploaded — awaiting admin review.');
+      toast('License photo saved.');
       loadAgentStatus();
     } catch (err) { toast(err.message); }
   });
@@ -4927,6 +4986,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     const { kind, id } = marketplaceDetail;
     const basePath = kind === 'pre_listing' ? `/api/pre-listings/${id}` : `/api/transactions/${id}`;
 
+    const copyInviteBtn = e.target.closest('[data-action="copy-agent-invite"]');
+    if (copyInviteBtn) {
+      // Shared with someone new, so it carries its own source tag (it's their first visit, not an internal click).
+      const link = `${location.origin}/signup?as=agent&zip=${encodeURIComponent(copyInviteBtn.dataset.zip)}&utm_source=homeowner_invite&utm_medium=share&utm_campaign=zip-${encodeURIComponent(copyInviteBtn.dataset.zip)}`;
+      try { await navigator.clipboard.writeText(link); toast('Invite link copied. Send it to the agent by text or email.'); }
+      catch { toast(link, { durationMs: 12000 }); }
+      return;
+    }
     const acceptBtn = e.target.closest('[data-action="accept-bid"]');
     const submitBidBtn = e.target.closest('[data-action="submit-bid"]');
     const withdrawBtn = e.target.closest('[data-action="withdraw-bid"]');

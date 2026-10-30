@@ -45,7 +45,8 @@ function directoryAgentInfo(a) {
     status: [
       { text: a.acceptingClients ? 'Accepting new clients' : 'Not accepting new clients', tone: a.acceptingClients ? 'good' : 'bad' },
       a.isLocalSpecialist && { text: 'Local specialist', tone: 'gold' },
-      a.licenseVerified && { text: 'License Verified', tone: 'good' },
+      a.licenseVerified && { text: 'License checked on DRE', tone: 'good' },
+      (a.foundingZips || []).length > 0 && { text: `Founding agent · ${a.foundingZips.join(', ')}`, tone: 'good' },
       a.carriesEoInsurance && { text: 'E&O insured (self-reported)', tone: 'good' },
       a.isNewToAmicoHaus && { text: 'New to Amico Haus' },
       a.offersFlatFee && { text: 'Flat-fee option' },

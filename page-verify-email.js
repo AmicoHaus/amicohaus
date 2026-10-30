@@ -45,6 +45,8 @@ $('passwordForm').addEventListener('submit', async (e) => {
   btn.disabled = true; btn.textContent = 'Creating…';
   try {
     await apiPost('/api/auth/verify-email', { token, password: $('password').value });
+    // Signup is finished, so the sign-up page's remembered "check your email" screen (page-signup.js) goes away.
+    try { localStorage.removeItem('ah_pending_signup'); } catch { /* optional */ }
     $('verifyTitle').textContent = 'You’re in!';
     $('statusLine').textContent = 'Taking you to your account…';
     $('passwordForm').classList.add('hidden');

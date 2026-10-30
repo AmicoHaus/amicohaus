@@ -4,7 +4,8 @@
 // here is shown publicly.
 import { clampString } from './util.js';
 
-const KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'gclid', 'ttclid', 'landing', 'referrer'];
+const KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'gclid', 'ttclid', 'landing', 'referrer', 'in_app'];
+const IN_APP_NAMES = { tiktok: 'TikTok', instagram: 'Instagram', facebook: 'Facebook' };
 
 // Keeps only the known keys, each a short string. Returns the JSON to store, or null when there's nothing.
 export function sanitizeAttribution(raw) {
@@ -34,5 +35,6 @@ export function describeAttribution(json) {
   parts.push(...clicks);
   if (a.referrer) parts.push(`from ${a.referrer}`);
   if (a.landing) parts.push(`landed on ${a.landing}`);
+  if (IN_APP_NAMES[a.in_app]) parts.push(`inside ${IN_APP_NAMES[a.in_app]}'s app browser`);
   return parts.join(' · ') || 'Direct visit';
 }

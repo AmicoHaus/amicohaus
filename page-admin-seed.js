@@ -119,24 +119,56 @@ async function loadReports() {
   }
 }
 
+// The DRE's public lookup takes the 8-digit license ID; older free-text numbers are passed through as typed.
+function dreRecordUrl(licenseNumber) {
+  const raw = String(licenseNumber || '');
+  const digits = raw.replace(/\D/g, '');
+  const id = digits.length >= 5 && digits.length <= 8 ? digits.padStart(8, '0') : raw;
+  return `https://www2.dre.ca.gov/PublicASP/pplinfo.asp?License_id=${encodeURIComponent(id)}`;
+}
+
+async function loadLicenseRechecks() {
+  const el = document.getElementById('licenseRecheckList');
+  if (!el) return;
+  try {
+    const { applications } = await apiGet('/api/admin/agent-applications?status=approved');
+    // Never-checked (or check removed) first, then the oldest check.
+    const sorted = applications.slice().sort((a, b) => ((a.licenseVerified && a.licenseCheckedAt) || '').localeCompare((b.licenseVerified && b.licenseCheckedAt) || ''));
+    el.innerHTML = sorted.length ? sorted.map(a => {
+      const checked = a.licenseVerified && a.licenseCheckedAt;
+      return `
+      <div class="card" data-id="${a.userId}" data-license="${escapeHtml(a.licenseNumber)}">
+        <div class="card-head"><h3>${escapeHtml(a.displayName)}</h3><span class="badge ${checked ? 'badge-gold' : 'badge-paused'}">${checked ? `Checked ${escapeHtml(new Date(a.licenseCheckedAt + 'Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }))}` : 'Not checked'}</span></div>
+        <p class="tiny">DRE #${escapeHtml(a.licenseNumber)} · ${escapeHtml(a.brokerageName)} · <a href="${escapeHtml(dreRecordUrl(a.licenseNumber))}" target="_blank" rel="noopener noreferrer">Open the DRE record →</a></p>
+        <div class="card-actions">
+          <button class="btn btn-ghost btn-sm" data-action="recheck-license">Checked on the DRE today</button>
+          <button class="btn btn-ghost btn-sm" data-action="unverify-license">License not active — remove check</button>
+          <button class="btn btn-danger btn-sm" data-action="remove-approval">Remove approval</button>
+        </div>
+      </div>`;
+    }).join('') : '<div class="empty-state">No approved agents yet.</div>';
+  } catch (err) { el.innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`; }
+}
+
 async function loadAgentApplications() {
   const el = document.getElementById('agentApplicationsList');
   el.innerHTML = '<div class="empty-state">Loading…</div>';
   try {
     const { applications } = await apiGet('/api/admin/agent-applications?status=pending');
     el.innerHTML = applications.length ? applications.map(a => `
-      <div class="card" data-id="${a.userId}">
+      <div class="card" data-id="${a.userId}" data-license="${escapeHtml(a.licenseNumber)}">
         <div class="card-head">
           <h3>${escapeHtml(a.displayName)}</h3>
           <span class="badge badge-gold">${escapeHtml(a.email)}</span>
         </div>
         <div class="mini-block">
           <span class="label">Brokerage</span>${escapeHtml(a.brokerageName)}<br>
-          <span class="label">License #</span>${escapeHtml(a.licenseNumber)} (self-reported, not verified)<br>
-          <span class="label">Experience</span>${a.yearsExperience} years
+          <span class="label">DRE license #</span>${escapeHtml(a.licenseNumber)} · <a href="${escapeHtml(dreRecordUrl(a.licenseNumber))}" target="_blank" rel="noopener noreferrer">Open the DRE record →</a><br>
+          <span class="tiny">Check: status LICENSED, the name matches, not expired, and the responsible broker matches the brokerage.</span><br>
+          <span class="label">Experience</span>${a.yearsExperience ? `${a.yearsExperience} years` : 'Not given yet'}
         </div>
         ${a.bio ? `<p class="tiny">${escapeHtml(a.bio)}</p>` : ''}
-        <p class="tiny">Default fee: ${a.defaultCommissionPct ? `${a.defaultCommissionPct}% commission` : ''}${a.defaultCommissionPct && a.defaultFlatFee ? ' + ' : ''}${a.defaultFlatFee ? `${money(a.defaultFlatFee)} flat` : ''}</p>
+        <p class="tiny">Default fee: ${a.defaultCommissionPct || a.defaultFlatFee ? `${a.defaultCommissionPct ? `${a.defaultCommissionPct}% commission` : ''}${a.defaultCommissionPct && a.defaultFlatFee ? ' + ' : ''}${a.defaultFlatFee ? `${money(a.defaultFlatFee)} flat` : ''}` : 'Not set yet (optional)'}</p>
         <p class="tiny">Services: ${a.services.length ? a.services.map(s => escapeHtml(s.type)).join(', ') : 'None listed'}</p>
         <p class="tiny">Service area: ${a.serviceZips.length ? `${a.serviceZips.join(', ')} (+20mi radius)` : 'None listed'}</p>
         <p class="tiny">Open houses: ${a.openHouseDays.length ? a.openHouseDays.map(d => OPEN_HOUSE_DAY_LABELS[d] || d).join(', ') : 'None listed'}</p>
@@ -144,12 +176,12 @@ async function loadAgentApplications() {
         ${a.hasVideo ? `<video controls preload="none" class="media-video media-video-sm" src="/api/agent-video/${a.userId}"></video>` : ''}
         ${a.hasLicensePhoto ? `
           <img src="/api/license-photos/${a.userId}" alt="License photo" class="media-photo media-photo-sm">
-          <p class="tiny">License photo: ${a.licenseVerified ? '✅ Verified' : '⏳ Not yet verified'}</p>
-        ` : '<p class="tiny">No license photo uploaded.</p>'}
+          <p class="tiny">License photo uploaded (optional). Approve only after checking the number on the DRE.</p>
+        ` : '<p class="tiny">No license photo (optional). Approve only after checking the number on the DRE.</p>'}
         <div class="card-actions">
-          <button class="btn btn-primary btn-sm" data-action="approve-agent">Approve</button>
+          <button class="btn btn-primary btn-sm" data-action="approve-agent">Checked on the DRE — Approve</button>
           <button class="btn btn-danger btn-sm" data-action="reject-agent">Reject</button>
-          ${a.hasLicensePhoto ? `<button class="btn btn-ghost btn-sm" data-action="${a.licenseVerified ? 'unverify-license' : 'verify-license'}">${a.licenseVerified ? 'Unverify License' : 'Verify License'}</button>` : ''}
+
         </div>
       </div>
     `).join('') : '<div class="empty-state">No pending agent applications.</div>';
@@ -218,7 +250,7 @@ async function loadAuditLog() {
   document.getElementById('controls').classList.remove('hidden');
   document.getElementById('refreshOverviewBtn').addEventListener('click', loadOverview);
   document.getElementById('refreshReportsBtn').addEventListener('click', loadReports);
-  document.getElementById('refreshAgentAppsBtn').addEventListener('click', loadAgentApplications);
+  document.getElementById('refreshAgentAppsBtn').addEventListener('click', () => { loadAgentApplications(); loadLicenseRechecks(); });
   document.getElementById('refreshDisputesBtn').addEventListener('click', loadDisputes);
   document.getElementById('sendDigestPreviewBtn').addEventListener('click', async () => {
     const out = document.getElementById('digestPreviewResult');
@@ -239,6 +271,7 @@ async function loadAuditLog() {
   loadOverview();
   loadReports();
   loadAgentApplications();
+  loadLicenseRechecks();
   loadDisputes();
   loadAuditLog();
   loadActivityChart();
@@ -248,22 +281,50 @@ async function loadAuditLog() {
     if (!btn) return;
     const card = btn.closest('[data-id]');
     const userId = card.dataset.id;
+    const licenseNumber = card.dataset.license;
     try {
       if (btn.dataset.action === 'approve-agent') {
-        await apiPut(`/api/admin/agent-applications/${userId}`, { decision: 'approve' });
+        if (!confirm(`Did you open the DRE record for #${licenseNumber} and see LICENSED, a matching name, no expiration and the right broker?`)) return;
+        await apiPut(`/api/admin/agent-applications/${userId}/verify-license`, { verified: true, licenseNumber });
+        await apiPut(`/api/admin/agent-applications/${userId}`, { decision: 'approve', licenseNumber });
         toast('Agent approved.');
       } else if (btn.dataset.action === 'reject-agent') {
         const reason = prompt('Optional reason (shown to the applicant):') || '';
         await apiPut(`/api/admin/agent-applications/${userId}`, { decision: 'reject', rejectionReason: reason });
         toast('Agent application rejected.');
       } else if (btn.dataset.action === 'verify-license') {
-        await apiPut(`/api/admin/agent-applications/${userId}/verify-license`, { verified: true });
+        await apiPut(`/api/admin/agent-applications/${userId}/verify-license`, { verified: true, licenseNumber });
         toast('License marked verified.');
       } else if (btn.dataset.action === 'unverify-license') {
         await apiPut(`/api/admin/agent-applications/${userId}/verify-license`, { verified: false });
         toast('License verification removed.');
       }
       loadAgentApplications();
+      loadLicenseRechecks();
+    } catch (err) { toast(err.message); }
+  });
+
+  document.getElementById('licenseRecheckList').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    const card = btn.closest('[data-id]');
+    const userId = card.dataset.id;
+    const licenseNumber = card.dataset.license;
+    try {
+      if (btn.dataset.action === 'recheck-license') {
+        await apiPut(`/api/admin/agent-applications/${userId}/verify-license`, { verified: true, licenseNumber });
+        toast('License marked as checked today.');
+      } else if (btn.dataset.action === 'unverify-license') {
+        if (!confirm('Remove the DRE check from this agent? Their profile will stop saying the license was checked.')) return;
+        await apiPut(`/api/admin/agent-applications/${userId}/verify-license`, { verified: false });
+        toast('DRE check removed.');
+      } else if (btn.dataset.action === 'remove-approval') {
+        const reason = prompt('Remove this approval? Optional reason (shown to the agent):');
+        if (reason === null) return;
+        await apiPut(`/api/admin/agent-applications/${userId}`, { decision: 'reject', rejectionReason: reason });
+        toast('Approval removed.');
+      }
+      loadLicenseRechecks();
     } catch (err) { toast(err.message); }
   });
 

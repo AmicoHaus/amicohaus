@@ -29,7 +29,7 @@ export async function onRequestGet(context) {
     openHouseDays: JSON.parse(r.open_house_days_json || '[]'),
     avgDaysOnMarket: r.avg_days_on_market, homesSoldLastYear: r.homes_sold_last_year,
     hasVideo: !!r.video_r2_key,
-    hasLicensePhoto: !!r.license_photo_r2_key, licenseVerified: !!r.license_verified,
+    hasLicensePhoto: !!r.license_photo_r2_key, licenseVerified: !!r.license_verified, licenseCheckedAt: r.license_verified_at,
     appliedAt: r.applied_at, reviewedAt: r.reviewed_at, rejectionReason: r.rejection_reason,
   }));
 

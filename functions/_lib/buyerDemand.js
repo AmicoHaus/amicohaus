@@ -32,6 +32,11 @@ function namesThisArea(locations, home) {
   });
 }
 
+// Whether a search names this city exactly (same rules as above, without a neighborhood). Used by the ZIP board.
+export function namesCity(locations, city) {
+  return namesThisArea(locations, { city, neighborhood: '', state: 'CA' });
+}
+
 function fitsPrice(price, min, max) {
   return (!min || price >= min) && (!max || price <= max);
 }

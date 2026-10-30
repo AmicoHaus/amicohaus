@@ -50,6 +50,10 @@ export async function onRequestPost(context) {
     await db.prepare(
       "UPDATE users SET display_name = ?, signup_intent = COALESCE(?, signup_intent), signup_source = COALESCE(signup_source, ?), created_at = datetime('now') WHERE id = ?"
     ).bind(displayName, intent || null, source, userId).run();
+    // At most one delivered email per address every couple of minutes (like resend-confirmation), so repeat signups
+    // can't flood an inbox or keep replacing the code someone is about to type. A send that failed doesn't count.
+    const recent = await db.prepare("SELECT 1 FROM users WHERE id = ? AND verify_sent_at > datetime('now', '-2 minutes')").bind(userId).first();
+    if (recent) return json({ pendingConfirmation: true, email }, { status: 201 });
   } else {
     let referredBy = null;
     const refCode = clampString(body.referralCode, 20);

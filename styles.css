@@ -1025,6 +1025,18 @@ main > .demo-section:first-of-type > [data-pills] { display: none; }
 .hoa-includes legend { width: 100%; margin-bottom: 4px; }
 .hoa-includes .checkbox-row { margin: 0; }
 .home-costs-editor { margin-top: 12px; }
+.prep-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 14px; margin-top: 6px; }
+.prep-grid .checkbox-row { margin: 0; }
+.prep-summary { margin: 10px 0 4px; }
+.preview-row { margin: 8px 0; }
+.interview-card { margin-top: 10px; }
+.score-field { display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; margin: 4px 0; }
+.interview-card .card-head h4 { margin: 0; }
+.interview-card .card-head .badge { flex-shrink: 0; white-space: nowrap; }
+.score-field label { margin: 0; }
+.score-field select { width: auto; min-width: 64px; }
+.interview-request { margin-top: 12px; }
+.planner-result { margin-top: 12px; }
 :root[data-theme="dark"] .opinion-summary { background: var(--navy-2); }
 
 /* Phones. Kept at the END of the file on purpose: several rules it overrides (e.g. #globalSearchInput) appear
@@ -1039,4 +1051,5 @@ main > .demo-section:first-of-type > [data-pills] { display: none; }
   .search-box { flex-basis: 100%; }
   #globalSearchInput { width: 100%; }
   .opinion-summary { grid-template-columns: 1fr; }
+  .prep-grid { grid-template-columns: 1fr; }
 }

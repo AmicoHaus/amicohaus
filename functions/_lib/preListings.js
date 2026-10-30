@@ -1,6 +1,7 @@
 import { clampString } from './util.js';
 import { PROPERTY_TYPES } from './listings.js';
 import { lookupZipCoords, nearestServiceDistance, SERVICE_RADIUS_MILES } from './geo.js';
+import { PREP_ITEMS, validatePrep } from './sellerPrep.js';
 
 function num(value, { min = 0, max = Infinity } = {}) {
   const n = Number(value);
@@ -126,7 +127,8 @@ export async function castPriceVote(db, preListingId, agentUserId, body) {
   const vote = VOTE_TYPES.includes(body.vote) ? body.vote : null;
   if (!vote) return { error: 'Pick too high, too low, or just right.' };
   const note = clampString(body.note, 300);
-  const withOpinion = 'priceOpinion' in body || 'comps' in body;
+  const withOpinion = 'priceOpinion' in body || 'comps' in body || 'prep' in body;
+  const prep = validatePrep(body.prep);
   let priceOpinion = null;
   let comps = [];
   if (withOpinion) {
@@ -148,11 +150,11 @@ export async function castPriceVote(db, preListingId, agentUserId, body) {
   if (withOpinion) {
     // The note explains the suggested price, so it's kept with the opinion (which outlives a price change).
     await db.prepare(
-      `INSERT INTO pre_listing_price_opinions (pre_listing_id, agent_user_id, price_opinion, comps_json, note)
-       VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO pre_listing_price_opinions (pre_listing_id, agent_user_id, price_opinion, comps_json, note, prep_json)
+       VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(pre_listing_id, agent_user_id) DO UPDATE SET price_opinion = excluded.price_opinion,
-         comps_json = excluded.comps_json, note = excluded.note, updated_at = datetime('now')`
-    ).bind(preListingId, agentUserId, priceOpinion, JSON.stringify(comps), note).run();
+         comps_json = excluded.comps_json, note = excluded.note, prep_json = excluded.prep_json, updated_at = datetime('now')`
+    ).bind(preListingId, agentUserId, priceOpinion, JSON.stringify(comps), note, JSON.stringify(prep)).run();
   }
 
   // Re-saving the same vote (to add a comp or fix a typo) shouldn't notify the homeowner again.
@@ -196,12 +198,13 @@ export async function fetchMyVote(db, preListingId, agentUserId) {
     'SELECT vote, note FROM pre_listing_price_votes WHERE pre_listing_id = ? AND agent_user_id = ?'
   ).bind(preListingId, agentUserId).first();
   const opinion = await db.prepare(
-    'SELECT price_opinion, comps_json, note, deck_name, deck_size FROM pre_listing_price_opinions WHERE pre_listing_id = ? AND agent_user_id = ?'
+    'SELECT price_opinion, comps_json, note, prep_json, deck_name, deck_size FROM pre_listing_price_opinions WHERE pre_listing_id = ? AND agent_user_id = ?'
   ).bind(preListingId, agentUserId).first();
   if (!vote && !opinion) return null;
   return {
     vote: vote ? vote.vote : null, note: (opinion && opinion.note) || (vote ? vote.note : ''),
     priceOpinion: opinion ? opinion.price_opinion : null, comps: opinion ? parseComps(opinion.comps_json) : [],
+    prep: opinion ? validatePrep(parseComps(opinion.prep_json)) : [],
     deck: opinion && opinion.deck_name ? { name: opinion.deck_name, size: opinion.deck_size } : null,
   };
 }
@@ -229,7 +232,7 @@ export async function fetchVotedIds(db, agentUserId) {
 export const OPINION_SUMMARY_MIN = 3;
 export async function fetchPriceOpinions(db, preListingId) {
   const opinionRows = await db.prepare(
-    `SELECT o.agent_user_id, o.price_opinion, o.comps_json, o.note, o.deck_name, o.deck_size, o.updated_at, users.display_name AS agent_name
+    `SELECT o.agent_user_id, o.price_opinion, o.comps_json, o.note, o.prep_json, o.deck_name, o.deck_size, o.updated_at, users.display_name AS agent_name
      FROM pre_listing_price_opinions o JOIN users ON users.id = o.agent_user_id
      WHERE o.pre_listing_id = ? AND users.status = 'active'`
   ).bind(preListingId).all();
@@ -241,14 +244,14 @@ export async function fetchPriceOpinions(db, preListingId) {
   // One entry per agent who either voted or gave an opinion.
   const byAgent = new Map();
   const entry = (id, name) => {
-    if (!byAgent.has(id)) byAgent.set(id, { agentUserId: id, agentName: name, vote: null, note: '', priceOpinion: null, comps: [], deck: null, updatedAt: null });
+    if (!byAgent.has(id)) byAgent.set(id, { agentUserId: id, agentName: name, vote: null, note: '', priceOpinion: null, comps: [], prep: [], deck: null, updatedAt: null });
     return byAgent.get(id);
   };
   for (const r of voteRows.results) Object.assign(entry(r.agent_user_id, r.agent_name), { vote: r.vote, note: r.note });
   for (const r of opinionRows.results) {
     const e = entry(r.agent_user_id, r.agent_name);
     Object.assign(e, {
-      note: r.note || e.note, priceOpinion: r.price_opinion, comps: parseComps(r.comps_json),
+      note: r.note || e.note, priceOpinion: r.price_opinion, comps: parseComps(r.comps_json), prep: validatePrep(parseComps(r.prep_json)),
       deck: r.deck_name ? { name: r.deck_name, size: r.deck_size } : null, updatedAt: r.updated_at,
     });
   }
@@ -261,7 +264,12 @@ export async function fetchPriceOpinions(db, preListingId) {
     const median = prices.length % 2 ? prices[mid] : Math.round((prices[mid - 1] + prices[mid]) / 2);
     summary = { count: prices.length, low: prices[0], high: prices[prices.length - 1], median };
   }
-  return { opinions, summary };
+  // "Fix before you list": each recommended item with how many agents suggested it, most-agreed first.
+  const counts = new Map();
+  for (const o of opinions) for (const k of o.prep) counts.set(k, (counts.get(k) || 0) + 1);
+  const prepSummary = [...counts.entries()].map(([key, count]) => ({ key, label: PREP_ITEMS[key], count }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  return { opinions, summary, prepSummary };
 }
 
 // Removes presentation files from storage before a pre-listing (and with it, its opinion rows) is deleted. Best

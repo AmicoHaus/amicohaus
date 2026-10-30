@@ -1764,13 +1764,14 @@ function checkVideoDuration(file, maxSeconds) {
     video.preload = 'metadata';
     video.onloadedmetadata = () => {
       URL.revokeObjectURL(video.src);
-      if (video.duration > maxSeconds) {
+      // Some recordings don't report a length; then only the server's size limit applies.
+      if (Number.isFinite(video.duration) && video.duration > maxSeconds) {
         reject(new Error(`Video must be ${Math.round(maxSeconds / 60)} minutes or under (this one is about ${Math.round(video.duration)}s).`));
       } else {
         resolve();
       }
     };
-    video.onerror = () => reject(new Error('Could not read this video file.'));
+    video.onerror = () => { URL.revokeObjectURL(video.src); resolve(); }; // best effort: the server's size limit still applies
     video.src = URL.createObjectURL(file);
   });
 }
@@ -2271,6 +2272,7 @@ function renderTakeHomePanel(p, bids, opinions) {
         <div class="field"><label for="thClosing">Title, escrow and other costs (% of price)</label><input type="number" id="thClosing" data-take-home min="0" max="10" step="0.1" inputmode="decimal" value="1"></div>
       </div>
       <p class="tiny">$1.10 per $1,000 is San Diego County's transfer tax; a few California cities add their own.</p>
+      <p class="tiny">Buying your next home too? <a href="/sell-or-buy-first" target="_blank" rel="noopener">Plan whether to sell or buy first →</a></p>
       <div id="takeHomeResult">${takeHomeResultHtml(bids, inp)}</div>
     </details>`;
 }
@@ -2340,6 +2342,7 @@ function renderPriceOpinionForm(myVote) {
             </div>
           </div>`).join('')}
       </details>
+      ${prepCheckboxesHtml(mine.prep)}
       <div class="field"><label for="opinionNote">Note for the homeowner (optional)</label><textarea id="opinionNote" maxlength="300" placeholder="e.g. Priced to the two most recent sales on the same street.">${v(mine.note)}</textarea></div>
       <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="save-opinion">Save price opinion</button></div>
       <div class="field">
@@ -2367,6 +2370,7 @@ function renderPriceOpinionsPanel(data, preListingId) {
         <div class="card-head"><h4><a class="profile-link" href="/profile/${o.agentUserId}">${escapeHtml(o.agentName)}</a></h4>${o.vote ? `<span class="badge badge-gold">${VOTE_LABELS[o.vote] || ''}</span>` : ''}</div>
         ${o.priceOpinion ? `<p class="opinion-price">Suggests ${money(o.priceOpinion)}</p>` : '<p class="tiny">No suggested price yet.</p>'}
         ${o.note ? `<p>${escapeHtml(o.note)}</p>` : ''}
+        ${prepListHtml(o.prep)}
         ${comps ? `<span class="label">Comps</span><ul class="comp-list">${comps}</ul>` : ''}
         ${o.deck ? `<p class="tiny">📎 <a href="/api/pre-listings/${preListingId}/votes/deck?agent=${o.agentUserId}">${escapeHtml(o.deck.name)}</a> · ${formatFileSize(o.deck.size)}</p>` : ''}
       </div>`;
@@ -2375,7 +2379,7 @@ function renderPriceOpinionsPanel(data, preListingId) {
     <div class="panel" id="priceOpinionsPanel">
       <h3>Agents' price opinions (${opinions.length})</h3>
       <p class="tiny">Agents never see each other's suggested prices, comps or files, and can't see the vote totals until they've voted. These are professional opinions, not appraisals.</p>
-      ${opinions.length ? summaryHtml + cards : '<div class="empty-state">No agent has weighed in yet. You\'ll get a notification when one does.</div>'}
+      ${opinions.length ? summaryHtml + prepSummaryHtml(data.prepSummary, opinions.length) + cards : '<div class="empty-state">No agent has weighed in yet. You\'ll get a notification when one does.</div>'}
     </div>`;
 }
 
@@ -2577,6 +2581,7 @@ async function openPreListingDetail(id, opts = {}) {
       ? `<div class="photo-gallery">${p.photoIds.map(pid => `<img src="/api/pre-listing-photos/${pid}" alt="" loading="lazy" class="media-thumb">`).join('')}</div>`
       : '';
     const isAwardedAgent = !isOwner && myBid && myBid.status === 'accepted';
+    const isApprovedAgentViewer = !isOwner && !!currentAgentProfile && currentAgentProfile.status === 'approved';
 
     contentEl.innerHTML = `
       <div class="card" id="preListingViewCard">
@@ -2599,9 +2604,12 @@ async function openPreListingDetail(id, opts = {}) {
         ${isOwner ? `<p class="form-note trust"><strong>Talk to a lender.</strong> If selling here means financing your next place, rates, loan programs and approvals come from lenders, not from websites or real estate agents. Talk to your own mortgage broker, or use our preferred lender, <strong>Point Mortgage Corporation</strong> (NMLS #231073), at <a href="tel:+16194754095">(619) 475-4095</a>. You are always free to choose any lender you like, and you can verify any lender's license at nmlsconsumeraccess.org.</p>` : ''}
         ${isOwner ? renderPreListingOwnerBar(p) : ''}
       </div>
+      ${isOwner || isApprovedAgentViewer ? renderVideoTourPanel(p, isOwner) : ''}
       ${isOwner ? renderPriceOpinionsPanel(priceOpinions, id) : ''}
       ${isOwner && p.status === 'open' ? renderPreListingEditForm(p) : ''}
       ${isOwner ? renderDisclosuresChecklist(p) : ''}
+      ${isOwner ? renderListingReadyPanel(p) : ''}
+      ${isOwner || isApprovedAgentViewer ? '<div id="previewsPanel"></div><div id="interviewsPanel"></div>' : ''}
       ${isOwner ? '<div id="showingsPanel"></div>' : ''}
       ${isOwner
         ? `${renderTakeHomePanel(p, bids, priceOpinions)}${renderProposalsSection(bids, `pre-listing-${id}`, { feeSort: true, startPrice: takeHomeStartPrice(p, priceOpinions) })}
@@ -2620,6 +2628,10 @@ async function openPreListingDetail(id, opts = {}) {
     if (p.status === 'awarded' && (isOwner || isAwardedAgent)) loadMilestonesInto('pre_listing', id);
     if (isOwner && p.status === 'open') loadInvitedAgentsInto('pre_listing', id);
     if (isOwner) loadShowingsInto(id, true);
+    if (isOwner || isApprovedAgentViewer) {
+      loadPreviewsInto(id, isOwner, p.status);
+      loadInterviewsInto(id, isOwner, bids, p.status);
+    }
     if (!isOwner && currentAgentProfile && currentAgentProfile.status === 'approved' && !isAwardedAgent && p.status === 'open') loadShowingsInto(id, false);
   } catch (e) { contentEl.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; }
 }
@@ -4706,6 +4718,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const file = e.target.files[0];
     if (!file) return;
     try {
+      if (file.size > 95 * 1024 * 1024) throw new Error(`That video is ${formatFileSize(file.size)}; the limit is 95 MB. Exporting at 1080p usually brings it under.`);
       await checkVideoDuration(file, AGENT_VIDEO_MAX_SECONDS);
       document.getElementById('agentVideoStatus').textContent = 'Uploading…';
       const res = await fetch('/api/agents/video', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': file.type }, body: file });
@@ -5021,6 +5034,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           note: val('opinionNote'),
           priceOpinion: val('opinionPrice') === '' ? '' : Number(val('opinionPrice')),
           comps,
+          prep: selectedPrepItems(),
         });
         toast('Price opinion saved. Only the homeowner can see it.');
         openPreListingDetail(id);

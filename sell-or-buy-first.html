@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sell First or Buy First? — Amico Haus</title>
+<meta name="description" content="Selling one home and buying the next? Compare selling first, buying first, and closing both the same week, and see what your numbers look like.">
+<link rel="canonical" href="https://amicohaus.com/sell-or-buy-first">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Amico Haus">
+<meta property="og:title" content="Sell First or Buy First? — Amico Haus">
+<meta property="og:description" content="Compare selling first, buying first, and closing both the same week, and see what your numbers look like.">
+<meta property="og:url" content="https://amicohaus.com/sell-or-buy-first">
+<meta property="og:image" content="https://amicohaus.com/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Sell First or Buy First? — Amico Haus">
+<meta name="twitter:description" content="Compare selling first, buying first, and closing both the same week, and see what your numbers look like.">
+<meta name="twitter:image" content="https://amicohaus.com/og-image.png">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <a class="agent-strip" href="/about">Presented by <strong>Rudy Flores</strong> &middot; Coldwell Banker West &middot; DRE #02257808</a>
+  <header class="topbar">
+    <a class="brand" href="/">
+      <svg viewBox="0 0 48 48" class="logo" aria-hidden="true">
+        <path d="M24 4 L44 20 V42 H30 V28 H18 V42 H4 V20 Z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+      </svg>
+      <span class="brand-text">AMICO <span class="accent">HAUS</span></span>
+    </a>
+    <nav class="tabs">
+      <a class="tab tab-demo" href="/demo">Demo - Start Here!</a>
+      <a class="tab" href="/#how">How it works</a>
+      <a class="tab" href="/#for-agents">For agents</a>
+      <a class="tab" href="/about">About</a>
+    </nav>
+    <div class="auth-cta" id="authCta">
+      <a class="btn btn-ghost btn-sm" href="/login">Log In</a>
+      <a class="btn btn-primary btn-sm" href="/signup">Sign Up</a>
+    </div>
+  </header>
+
+  <main class="prose">
+    <p class="eyebrow">Plan your move</p>
+    <h1>Sell first or buy first?</h1>
+    <p class="lede">Moving from one home to the next comes down to timing. Here are the three common ways to line it up, and a quick way to see your own numbers.</p>
+
+    <div class="card about-card">
+      <h2>Sell first</h2>
+      <p>You know exactly what you have to spend, and you never carry two mortgages. The trick is having somewhere to land.</p>
+      <ul>
+        <li><strong>Ask for a rent-back.</strong> Many buyers will let you stay a few weeks after closing while you find your next place.</li>
+        <li><strong>Rent short-term</strong> while you shop, then buy with your sale money in hand, which makes for a strong offer.</li>
+      </ul>
+    </div>
+
+    <div class="card about-card">
+      <h2>Buy first</h2>
+      <p>You move once, on your schedule, and can take your time getting your current home ready to sell.</p>
+      <ul>
+        <li><strong>Make an offer contingent on selling your home.</strong> It protects you, though some sellers prefer offers without one.</li>
+        <li><strong>Use your home's equity for the down payment.</strong> A home equity line of credit or a bridge loan can do that; a lender can tell you what you'd qualify for.</li>
+      </ul>
+    </div>
+
+    <div class="card about-card">
+      <h2>Close both the same week</h2>
+      <p>Your agent lines up both escrows so your sale funds your purchase. It takes coordination, and it's the cleanest move when it works.</p>
+    </div>
+
+    <div class="card about-card" id="planner">
+      <h2>Your numbers</h2>
+      <p class="tiny">A quick estimate in your browser. Nothing you type here is saved or sent anywhere.</p>
+      <form id="plannerForm" class="profile-form">
+        <div class="form-row two-col">
+          <div class="field"><label for="pSalePrice">Your home's expected sale price ($)</label><input type="number" id="pSalePrice" min="0" step="1000" inputmode="numeric" placeholder="e.g. 850000"></div>
+          <div class="field"><label for="pPayoff">What you still owe on it ($)</label><input type="number" id="pPayoff" min="0" step="1000" inputmode="numeric" placeholder="0 if paid off"></div>
+        </div>
+        <div class="form-row two-col">
+          <div class="field"><label for="pSellCosts">Your selling costs ($)</label><input type="number" id="pSellCosts" min="0" step="500" inputmode="numeric" placeholder="agent fees, title, escrow, transfer tax"></div>
+          <div class="field"><label for="pNextPrice">Next home's price ($)</label><input type="number" id="pNextPrice" min="0" step="1000" inputmode="numeric" placeholder="e.g. 1000000"></div>
+        </div>
+        <div class="form-row two-col">
+          <div class="field"><label for="pDownPct">Down payment on the next home (%)</label><input type="number" id="pDownPct" min="0" max="100" step="1" inputmode="numeric" value="20"></div>
+          <div class="field"><label for="pSavings">Savings you can put in ($)</label><input type="number" id="pSavings" min="0" step="1000" inputmode="numeric" placeholder="0"></div>
+        </div>
+      </form>
+      <div id="plannerResult" class="planner-result" role="status" aria-live="polite"><p class="tiny">Fill in the boxes above to see your numbers.</p></div>
+      <p class="tiny">Posting your home as a pre-listing gives you a take-home estimate based on the agents' actual proposals.</p>
+    </div>
+
+    <p class="form-note trust"><strong>Talk to a lender.</strong> Loan programs, bridge loans, home equity lines and approvals come from lenders, not from websites or real estate agents. Talk to your own mortgage broker, or use our preferred lender, <strong>Point Mortgage Corporation</strong> (NMLS #231073), at <a href="tel:+16194754095">(619) 475-4095</a>. You are always free to choose any lender you like, and you can verify any lender's license at nmlsconsumeraccess.org.</p>
+
+    <p class="form-actions"><a class="btn btn-primary" href="/signup?as=homeowner">Post a pre-listing</a> <a class="btn btn-ghost" href="/contact">Talk to Rudy</a></p>
+    <p class="trust-line">General information, not legal, tax or lending advice. Your agent, escrow officer and lender will give you the real numbers for your situation.</p>
+  </main>
+
+  <footer class="site-footer">
+    <span class="footer-tagline">Amico Haus: the real estate marketplace of tomorrow! Everything that's missing from the real estate market for the homeowner!</span> <a href="/about">About</a> · <a href="/whats-new">What's New</a> · <a href="/calculator">Calculator</a> · <a href="/assumable-loans">Assumable loans</a> · <a href="/contact">Contact</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="https://www.instagram.com/amicohaus" target="_blank" rel="noopener noreferrer">Instagram</a> · <a href="https://www.tiktok.com/@amicohaus" target="_blank" rel="noopener noreferrer">TikTok</a> · <a href="https://www.youtube.com/@amicohaus" target="_blank" rel="noopener noreferrer">YouTube</a>
+  </footer>
+</div>
+<script src="client.js"></script>
+<script src="page-about.js"></script>
+<script src="page-sell-buy.js"></script>
+<!-- Cloudflare Web Analytics -->
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "91a193988b2d45e58aa1c27d5abf6bdb"}'></script>
+<!-- End Cloudflare Web Analytics -->
+</body>
+</html>

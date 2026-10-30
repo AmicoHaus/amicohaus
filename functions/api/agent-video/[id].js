@@ -35,7 +35,8 @@ export async function onRequestGet(context) {
   const headers = {
     'Content-Type': agent.video_content_type,
     'Accept-Ranges': 'bytes',
-    'Cache-Control': 'public, max-age=31536000, immutable',
+    // Same URL after an agent replaces their video, so it can't be cached for long.
+    'Cache-Control': 'public, max-age=3600',
     'Content-Length': String(length),
   };
   if (status === 206) headers['Content-Range'] = `bytes ${offset}-${offset + length - 1}/${totalSize}`;

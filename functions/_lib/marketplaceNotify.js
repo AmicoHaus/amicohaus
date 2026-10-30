@@ -251,3 +251,63 @@ export async function notifyPriceDrop(context, link, favoriterUserIds, oldPrice,
   });
   await Promise.allSettled(sends);
 }
+
+// ---- Seller prep: broker previews and interviews ----
+// Times are shown in Pacific time (the site serves San Diego County); the server itself runs on UTC.
+function pacificTime(iso) {
+  return new Date(iso).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+// Agents who already engaged with this pre-listing (voted, sent a proposal, or were invited) hear about a new
+// preview window in-app; it's an invitation, not a request waiting on them, so no email.
+export async function notifyPreviewScheduled(context, preListingId, startsAt) {
+  const db = context.env.DB;
+  const rows = await db.prepare(
+    `SELECT engaged.id FROM (
+       SELECT agent_user_id AS id FROM pre_listing_price_votes WHERE pre_listing_id = ?1
+       UNION SELECT agent_user_id FROM service_bids WHERE request_type = 'pre_listing' AND request_id = ?1 AND status IN ('pending','accepted')
+       UNION SELECT agent_user_id FROM agent_invites WHERE request_type = 'pre_listing' AND request_id = ?1 AND status != 'declined'
+     ) engaged
+     JOIN users ON users.id = engaged.id AND users.status = 'active'
+     JOIN agent_profiles ON agent_profiles.user_id = engaged.id AND agent_profiles.status = 'approved'`
+  ).bind(preListingId).all();
+  const body = `A homeowner opened a broker preview for ${pacificTime(startsAt)}. RSVP if you'd like to walk through.`;
+  await Promise.allSettled(rows.results.map(r => notify(db, r.id, body, `/app#pre-listing-${preListingId}`)));
+}
+
+export async function notifyPreviewCanceled(context, preListingId, agentUserIds, startsAt) {
+  const db = context.env.DB;
+  const body = `The broker preview for ${pacificTime(startsAt)} was canceled.`;
+  await Promise.allSettled(agentUserIds.map(id => notify(db, id, body, `/app#pre-listing-${preListingId}`)));
+}
+
+// Being asked to interview is the kind of thing an agent could lose by missing it, so it gets the email too.
+export async function notifyInterviewRequested(context, preListingId, agentUserId) {
+  const db = context.env.DB;
+  const agent = await db.prepare('SELECT id, email, email_frequency FROM users WHERE id = ?').bind(agentUserId).first();
+  if (!agent) return;
+  await notifyAndMaybeEmail(context, { userId: agent.id, email: agent.email, emailFrequency: agent.email_frequency },
+    'A homeowner would like to interview you about their pre-listing. Pick one of the times they offered.',
+    `/app#pre-listing-${preListingId}`, 'Interview request on Amico Haus', 'pick a time');
+}
+
+export async function notifyInterviewScheduled(context, preListingId, ownerUserId, agentUserId, slot) {
+  const db = context.env.DB;
+  const agent = await db.prepare('SELECT display_name FROM users WHERE id = ?').bind(agentUserId).first();
+  const owner = await db.prepare('SELECT id, email, email_frequency FROM users WHERE id = ?').bind(ownerUserId).first();
+  if (!owner) return;
+  await notifyAndMaybeEmail(context, { userId: owner.id, email: owner.email, emailFrequency: owner.email_frequency },
+    `${agent ? agent.display_name : 'An agent'} picked ${pacificTime(slot)} for your interview.`,
+    `/app#pre-listing-${preListingId}`, 'Interview scheduled on Amico Haus', 'see the details');
+}
+
+export async function notifyInterviewCanceled(context, preListingId, agentUserId) {
+  await notify(context.env.DB, agentUserId, 'A homeowner canceled their interview request with you.', `/app#pre-listing-${preListingId}`);
+}
+
+// The owner hears about every RSVP (in-app), so they always know which agents received their street address.
+export async function notifyPreviewRsvp(context, preListingId, ownerUserId, agentUserId, startsAt) {
+  const db = context.env.DB;
+  const agent = await db.prepare('SELECT display_name FROM users WHERE id = ?').bind(agentUserId).first();
+  await notify(db, ownerUserId, `${agent ? agent.display_name : 'An agent'} RSVP'd to your broker preview on ${pacificTime(startsAt)} and can now see your address.`, `/app#pre-listing-${preListingId}`);
+}

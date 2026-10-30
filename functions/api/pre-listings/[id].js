@@ -6,6 +6,7 @@ import { getAgentProfile } from '../../_lib/agents.js';
 import { lookupZipCoords, nearestServiceDistance, SERVICE_RADIUS_MILES } from '../../_lib/geo.js';
 import { buyerDemandForDisplay } from '../../_lib/buyerDemand.js';
 import { homeCostsFromRow } from '../../_lib/homeCosts.js';
+import { wrapUpSellerPrep } from '../../_lib/sellerPrepWrapUp.js';
 
 export async function onRequestGet(context) {
   const id = context.params.id;
@@ -41,6 +42,9 @@ export async function onRequestGet(context) {
     preferredAgreementMonths: row.preferred_agreement_months, prefersLocalSpecialist: !!row.prefers_local_specialist,
     address: isOwner ? row.address : undefined,
     disclosureChecklist: isOwner ? JSON.parse(row.disclosure_checklist_json || '[]') : undefined,
+    listingReady: isOwner ? JSON.parse(row.listing_ready_json || '[]') : undefined,
+    targetListDate: isOwner ? row.target_list_date : undefined,
+    hasVideo: !!row.video_r2_key, videoVersion: row.video_r2_key ? row.video_r2_key.slice(-8) : null,
     propertyType: row.property_type, beds: row.beds, baths: row.baths, sqft: row.sqft, askingPrice: row.asking_price,
     status: row.status, awardedBidId: row.awarded_bid_id, createdAt: row.created_at,
     photoIds: photos.map(p => p.id), votes, costs: homeCostsFromRow(row),
@@ -102,6 +106,7 @@ export async function onRequestPut(context) {
     // An awarded pre-listing has an agent and a milestone checklist attached; it isn't the owner's to "close" away.
     if (existing.status !== 'open') return badRequest('Only an open pre-listing can be closed.');
     await db.prepare("UPDATE pre_listings SET status = 'closed', updated_at = datetime('now') WHERE id = ?").bind(id).run();
+    await wrapUpSellerPrep(context, id);
     return json({ ok: true });
   }
 
@@ -137,7 +142,12 @@ export async function onRequestDelete(context) {
   // attached; it isn't the owner's to delete out from under them. An admin can still override for moderation.
   if (existing.status === 'awarded' && user.role !== 'admin') return badRequest('An awarded pre-listing can\'t be deleted — close it instead once the engagement wraps up.');
 
+  await wrapUpSellerPrep(context, id);
   await deleteOpinionDecks(db, context.env.PHOTOS, id);
+  const video = await db.prepare('SELECT video_r2_key FROM pre_listings WHERE id = ?').bind(id).first();
+  if (video && video.video_r2_key && context.env.PHOTOS) {
+    try { await context.env.PHOTOS.delete(video.video_r2_key); } catch (err) { console.log(`[video delete failed] ${err.message}`); }
+  }
   await db.prepare('DELETE FROM pre_listings WHERE id = ?').bind(id).run();
   return json({ ok: true });
 }

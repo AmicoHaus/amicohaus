@@ -2,6 +2,7 @@ import { getSessionUser } from '../../../../_lib/auth.js';
 import { json, badRequest, unauthorized, forbidden, notFound } from '../../../../_lib/util.js';
 import { acceptBid, withdrawBid, isAgentActive } from '../../../../_lib/marketplace.js';
 import { notifyBidDecision } from '../../../../_lib/marketplaceNotify.js';
+import { wrapUpSellerPrep } from '../../../../_lib/sellerPrepWrapUp.js';
 
 export async function onRequestPut(context) {
   const { id, bidId } = context.params;
@@ -32,6 +33,7 @@ export async function onRequestPut(context) {
 
     await acceptBid(db, 'pre_listing', id, bidId);
     context.waitUntil(notifyBidDecision(context, bid.agent_user_id, 'pre_listing', id, true));
+    await wrapUpSellerPrep(context, id, { keepAgentId: bid.agent_user_id });
     return json({ ok: true });
   }
 

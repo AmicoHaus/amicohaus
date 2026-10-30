@@ -31,6 +31,8 @@ export async function onRequestPost(context) {
        WHERE deck_r2_key IS NOT NULL AND (agent_user_id = ? OR pre_listing_id IN (SELECT id FROM pre_listings WHERE user_id = ?))`
     ).bind(user.id, user.id).all();
     await Promise.all(decks.results.map(row => photos.delete(row.deck_r2_key).catch(() => {})));
+    const videos = await db.prepare('SELECT video_r2_key FROM pre_listings WHERE user_id = ? AND video_r2_key IS NOT NULL').bind(user.id).all();
+    await Promise.all(videos.results.map(row => photos.delete(row.video_r2_key).catch(() => {})));
   }
 
   await db.prepare('DELETE FROM users WHERE id = ?').bind(user.id).run();

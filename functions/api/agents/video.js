@@ -8,7 +8,8 @@ import { json, badRequest, unauthorized, notFound } from '../../_lib/util.js';
 // be. The actual 4-minute cap is enforced client-side (checkVideoDuration in
 // main.js) before the upload even starts — Workers has no way to decode
 // video and check its duration server-side.
-const MAX_VIDEO_BYTES = 150 * 1024 * 1024; // 150MB
+// Cloudflare refuses request bodies over 100MB on this plan, so the limit sits just under that.
+const MAX_VIDEO_BYTES = 95 * 1024 * 1024; // 95MB
 const ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/quicktime'];
 
 export async function onRequestPut(context) {
@@ -27,7 +28,7 @@ export async function onRequestPut(context) {
 
   const contentLength = Number(context.request.headers.get('Content-Length') || 0);
   if (!contentLength) return badRequest('Missing video file.');
-  if (contentLength > MAX_VIDEO_BYTES) return badRequest('Video must be under 150MB — trim it down or lower the export quality.');
+  if (contentLength > MAX_VIDEO_BYTES) return badRequest('Video must be under 95MB — trim it down or export at 1080p.');
 
   // Replace, don't accumulate — one intro video per agent.
   if (agent.video_r2_key) await bucket.delete(agent.video_r2_key);

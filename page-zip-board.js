@@ -15,7 +15,7 @@
         <ul class="zip-stats">
           <li><strong>${plural(z.homeownersWaiting, 'homeowner', 'homeowners')}</strong> with an open pre-listing</li>
           <li><strong>${plural(z.buyersWatching, 'buyer', 'buyers')}</strong> watching ${escapeHtml(z.city)}</li>
-          <li><strong>${plural(z.agents, 'agent', 'agents')}</strong> serving this ZIP${z.agents === 0 ? ' yet' : ''}</li>
+          <li><strong>${plural(z.agents, 'agent', 'agents')}</strong> serving this ZIP${z.agents === 0 ? ' yet' : ''}${z.onDutyNow > 0 ? `, ${z.onDutyNow} on duty now` : ''}</li>
         </ul>
         <p class="tiny">${z.foundingOpen ? `${z.foundingOpen} of ${foundingSpots} founding agent spots open` : 'Founding agent spots are filled'}</p>
         <a class="btn ${z.foundingOpen ? 'btn-primary' : 'btn-ghost'} btn-sm" data-claim-zip="${z.zip}" href="${joinHref(z.zip)}">${z.foundingOpen ? `Claim a spot in ${z.zip}` : `Join agents in ${z.zip}`}</a>

@@ -155,16 +155,14 @@ export async function fetchAgentOwnBids(db, agentUserId) {
   const preListingsById = new Map();
   const debriefById = new Map();
   if (preListingIds.length > 0) {
-    const placeholders = preListingIds.map(() => '?').join(',');
-    const pl = await db.prepare(`SELECT id, user_id, title, city, state, asking_price, status, proposals_due_at FROM pre_listings WHERE id IN (${placeholders})`).bind(...preListingIds).all();
+    const pl = await db.prepare('SELECT id, user_id, title, city, state, asking_price, status, proposals_due_at FROM pre_listings WHERE id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(preListingIds)).all();
     for (const r of pl.results) preListingsById.set(r.id, r);
-    const debriefs = await db.prepare(`SELECT pre_listing_id, reasons_json FROM finalist_debriefs WHERE agent_user_id = ? AND pre_listing_id IN (${placeholders})`).bind(agentUserId, ...preListingIds).all();
+    const debriefs = await db.prepare('SELECT pre_listing_id, reasons_json FROM finalist_debriefs WHERE agent_user_id = ? AND pre_listing_id IN (SELECT value FROM json_each(?))').bind(agentUserId, JSON.stringify(preListingIds)).all();
     for (const d of debriefs.results) debriefById.set(d.pre_listing_id, JSON.parse(d.reasons_json || '[]').map(k => DEBRIEF_REASONS[k]).filter(Boolean));
   }
   const transactionsById = new Map();
   if (transactionIds.length > 0) {
-    const placeholders = transactionIds.map(() => '?').join(',');
-    const tx = await db.prepare(`SELECT id, listing_a_id, listing_b_id, status FROM transaction_requests WHERE id IN (${placeholders})`).bind(...transactionIds).all();
+    const tx = await db.prepare('SELECT id, listing_a_id, listing_b_id, status FROM transaction_requests WHERE id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(transactionIds)).all();
     for (const r of tx.results) transactionsById.set(r.id, r);
   }
 
@@ -343,13 +341,11 @@ export async function fetchAgentStats(db, agentUserId, options = {}) {
   const transactionIds = bids.filter(b => b.request_type === 'transaction').map(b => b.request_id);
   const openedAtById = new Map();
   if (preListingIds.length > 0) {
-    const placeholders = preListingIds.map(() => '?').join(',');
-    const rows = await db.prepare(`SELECT id, created_at FROM pre_listings WHERE id IN (${placeholders})`).bind(...preListingIds).all();
+    const rows = await db.prepare('SELECT id, created_at FROM pre_listings WHERE id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(preListingIds)).all();
     for (const r of rows.results) openedAtById.set(`pre_listing:${r.id}`, r.created_at);
   }
   if (transactionIds.length > 0) {
-    const placeholders = transactionIds.map(() => '?').join(',');
-    const rows = await db.prepare(`SELECT id, created_at FROM transaction_requests WHERE id IN (${placeholders})`).bind(...transactionIds).all();
+    const rows = await db.prepare('SELECT id, created_at FROM transaction_requests WHERE id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(transactionIds)).all();
     for (const r of rows.results) openedAtById.set(`transaction:${r.id}`, r.created_at);
   }
 

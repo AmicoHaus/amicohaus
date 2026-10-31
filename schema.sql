@@ -375,7 +375,14 @@ CREATE TABLE IF NOT EXISTS agent_profiles (
   review_invite_from_year INTEGER,
   review_invite_to_year INTEGER,
   review_invite_attested_at TEXT,
-  review_alert_sent_at TEXT
+  review_alert_sent_at TEXT,
+  -- Farm Radar + Monday scorecard (migration_v41)
+  duty_days_json TEXT,
+  duty_start TEXT,
+  duty_end TEXT,
+  scorecard_opt_out INTEGER NOT NULL DEFAULT 0,
+  scorecard_sent_week TEXT,
+  scorecard_failures INTEGER NOT NULL DEFAULT 0
 );
 
 -- Static reference data (US ZCTA centroids) for the haversine service-area
@@ -1208,3 +1215,21 @@ CREATE TABLE IF NOT EXISTS past_client_reviews (
   UNIQUE(agent_user_id, reviewer_user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_past_client_reviews_agent ON past_client_reviews(agent_user_id, status);
+
+-- Farm Radar: emails held until an agent's next on-duty time (migration_v41)
+CREATE TABLE IF NOT EXISTS held_emails (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  -- What it's about, so it's re-checked when it goes out: 'new_request' | 'interview' | 'scorecard', and ref like
+  -- 'pre_listing:10' or 'transaction:4'.
+  kind TEXT NOT NULL DEFAULT 'other',
+  ref TEXT,
+  subject TEXT NOT NULL,
+  text_body TEXT NOT NULL,
+  deliver_after TEXT NOT NULL,
+  sent_at TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_held_emails_due ON held_emails(deliver_after) WHERE sent_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_zip_codes_lat ON zip_codes(lat);

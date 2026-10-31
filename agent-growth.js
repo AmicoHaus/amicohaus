@@ -1,12 +1,62 @@
 /* Amico Haus — approved agents' growth tools on their dashboard (loaded before main.js, which calls
-   loadAgentGrowth() from loadAgentStatus): the past-client review link (Bring Your Reviews) and the Brag Card +
-   live badge built from measured Amico Haus stats (functions/_lib/brag.js). */
+   loadAgentGrowth() from loadAgentStatus): the past-client review link (Bring Your Reviews), the Brag Card + live
+   badge built from Amico Haus records (functions/_lib/brag.js), "Your week" (the Monday scorecard,
+   functions/_lib/scorecard.js) and on-duty hours (Farm Radar, functions/_lib/agentDuty.js). */
 
 const EARLIEST_REVIEW_YEAR = 1980;
 
 function loadAgentGrowth() {
   loadPastClientInvite();
   loadBragPanel();
+  loadScorecardPanel();
+  loadDutyPanel();
+}
+
+// ---- Your week (the Monday scorecard) ----
+async function loadScorecardPanel() {
+  const el = document.getElementById('scorecardPanel');
+  if (!el) return;
+  try {
+    const { scorecard: c } = await apiGet('/api/agents/scorecard');
+    const n = c.counts;
+    const row = (label, value) => `<div class="mini-block"><span class="label">${escapeHtml(label)}</span>${escapeHtml(String(value))}</div>`;
+    el.innerHTML = `
+      <p class="section-sub">Your last 7 days on Amico Haus. The same summary can come to your inbox every Monday morning.</p>
+      <div class="mini-two">
+        ${row('Proposals sent', n.proposals)}
+        ${row('Price opinions', n.opinions)}
+        ${row('Interview requests', n.interviews)}
+        ${row('Hires', n.hires)}
+        ${row('New pre-listings near you', `${n.newNearby} (you weighed in on ${n.answered})`)}
+        ${c.speed ? row('Your typical proposal', `${c.speed.mine}${c.speed.area ? `; agents who serve your area: ${c.speed.area}` : ''}`) : ''}
+      </div>
+      <p class="inline-note"><strong>One next step:</strong> ${escapeHtml(c.nextStep)}</p>
+      <label class="checkbox-row"><input type="checkbox" id="scorecardEmailToggle"${c.optOut ? '' : ' checked'}><span>Email me this every Monday morning</span></label>`;
+  } catch (err) { el.innerHTML = `<p class="tiny">${escapeHtml(err.message)}</p>`; }
+}
+
+// ---- On-duty hours (Farm Radar) ----
+const DUTY_DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+async function loadDutyPanel() {
+  const el = document.getElementById('dutyPanel');
+  if (!el) return;
+  try {
+    const { duty, description, onDutyNow } = await apiGet('/api/agents/duty');
+    const days = duty ? duty.days : [1, 2, 3, 4, 5];
+    el.innerHTML = `
+      <p class="section-sub">New-request emails that arrive outside these hours wait until you're back on duty. In-app alerts always arrive right away, at the same moment as every other agent's. Homeowners see how many agents who serve their ZIP are on duty right now.</p>
+      ${duty ? `<p class="tiny">${onDutyNow ? '🟢 You are on duty now.' : 'You are off duty right now.'} Your hours: ${escapeHtml(description)}.</p>` : '<p class="tiny">No hours set: emails reach you any time.</p>'}
+      <div class="duty-days">${DUTY_DAY_LABELS.map((label, i) => `<label class="checkbox-row"><input type="checkbox" class="duty-day" value="${i}"${days.includes(i) ? ' checked' : ''}><span>${label}</span></label>`).join('')}</div>
+      <div class="form-row two-col">
+        <div class="field"><label for="dutyStart">From (Pacific)</label><input type="time" id="dutyStart" value="${escapeHtml(duty ? duty.start : '08:00')}"></div>
+        <div class="field"><label for="dutyEnd">Until</label><input type="time" id="dutyEnd" value="${escapeHtml(duty ? duty.end : '18:00')}"></div>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-primary btn-sm" data-growth-action="save-duty">Save my hours</button>
+        ${duty ? '<button type="button" class="btn btn-ghost btn-sm" data-growth-action="clear-duty">Clear my hours</button>' : ''}
+      </div>`;
+  } catch (err) { el.innerHTML = `<p class="tiny">${escapeHtml(err.message)}</p>`; }
 }
 
 // ---- Bring Your Reviews ----
@@ -159,6 +209,16 @@ async function copyField(id, message) {
 }
 
 (function wireAgentGrowth() {
+  document.addEventListener('change', async (e) => {
+    if (e.target.id !== 'scorecardEmailToggle') return;
+    const box = e.target;
+    box.disabled = true;
+    try {
+      await apiPut('/api/agents/scorecard', { optOut: !box.checked });
+      toast(box.checked ? "You'll get your week every Monday morning." : 'Monday emails are off.');
+    } catch (err) { box.checked = !box.checked; toast(err.message); } finally { box.disabled = false; }
+  });
+
   document.addEventListener('click', async (e) => {
     const btn = e.target.closest('[data-growth-action]');
     if (!btn) return;
@@ -183,6 +243,15 @@ async function copyField(id, message) {
         await copyField('badgeEmbed', 'Badge code copied.');
       } else if (action === 'brag-card' && currentBrag) {
         await downloadBragCard(currentBrag);
+      } else if (action === 'save-duty') {
+        const days = [...document.querySelectorAll('.duty-day:checked')].map(c => Number(c.value));
+        await apiPut('/api/agents/duty', { days, start: document.getElementById('dutyStart').value, end: document.getElementById('dutyEnd').value });
+        toast('On-duty hours saved.');
+        loadDutyPanel();
+      } else if (action === 'clear-duty') {
+        await apiPut('/api/agents/duty', { clear: true });
+        toast('Hours cleared. Emails reach you any time.');
+        loadDutyPanel();
       }
     } catch (err) { toast(err.message); } finally { btn.disabled = false; }
   });

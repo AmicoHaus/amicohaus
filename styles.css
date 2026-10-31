@@ -1079,6 +1079,9 @@ body.reel-open .toast { z-index: 1100; }
 .brag-badge { display: block; max-width: 100%; height: auto; margin: 8px 0; }
 .star-choice { flex-wrap: wrap; }
 .star-choice .choice span { color: var(--gold); letter-spacing: 2px; }
+/* Farm Radar + Your week (agent-growth.js) */
+.duty-days { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 8px 0; }
+.on-duty-line { margin: 6px 0; }
 :root[data-theme="dark"] .opinion-summary { background: var(--navy-2); }
 
 /* Phones. Kept at the END of the file on purpose: several rules it overrides (e.g. #globalSearchInput) appear

@@ -1,4 +1,5 @@
 import { getSessionUser } from '../../../_lib/auth.js';
+import { scrubImageMetadata } from '../../../_lib/imageMetadata.js';
 import { json, badRequest, unauthorized } from '../../../_lib/util.js';
 import { insertCaseStudy } from '../../../_lib/caseStudies.js';
 
@@ -31,8 +32,8 @@ export async function onRequestPost(context) {
 
   const beforeKey = `agent-case-study/${user.id}/${crypto.randomUUID()}`;
   const afterKey = `agent-case-study/${user.id}/${crypto.randomUUID()}`;
-  await bucket.put(beforeKey, await before.arrayBuffer(), { httpMetadata: { contentType: before.type } });
-  await bucket.put(afterKey, await after.arrayBuffer(), { httpMetadata: { contentType: after.type } });
+  await bucket.put(beforeKey, scrubImageMetadata(await before.arrayBuffer(), before.type), { httpMetadata: { contentType: before.type } });
+  await bucket.put(afterKey, scrubImageMetadata(await after.arrayBuffer(), after.type), { httpMetadata: { contentType: after.type } });
 
   const result = await insertCaseStudy(db, user.id, {
     title: String(form.get('title') || ''), resultNote: String(form.get('resultNote') || ''),

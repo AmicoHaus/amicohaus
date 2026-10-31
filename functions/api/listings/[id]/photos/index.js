@@ -1,4 +1,5 @@
 import { getSessionUser } from '../../../../_lib/auth.js';
+import { scrubImageMetadata } from '../../../../_lib/imageMetadata.js';
 import { logAdminAction } from '../../../../_lib/audit.js';
 import { json, badRequest, unauthorized, forbidden, notFound } from '../../../../_lib/util.js';
 
@@ -40,7 +41,7 @@ export async function onRequestPost(context) {
   if (file.size > MAX_PHOTO_BYTES) return badRequest('Photo must be under 5MB.');
 
   const key = `listings/${listingId}/${crypto.randomUUID()}`;
-  await bucket.put(key, await file.arrayBuffer(), { httpMetadata: { contentType: file.type } });
+  await bucket.put(key, scrubImageMetadata(await file.arrayBuffer(), file.type), { httpMetadata: { contentType: file.type } });
 
   const result = await db.prepare(
     'INSERT INTO listing_photos (listing_id, r2_key, content_type, position) VALUES (?, ?, ?, ?)'

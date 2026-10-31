@@ -1,4 +1,5 @@
 import { getSessionUser } from '../../../../_lib/auth.js';
+import { scrubImageMetadata } from '../../../../_lib/imageMetadata.js';
 import { json, badRequest, unauthorized, forbidden, notFound } from '../../../../_lib/util.js';
 
 const MAX_PHOTOS = 8;
@@ -38,7 +39,7 @@ export async function onRequestPost(context) {
   if (file.size > MAX_PHOTO_BYTES) return badRequest('Photo must be under 5MB.');
 
   const key = `green-homes/${id}/${crypto.randomUUID()}`;
-  await bucket.put(key, await file.arrayBuffer(), { httpMetadata: { contentType: file.type } });
+  await bucket.put(key, scrubImageMetadata(await file.arrayBuffer(), file.type), { httpMetadata: { contentType: file.type } });
 
   const result = await db.prepare(
     'INSERT INTO green_home_photos (green_home_id, r2_key, content_type, position) VALUES (?, ?, ?, ?)'

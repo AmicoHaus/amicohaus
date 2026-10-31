@@ -1,4 +1,5 @@
 import { getSessionUser } from '../../_lib/auth.js';
+import { scrubImageMetadata } from '../../_lib/imageMetadata.js';
 import { json, badRequest, unauthorized, notFound } from '../../_lib/util.js';
 
 // Private, unlike agent_portfolio_photos — a license photo is sensitive
@@ -31,7 +32,7 @@ export async function onRequestPost(context) {
   if (agent.license_photo_r2_key) await bucket.delete(agent.license_photo_r2_key);
 
   const key = `agent-license/${user.id}/${crypto.randomUUID()}`;
-  await bucket.put(key, await file.arrayBuffer(), { httpMetadata: { contentType: file.type } });
+  await bucket.put(key, scrubImageMetadata(await file.arrayBuffer(), file.type), { httpMetadata: { contentType: file.type } });
 
   await db.prepare(
     'UPDATE agent_profiles SET license_photo_r2_key = ?, license_verified = 0, license_verified_at = NULL, license_verified_by = NULL WHERE user_id = ?'

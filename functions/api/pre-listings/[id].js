@@ -10,6 +10,7 @@ import { wrapUpSellerPrep } from '../../_lib/sellerPrepWrapUp.js';
 import { LAUNCH_ZIPS, FOUNDING_SPOTS, LIVE_FOUNDERS_SQL } from '../../_lib/zipBoard.js';
 import { proposalsSealed, countSealedProposals, fetchFinalists, sqlTime } from '../../_lib/decisionNight.js';
 import { logAdminAction } from '../../_lib/audit.js';
+import { countAgentsOnDuty } from '../../_lib/agentDuty.js';
 
 export async function onRequestGet(context) {
   const id = context.params.id;
@@ -125,6 +126,9 @@ export async function onRequestGet(context) {
       viewerIsFounding: !isOwner && founding.results.some(f => f.agent_user_id === user.id),
     };
   }
+
+  // Farm Radar: how many agents who serve this ZIP are on duty right now (shown only when at least one).
+  if (isOwner && row.status === 'open' && row.zip) preListing.agentsOnDuty = await countAgentsOnDuty(db, row.zip);
 
   const homeownerRating = await fetchHomeownerRatingSummary(db, row.user_id);
 

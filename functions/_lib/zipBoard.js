@@ -6,6 +6,7 @@
 // Fair housing: ZIP and city name only, never a description of a neighborhood or who lives there.
 import { DEMO_EMAIL_PATTERN } from './util.js';
 import { DEMAND_MIN_SHOWN, namesCity } from './buyerDemand.js';
+import { countAgentsOnDuty } from './agentDuty.js';
 
 export const LAUNCH_ZIPS = {
   91910: 'Chula Vista', 91911: 'Chula Vista', 91913: 'Chula Vista', 91914: 'Chula Vista', 91915: 'Chula Vista', 91902: 'Bonita',
@@ -50,6 +51,9 @@ export async function fetchZipBoard(db) {
   const buyersByCity = new Map();
   for (const city of new Set(Object.values(LAUNCH_ZIPS))) buyersByCity.set(city, await countBuyersNamingCity(db, city));
 
+  const onDuty = new Map();
+  for (const zip of zips) onDuty.set(zip, await countAgentsOnDuty(db, zip));
+
   return zips.map(zip => ({
     zip, city: LAUNCH_ZIPS[zip],
     homeownersWaiting: shownCount(waiting.get(zip) || 0),
@@ -57,6 +61,7 @@ export async function fetchZipBoard(db) {
     agents: agents.get(zip) || 0,
     foundingTaken: Math.min(founding.get(zip) || 0, FOUNDING_SPOTS),
     foundingOpen: Math.max(FOUNDING_SPOTS - (founding.get(zip) || 0), 0),
+    onDutyNow: onDuty.get(zip) || 0,
   }));
 }
 

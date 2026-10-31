@@ -1,4 +1,5 @@
 import { sendEmail } from './email.js';
+import { sendOrHoldEmail, dutyFromRow } from './agentDuty.js';
 
 // In-app (and, for new-request pings only, email) notifications for the
 // Pre-Listings Marketplace. Kept separate from matchNotify.js since this has
@@ -17,7 +18,8 @@ async function notify(db, userId, body, link) {
 // matchNotify.js uses for match emails.
 const CAPPED_MARKETPLACE_EMAILS_PER_DAY = 8;
 
-// recipient: { userId, email, emailFrequency }. cta is the call-to-action clause, e.g. "see the details and
+// recipient: { userId, email, emailFrequency, duty? }. duty: an agent's on-duty hours (agentDuty.js); the in-app
+// notification always lands right away, and the email waits until they're on duty. cta is the call-to-action clause, e.g. "see the details and
 // send a proposal" vs. "see what they said" — kept as a parameter since the right next action differs by event.
 async function notifyAndMaybeEmail(context, recipient, body, link, subject, cta) {
   const db = context.env.DB;
@@ -32,11 +34,9 @@ async function notifyAndMaybeEmail(context, recipient, body, link, subject, cta)
   }
   await notify(db, recipient.userId, body, link);
   if (!recipient.email || !underCap) return; // demo accounts and any row missing an email never get one
-  return sendEmail(context, {
-    to: recipient.email,
-    subject,
-    text: `${body} Log in to ${cta}: ${new URL(context.request.url).origin}${link}`,
-  });
+  const text = `${body} Log in to ${cta}: ${new URL(context.request.url).origin}${link}`;
+  if (recipient.duty) return sendOrHoldEmail(context, { userId: recipient.userId, to: recipient.email, subject, text, duty: recipient.duty, kind: recipient.holdKind, ref: recipient.holdRef });
+  return sendEmail(context, { to: recipient.email, subject, text });
 }
 
 function requestLink(requestType, requestId) {
@@ -178,7 +178,8 @@ export async function notifyAgentsNewRequest(context, requestType, requestId, zi
   const subject = requestType === 'pre_listing' ? 'New pre-listing near you on Amico Haus' : 'New trade request open for proposals on Amico Haus';
 
   const agentsRow = await db.prepare(
-    `SELECT agent_profiles.user_id, agent_profiles.service_zips_json, users.email, users.email_frequency
+    `SELECT agent_profiles.user_id, agent_profiles.service_zips_json, agent_profiles.duty_days_json, agent_profiles.duty_start, agent_profiles.duty_end,
+            users.email, users.email_frequency
      FROM agent_profiles JOIN users ON users.id = agent_profiles.user_id
      WHERE agent_profiles.status = 'approved' AND agent_profiles.notify_new_requests = 1
        AND users.status = 'active' AND users.email NOT LIKE '%@demo.amicohaus.local'`
@@ -187,7 +188,7 @@ export async function notifyAgentsNewRequest(context, requestType, requestId, zi
   agentsRow.results = agentsRow.results.filter(a => !excluded.has(Number(a.user_id)));
   if (agentsRow.results.length === 0) return;
 
-  const asRecipient = a => ({ userId: a.user_id, email: a.email, emailFrequency: a.email_frequency });
+  const asRecipient = a => ({ userId: a.user_id, email: a.email, emailFrequency: a.email_frequency, duty: dutyFromRow(a), holdKind: 'new_request', holdRef: `${requestType}:${requestId}` });
   const cta = 'see the details and send a proposal';
   const sends = [];
   if (requestType !== 'pre_listing' || !zip) {
@@ -313,9 +314,11 @@ export async function notifyPreviewCanceled(context, preListingId, agentUserIds,
 // Being asked to interview is the kind of thing an agent could lose by missing it, so it gets the email too.
 export async function notifyInterviewRequested(context, preListingId, agentUserId) {
   const db = context.env.DB;
-  const agent = await db.prepare('SELECT id, email, email_frequency FROM users WHERE id = ?').bind(agentUserId).first();
+  const agent = await db.prepare(
+    'SELECT users.id, users.email, users.email_frequency, agent_profiles.duty_days_json, agent_profiles.duty_start, agent_profiles.duty_end FROM users LEFT JOIN agent_profiles ON agent_profiles.user_id = users.id WHERE users.id = ?'
+  ).bind(agentUserId).first();
   if (!agent) return;
-  await notifyAndMaybeEmail(context, { userId: agent.id, email: agent.email, emailFrequency: agent.email_frequency },
+  await notifyAndMaybeEmail(context, { userId: agent.id, email: agent.email, emailFrequency: agent.email_frequency, duty: dutyFromRow(agent), holdKind: 'interview', holdRef: `pre_listing:${preListingId}` },
     'A homeowner would like to interview you about their pre-listing. Pick one of the times they offered.',
     `/app#pre-listing-${preListingId}`, 'Interview request on Amico Haus', 'pick a time');
 }

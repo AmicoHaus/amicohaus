@@ -2674,6 +2674,7 @@ async function openPreListingDetail(id, opts = {}) {
         ${photosHtml}
         <p class="tiny">${voteSummary(p.votes, 'Agent votes', p.status)}</p>
         ${zipCoverageHtml(p, isOwner, myVote)}
+        ${isOwner && p.agentsOnDuty > 0 ? `<p class="tiny on-duty-line">🟢 ${p.agentsOnDuty} agent${p.agentsOnDuty === 1 ? '' : 's'} who serve${p.agentsOnDuty === 1 ? 's' : ''} ${escapeHtml(p.zip)} ${p.agentsOnDuty === 1 ? 'is' : 'are'} on duty right now.</p>` : ''}
         ${p.buyerDemand ? `<p class="demand-meter">👀 <strong>${p.buyerDemand} buyers</strong> on Amico Haus are looking for a home like this in ${escapeHtml(p.city)} at this price.</p>` : ''}
         ${renderPriceHistory(p.priceHistory)}
         ${isOwner ? `<p class="form-note trust"><strong>Talk to a lender.</strong> If selling here means financing your next place, rates, loan programs and approvals come from lenders, not from websites or real estate agents. Talk to your own mortgage broker, or use our preferred lender, <strong>Point Mortgage Corporation</strong> (NMLS #231073), at <a href="tel:+16194754095">(619) 475-4095</a>. You are always free to choose any lender you like, and you can verify any lender's license at nmlsconsumeraccess.org.</p>` : ''}

@@ -318,6 +318,11 @@ const denied = r => r.status >= 400 && r.status < 500;
   await chk('reviews', 'a non-admin cannot list past-client reviews', 'GET', '/api/admin/past-client-reviews');
   await chk('reviews', 'a non-admin cannot remove one', 'PUT', '/api/admin/past-client-reviews/1', { action: 'remove', reason: 'x' });
   await chk('reviews', 'a made-up review link is refused', 'POST', '/api/past-client-reviews', { token: 'notarealtoken123', rating: 5, clientSide: 'sold', saleYear: 2022, saleCity: 'X', saleAddress: '1 Main St' });
+  // Farm Radar + Monday scorecard (batch B3)
+  await chk('duty', 'a non-agent has no on-duty hours', 'GET', '/api/agents/duty');
+  await chk('duty', 'a non-agent cannot set them', 'PUT', '/api/agents/duty', { days: [1], start: '08:00', end: '17:00' });
+  await chk('duty', 'a non-agent has no scorecard', 'GET', '/api/agents/scorecard');
+  await chk('duty', 'a non-agent cannot change scorecard emails', 'PUT', '/api/agents/scorecard', { optOut: true });
   { const f = new FormData(); f.append('photo', new Blob([PNG], { type: 'image/png' }), 'x.png'); const r = await B.call('POST', `/api/pre-listings/${PL}/photos`, undefined, { form: f }); record('pre-listing', 'cannot add photos', denied(r), `status ${r.status}`); }
   await chk('pre-listing', 'cannot read the milestone checklist', 'GET', `/api/pre-listings/${PL}/milestones`);
   await chk('pre-listing', 'cannot add a milestone', 'POST', `/api/pre-listings/${PL}/milestones`, { label: 'x' });

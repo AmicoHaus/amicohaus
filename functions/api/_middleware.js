@@ -1,6 +1,8 @@
 import { json } from '../_lib/util.js';
 import { withSecurityHeaders } from '../_lib/withSecurityHeaders.js';
 import { runDueDecisionNights } from '../_lib/decisionNight.js';
+import { runDueHeldEmails } from '../_lib/agentDuty.js';
+import { runDueScorecards } from '../_lib/scorecard.js';
 
 // Runs in front of every /api route only (Pages scopes a middleware file to its
 // own directory), so static pages and images never pass through it.
@@ -16,7 +18,13 @@ function maybeRunDueJobs(context) {
   const now = Date.now();
   if (now - lastDueJobsRun < DUE_JOBS_EVERY_MS) return;
   lastDueJobsRun = now;
-  context.waitUntil(runDueDecisionNights(context).catch(err => console.log(`[due jobs failed] ${err && err.message}`)));
+  // One after another (the email provider allows about 2 a second, and the background work about 30 seconds).
+  context.waitUntil((async () => {
+    for (const job of [runDueDecisionNights, runDueHeldEmails, runDueScorecards]) {
+      if (Date.now() - now > 22000) break;
+      try { await job(context); } catch (err) { console.log(`[due jobs failed] ${err && err.message}`); }
+    }
+  })());
 }
 
 export async function onRequest(context) {

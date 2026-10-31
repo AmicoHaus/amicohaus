@@ -20,7 +20,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
       btn.disabled = false; btn.textContent = 'Log In';
       return;
     }
-    window.location.href = '/app';
+    window.location.href = takeReturnTo() || '/app';
   } catch (err) {
     toast(err.message);
     // Signed up but never finished: offer a fresh link right here.
@@ -48,7 +48,7 @@ document.getElementById('twoFactorForm').addEventListener('submit', async (e) =>
       pendingToken: pendingTwoFactorToken,
       code: document.getElementById('twoFactorCode').value.trim(),
     });
-    window.location.href = '/app';
+    window.location.href = takeReturnTo() || '/app';
   } catch (err) {
     toast(err.message);
     btn.disabled = false; btn.textContent = 'Verify';

@@ -1854,6 +1854,7 @@ async function loadAgentStatus() {
       statusEl.innerHTML = '<p class="tiny">✅ You\'re an approved agent — edit your profile any time below.</p>' + agentProfileProgress(profile, photos, packages, caseStudies);
       summaryEl.textContent = 'My agent application (approved)';
       toolsSection.classList.remove('hidden');
+      loadAgentGrowth();
       document.getElementById('agentPortfolioGallery').innerHTML = photos.length
         ? photos.map(p => `<div class="photo-thumb"><img src="/api/agent-photos/${p.id}" alt="" loading="lazy"><button type="button" class="photo-delete" data-action="delete-agent-photo" data-id="${p.id}">✕</button></div>`).join('')
         : '<span class="tiny">No portfolio photos yet.</span>';
@@ -2191,6 +2192,7 @@ function renderBidCard(b, canAct, backLink) {
       respLabel && { k: 'Proposal speed', v: respLabel },
     ].filter(Boolean),
     selfReported: [
+      b.pastClients && b.pastClients.count > 0 && { k: 'Past clients (outside Amico, not verified)', v: `★ ${b.pastClients.avgRating} (${b.pastClients.count})` },
       b.homesSoldLastYear && { k: 'Sold, last 12 mo', v: String(b.homesSoldLastYear) },
       b.avgDaysOnMarket && { k: 'On market', v: `~${b.avgDaysOnMarket} days` },
     ].filter(Boolean),

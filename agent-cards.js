@@ -61,6 +61,7 @@ function directoryAgentInfo(a) {
       a.hasPastWork && !(a.caseStudies && a.caseStudies.length > 0) && { k: 'Past work', v: 'Portfolio photos' },
     ].filter(Boolean),
     selfReported: [
+      a.pastClients && a.pastClients.count > 0 && { k: 'Past clients (outside Amico, not verified)', v: `★ ${a.pastClients.avgRating} (${a.pastClients.count})` },
       a.homesSoldLastYear && { k: 'Sold, last 12 mo', v: String(a.homesSoldLastYear) },
       a.avgDaysOnMarket && { k: 'On market', v: `~${a.avgDaysOnMarket} days` },
       a.saleToListRatio && { k: 'Sale-to-list', v: `${Math.round(a.saleToListRatio * 100)}%` },

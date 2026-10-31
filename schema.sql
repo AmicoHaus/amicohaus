@@ -369,7 +369,13 @@ CREATE TABLE IF NOT EXISTS agent_profiles (
   applied_at TEXT NOT NULL DEFAULT (datetime('now')),
   reviewed_at TEXT,
   reviewed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  rejection_reason TEXT
+  rejection_reason TEXT,
+  -- Bring Your Reviews (migration_v40): the past-client review link and its period.
+  review_invite_token TEXT,
+  review_invite_from_year INTEGER,
+  review_invite_to_year INTEGER,
+  review_invite_attested_at TEXT,
+  review_alert_sent_at TEXT
 );
 
 -- Static reference data (US ZCTA centroids) for the haversine service-area
@@ -1181,3 +1187,24 @@ CREATE TABLE IF NOT EXISTS finalist_debriefs (
 CREATE INDEX IF NOT EXISTS idx_finalist_debriefs_agent ON finalist_debriefs(agent_user_id);
 CREATE INDEX IF NOT EXISTS idx_pre_listings_proposals_due ON pre_listings(proposals_due_at) WHERE proposals_open_notified_at IS NULL;
 
+-- Bring Your Reviews (migration_v40)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_profiles_review_invite ON agent_profiles(review_invite_token) WHERE review_invite_token IS NOT NULL;
+-- A review from someone the agent helped outside Amico Haus, kept apart from reviews of agents hired on Amico Haus.
+-- The street address is private (only for checking against public sale records later); the profile shows the year,
+-- city and which side they were on. The agent can't hide or delete these; only an admin can remove one (logged).
+CREATE TABLE IF NOT EXISTS past_client_reviews (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  reviewer_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
+  comment TEXT NOT NULL DEFAULT '',
+  client_side TEXT NOT NULL CHECK(client_side IN ('sold','bought','both')),
+  sale_year INTEGER NOT NULL,
+  sale_city TEXT NOT NULL,
+  sale_address TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'published' CHECK(status IN ('published','removed')),
+  removed_reason TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(agent_user_id, reviewer_user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_past_client_reviews_agent ON past_client_reviews(agent_user_id, status);

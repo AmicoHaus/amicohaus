@@ -120,6 +120,7 @@ document.getElementById('signupForm').addEventListener('submit', async (e) => {
       intent,
       referralCode: new URLSearchParams(window.location.search).get('ref') || '',
       source: getAttribution(),
+      next: peekReturnTo(),
     });
     showCheckEmail(result.email, intent);
     rememberPending(result.email, intent);

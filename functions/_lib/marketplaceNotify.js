@@ -137,6 +137,11 @@ export async function notifyBidDecision(context, agentUserId, requestType, reque
   await notify(db, agentUserId, accepted ? 'Your proposal was accepted!' : 'The homeowner chose another agent this time. Thanks for sending a proposal.', link);
 }
 
+// Bring Your Reviews: a past client used the agent's review link.
+export async function notifyPastClientReview(context, agentUserId) {
+  await notify(context.env.DB, agentUserId, 'A past client left you a review. It shows on your profile under "Past clients, outside Amico Haus."', `/profile/${agentUserId}`);
+}
+
 // Decision Night arrived: the homeowner's proposals are all open now (see decisionNight.js runDueDecisionNights).
 export async function notifyProposalsOpen(context, owner, preListingId, count) {
   const body = count > 0

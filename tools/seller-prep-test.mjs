@@ -57,7 +57,10 @@ const call = async (handler, method, path, who, params, body, headers = {}) => {
     body: isRaw ? body : body ? JSON.stringify(body) : undefined,
   });
   // Like Cloudflare: a background task that fails is only logged, never fatal to the request.
-  const res = await handler({ request, env, params, waitUntil(p) { if (p && p.catch) p.catch(() => {}); } });
+  // Background work is waited for before the call returns, so checks never race a notification being written.
+  const pending = [];
+  const res = await handler({ request, env, params, waitUntil(p) { if (p && p.catch) pending.push(p.catch(() => {})); } });
+  await Promise.all(pending);
   const type = res.headers.get('Content-Type') || '';
   return { status: res.status, headers: res.headers, json: type.includes('json') ? await res.json() : null, bytes: type.includes('json') ? null : new Uint8Array(await res.arrayBuffer()) };
 };
@@ -197,7 +200,8 @@ r = await call(interviews.onRequestPost, 'POST', '/x', 1, P, { agentUserId: 3, f
 check('...and the owner can offer that agent new times', r.status === 201, JSON.stringify(r.json));
 const agentNotices = (uid) => sqlite.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ?').get(uid).n;
 const n3 = agentNotices(3);
-await call(interviews.onRequestPost, 'POST', '/x', 1, P, { agentUserId: 3, format: 'phone', slots: [future(26)].map(s => s) });
+// A different time from the request above (the same millisecond would make it an unchanged request).
+await call(interviews.onRequestPost, 'POST', '/x', 1, P, { agentUserId: 3, format: 'phone', slots: [future(27)] });
 await new Promise(res => setTimeout(res, 20));
 r = await call(interviews.onRequestGet, 'GET', '/x', 1, P);
 const sameSlots = r.json.interviews.find(i => i.agentUserId === 3).slots;

@@ -311,6 +311,13 @@ const denied = r => r.status >= 400 && r.status < 500;
   await chk('pre-listing', 'cannot shortlist a proposal', 'PUT', `/api/pre-listings/${PL}/bids/${HBID}`, { action: 'shortlist' });
   await chk('pre-listing', 'cannot watch a pitch reel', 'GET', `/api/pre-listings/${PL}/pitch-video?agent=${G.id}`);
   await chk('pre-listing', 'cannot send finalist feedback', 'POST', `/api/pre-listings/${PL}/debrief`, { reasons: ['marketing'] });
+  // Bring Your Reviews / Brag Cards (batch B2)
+  await chk('reviews', 'a non-agent has no past-client review link', 'GET', '/api/agents/review-invite');
+  await chk('reviews', 'a non-agent cannot make one', 'PUT', '/api/agents/review-invite', { fromYear: 2020, toYear: 2024, attest: true });
+  await chk('reviews', 'a non-agent has no Brag Card', 'GET', '/api/agents/brag');
+  await chk('reviews', 'a non-admin cannot list past-client reviews', 'GET', '/api/admin/past-client-reviews');
+  await chk('reviews', 'a non-admin cannot remove one', 'PUT', '/api/admin/past-client-reviews/1', { action: 'remove', reason: 'x' });
+  await chk('reviews', 'a made-up review link is refused', 'POST', '/api/past-client-reviews', { token: 'notarealtoken123', rating: 5, clientSide: 'sold', saleYear: 2022, saleCity: 'X', saleAddress: '1 Main St' });
   { const f = new FormData(); f.append('photo', new Blob([PNG], { type: 'image/png' }), 'x.png'); const r = await B.call('POST', `/api/pre-listings/${PL}/photos`, undefined, { form: f }); record('pre-listing', 'cannot add photos', denied(r), `status ${r.status}`); }
   await chk('pre-listing', 'cannot read the milestone checklist', 'GET', `/api/pre-listings/${PL}/milestones`);
   await chk('pre-listing', 'cannot add a milestone', 'POST', `/api/pre-listings/${PL}/milestones`, { label: 'x' });

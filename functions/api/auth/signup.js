@@ -28,6 +28,8 @@ export async function onRequestPost(context) {
   // (with the ad or video link they arrived from) so Rudy can see which campaigns bring which side.
   const intent = ['homeowner', 'agent'].includes(body.intent) ? body.intent : '';
   const source = sanitizeAttribution(body.source);
+  // A page to come back to after confirming (only a past-client review link), carried in the emailed link.
+  const next = /^\/past-client-review\?t=[A-Za-z0-9]{8,64}$/.test(String(body.next || '')) ? body.next : '';
 
   if (!EMAIL_RE.test(email)) return badRequest('Enter a valid email address.');
   if (!displayName) return badRequest('Enter your name.');
@@ -87,7 +89,7 @@ export async function onRequestPost(context) {
     userId = result.meta.last_row_id;
   }
 
-  const sent = await sendConfirmationLink(context, { id: userId, email, displayName }, { intent });
+  const sent = await sendConfirmationLink(context, { id: userId, email, displayName }, { intent, next });
   if (!sent) {
     // Keep the pending account (nothing is usable until the link is opened) and say so on the next
     // screen, where "send it again" retries; signing up again with the same email also works. The

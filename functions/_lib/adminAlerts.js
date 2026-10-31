@@ -17,6 +17,7 @@ export function isTestOrDemoEmail(email) {
 // posting over and over can't flood Rudy's inbox or use up the daily email quota that signup links share.
 const ALERTS_PER_PERSON_PER_DAY = 3;
 const ALERTS_PER_DAY = 40;
+const REVIEW_ALERTS_PER_DAY = 10;
 
 export function alertAdmin(context, actor, { kind, subject, lines }) {
   if (!actor || isTestOrDemoEmail(actor.email)) return;
@@ -32,9 +33,9 @@ export function alertAdmin(context, actor, { kind, subject, lines }) {
   context.waitUntil((async () => {
     const sent = await db.prepare(
       `SELECT (SELECT COUNT(*) FROM admin_alerts_sent WHERE user_id = ? AND created_at > datetime('now', '-1 day')) AS mine,
-              (SELECT COUNT(*) FROM admin_alerts_sent WHERE created_at > datetime('now', '-1 day')) AS total`
-    ).bind(actor.id).first();
-    if (sent.mine >= ALERTS_PER_PERSON_PER_DAY || sent.total >= ALERTS_PER_DAY) return;
+              (SELECT COUNT(*) FROM admin_alerts_sent WHERE created_at > datetime('now', '-1 day') AND (kind = 'past_client_review') = (? = 'past_client_review')) AS total`
+    ).bind(actor.id, kind).first();
+    if (sent.mine >= ALERTS_PER_PERSON_PER_DAY || sent.total >= (kind === 'past_client_review' ? REVIEW_ALERTS_PER_DAY : ALERTS_PER_DAY)) return;
     await db.prepare('INSERT INTO admin_alerts_sent (user_id, kind) VALUES (?, ?)').bind(actor.id, kind).run();
     await sendEmail(context, { to: ADMIN_ALERT_EMAIL, subject: safeSubject, text });
   })().catch(err => console.log(`[admin alert failed] ${err.message}`)));

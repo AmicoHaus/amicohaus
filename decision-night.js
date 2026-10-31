@@ -319,7 +319,8 @@ async function makeShareCard(p, count) {
   const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
   if (!blob) throw new Error("Your browser couldn't make the image.");
   const file = new File([blob], 'amico-haus-decision-night.png', { type: 'image/png' });
-  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+  // On a phone or tablet the share sheet is the natural way to post it; on a computer the link saves the file.
+  if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches && navigator.canShare && navigator.canShare({ files: [file] })) {
     try { await navigator.share({ files: [file], title: 'Decision Night on Amico Haus' }); return; } catch (err) { if (err && err.name === 'AbortError') return; }
   }
   const url = URL.createObjectURL(blob);

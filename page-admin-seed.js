@@ -150,6 +150,33 @@ async function loadLicenseRechecks() {
   } catch (err) { el.innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`; }
 }
 
+const PAST_SIDE_LABELS = { sold: 'Sold', bought: 'Bought', both: 'Sold and bought' };
+async function loadPastClientReviews(before = 0) {
+  const el = document.getElementById('pastClientReviewList');
+  if (!el) return;
+  try {
+    const { reviews, more } = await apiGet(`/api/admin/past-client-reviews${before ? `?before=${before}` : ''}`);
+    const html = reviews.map(r => `
+      <div class="card" data-id="${r.id}">
+        <div class="card-head"><h3>${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)} for ${escapeHtml(r.agentName)}</h3><span class="badge ${r.status === 'published' ? 'badge-active' : 'badge-paused'}">${escapeHtml(r.status)}</span></div>
+        <p class="tiny">${escapeHtml(r.reviewerName)} (${escapeHtml(r.reviewerEmail)}) · ${escapeHtml(PAST_SIDE_LABELS[r.clientSide] || '')} in ${r.saleYear}, ${escapeHtml(r.saleCity)} · address given: ${escapeHtml(r.saleAddress)}</p>
+        ${r.comment ? `<p>${escapeHtml(r.comment)}</p>` : '<p class="tiny">(no comment)</p>'}
+        ${r.removedReason ? `<p class="tiny">Removed: ${escapeHtml(r.removedReason)}</p>` : ''}
+        <div class="card-actions">${r.status === 'published'
+          ? '<button class="btn btn-danger btn-sm" data-action="remove-past-review">Remove</button>'
+          : '<button class="btn btn-ghost btn-sm" data-action="restore-past-review">Restore</button>'}</div>
+      </div>`).join('');
+    const older = more ? `<p><button class="btn btn-ghost btn-sm" data-action="older-past-reviews" data-before="${reviews[reviews.length - 1].id}">Show older reviews</button></p>` : '';
+    if (before) {
+      const btn = el.querySelector('[data-action="older-past-reviews"]');
+      if (btn) btn.parentElement.remove();
+      el.insertAdjacentHTML('beforeend', html + older);
+    } else {
+      el.innerHTML = reviews.length ? html + older : '<div class="empty-state">No past-client reviews yet.</div>';
+    }
+  } catch (err) { el.innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`; }
+}
+
 async function loadAgentApplications() {
   const el = document.getElementById('agentApplicationsList');
   el.innerHTML = '<div class="empty-state">Loading…</div>';
@@ -272,6 +299,7 @@ async function loadAuditLog() {
   loadReports();
   loadAgentApplications();
   loadLicenseRechecks();
+  loadPastClientReviews();
   loadDisputes();
   loadAuditLog();
   loadActivityChart();
@@ -325,6 +353,26 @@ async function loadAuditLog() {
         toast('Approval removed.');
       }
       loadLicenseRechecks();
+    } catch (err) { toast(err.message); }
+  });
+
+  document.getElementById('pastClientReviewList').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    // One page at a time: a double-click would otherwise append the same reviews twice.
+    if (btn.dataset.action === 'older-past-reviews') { btn.disabled = true; loadPastClientReviews(Number(btn.dataset.before)); return; }
+    const id = btn.closest('[data-id]').dataset.id;
+    try {
+      if (btn.dataset.action === 'remove-past-review') {
+        const reason = prompt('Why is this review being removed? (kept on the activity log)');
+        if (!reason) return;
+        await apiPut(`/api/admin/past-client-reviews/${id}`, { action: 'remove', reason });
+        toast('Review removed.');
+      } else if (btn.dataset.action === 'restore-past-review') {
+        await apiPut(`/api/admin/past-client-reviews/${id}`, { action: 'restore' });
+        toast('Review restored.');
+      }
+      loadPastClientReviews();
     } catch (err) { toast(err.message); }
   });
 

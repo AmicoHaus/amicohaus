@@ -4,6 +4,7 @@
 // verify), so unlike listing/[id].js it still loads client.js + profile-actions.js — the HTML below is real
 // content for crawlers and first paint, and those scripts progressively enhance the buttons already in it.
 import { getSessionUser } from '../_lib/auth.js';
+import { fetchPastClientReviews, fetchPastClientSummary, PAST_CLIENT_SIDES } from '../_lib/pastClientReviews.js';
 import { escapeHtml, parseJsonSafe, DEMO_EMAIL_PATTERN } from '../_lib/util.js';
 import { getAgentProfile, fetchAgentPortfolioPhotos } from '../_lib/agents.js';
 import { fetchAgentReviews, fetchAgentRatingSummary, fetchAgentStats } from '../_lib/marketplace.js';
@@ -287,7 +288,7 @@ function renderFinal(title, description, body, authCta, jsonLd, canonicalPath) {
 
 async function renderAgentProfilePage(context, db, user, agentProfile, { viewer, isMine, isAdmin, authCta, backLinkHtml }) {
   const foundingZips = (await fetchFoundingZips(db, [user.id])).get(user.id) || [];
-  const [photos, reviews, ratingSummary, stats, packages, caseStudies, teamName] = await Promise.all([
+  const [photos, reviews, ratingSummary, stats, packages, caseStudies, teamName, pastReviews, pastSummary] = await Promise.all([
     fetchAgentPortfolioPhotos(db, user.id),
     fetchAgentReviews(db, user.id),
     fetchAgentRatingSummary(db, user.id),
@@ -295,6 +296,8 @@ async function renderAgentProfilePage(context, db, user, agentProfile, { viewer,
     fetchAgentPackages(db, user.id),
     fetchCaseStudies(db, user.id),
     fetchActiveTeamName(db, user.id),
+    fetchPastClientReviews(db, user.id),
+    fetchPastClientSummary(db, user.id),
   ]);
   const isFavorited = viewer ? (await fetchFavoriteAgentIds(db, viewer.id)).includes(user.id) : false;
   const topRated = ratingSummary.avgRating >= 4.5 && ratingSummary.reviewCount >= 3 && stats.winRate !== null && stats.winRate >= 0.3;
@@ -325,6 +328,8 @@ async function renderAgentProfilePage(context, db, user, agentProfile, { viewer,
     caseStudies.length ? statChipHtml('Case studies', String(caseStudies.length)) : '',
   ].filter(Boolean);
   const selfReportedChips = [
+    // Invited by the agent and not checked against sale records, so they sit with what agents tell us, not with what we measure.
+    pastSummary.count > 0 ? statChipHtml('Past clients (outside Amico, not verified)', `★ ${pastSummary.avgRating} (${pastSummary.count})`) : '',
     agentProfile.homesSoldLastYear ? statChipHtml('Sold, last 12 mo', String(agentProfile.homesSoldLastYear)) : '',
     agentProfile.avgDaysOnMarket ? statChipHtml('On market', `~${agentProfile.avgDaysOnMarket} days`) : '',
     agentProfile.saleToListRatio ? statChipHtml('Sale-to-list', `${Math.round(agentProfile.saleToListRatio * 100)}%`) : '',
@@ -370,6 +375,14 @@ async function renderAgentProfilePage(context, db, user, agentProfile, { viewer,
         </div>
       `).join('')
     : '<div class="empty-state">No reviews yet.</div>';
+  // Bring Your Reviews: always labeled and kept apart from reviews of agents hired here.
+  const pastReviewsHtml = pastReviews.map(r => `
+        <div class="side">
+          <strong>${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)}</strong>
+          <span class="tiny">${escapeHtml(r.reviewerName)} · ${escapeHtml(PAST_CLIENT_SIDES[r.clientSide] || '')} in ${r.saleYear}, ${escapeHtml(r.saleCity)}</span>
+          ${r.comment ? `<p class="tiny">${escapeHtml(r.comment)}</p>` : ''}
+        </div>
+      `).join('');
 
   const body = `
     ${backLinkHtml}
@@ -394,8 +407,11 @@ async function renderAgentProfilePage(context, db, user, agentProfile, { viewer,
     ${videoHtml ? `<h2>Intro Video</h2>${videoHtml}` : ''}
     ${photoGallery ? `<h2>Portfolio</h2>${photoGallery}` : ''}
     ${caseStudiesHtml ? `<h2>Case Studies</h2><div class="grid">${caseStudiesHtml}</div>` : ''}
-    <h2>Reviews</h2>
+    <h2>Reviews from homeowners who hired them on Amico Haus</h2>
     <div class="stack">${reviewsHtml}</div>
+    ${pastReviews.length ? `<h2>Past clients, outside Amico Haus</h2>
+    <p class="tiny">${pastSummary.count} review${pastSummary.count === 1 ? '' : 's'} averaging ${pastSummary.avgRating} stars from people this agent helped outside Amico Haus${agentProfile.reviewInviteFromYear ? `. The agent agreed to send their review link to every client they helped from ${agentProfile.reviewInviteFromYear}${agentProfile.reviewInviteToYear !== agentProfile.reviewInviteFromYear ? ` to ${agentProfile.reviewInviteToYear}` : ''}` : ''}. Agents can't hide or remove these reviews; Amico Haus removes one only if it's fake, abusive or not about the agent's work, the same rule for every rating. Not yet checked against public sale records.</p>
+    <div class="stack">${pastReviewsHtml}</div>` : ''}
   `;
 
   const jsonLd = {

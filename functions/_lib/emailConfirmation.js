@@ -27,7 +27,8 @@ function newConfirmationCode() {
 // was accepted for delivery.
 // `intent` ('homeowner' | 'agent' | '') only decides where the confirm page sends
 // them afterwards; it is not stored and grants nothing.
-export async function sendConfirmationLink(context, user, { intent = '' } = {}) {
+// next: a past-client review link to come back to (validated by the caller), carried in the emailed link.
+export async function sendConfirmationLink(context, user, { intent = '', next = '' } = {}) {
   const db = context.env.DB;
   const token = generateToken();
   const expires = new Date(Date.now() + CONFIRMATION_LINK_HOURS * 3600 * 1000).toISOString();
@@ -36,7 +37,7 @@ export async function sendConfirmationLink(context, user, { intent = '' } = {}) 
     .bind(await hashToken(token), expires, await confirmationCodeHash(context.env, user.id, code), user.id).run();
   const spaced = `${code.slice(0, 3)} ${code.slice(3)}`;
 
-  const link = `${new URL(context.request.url).origin}/verify-email?token=${token}${intent ? `&as=${intent}` : ''}`;
+  const link = `${new URL(context.request.url).origin}/verify-email?token=${token}${intent ? `&as=${intent}` : ''}${next ? `&next=${encodeURIComponent(next)}` : ''}`;
   const name = user.displayName || 'there';
 
   const text = [

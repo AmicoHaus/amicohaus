@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Review Your Agent — Amico Haus</title>
+<meta name="description" content="Leave a review for a real estate agent who helped you buy or sell a home.">
+<meta name="robots" content="noindex">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <a class="agent-strip" href="/about">Presented by <strong>Rudy Flores</strong> &middot; Coldwell Banker West &middot; DRE #02257808</a>
+  <header class="topbar">
+    <a class="brand" href="/">
+      <svg viewBox="0 0 48 48" class="logo" aria-hidden="true">
+        <path d="M24 4 L44 20 V42 H30 V28 H18 V42 H4 V20 Z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+      </svg>
+      <span class="brand-text">AMICO <span class="accent">HAUS</span></span>
+    </a>
+    <nav class="tabs">
+      <a class="tab" href="/#how">How it works</a>
+      <a class="tab" href="/about">About</a>
+    </nav>
+    <div class="auth-cta" id="authCta">
+      <a class="btn btn-ghost btn-sm" href="/login" data-return-here>Log In</a>
+      <a class="btn btn-primary btn-sm" href="/signup" data-return-here>Sign Up</a>
+    </div>
+  </header>
+
+  <main class="prose">
+    <p class="eyebrow">Past client review</p>
+    <h1 id="reviewTitle">Review your agent</h1>
+    <div id="reviewIntro"><div class="empty-state">Loading…</div></div>
+
+    <form id="pastReviewForm" class="profile-form hidden">
+      <fieldset class="audience-choice">
+        <legend>Your rating <span class="required-mark">*</span></legend>
+        <div class="choice-row star-choice">
+          <label class="choice"><input type="radio" name="rating" value="5"><span>★★★★★</span></label>
+          <label class="choice"><input type="radio" name="rating" value="4"><span>★★★★</span></label>
+          <label class="choice"><input type="radio" name="rating" value="3"><span>★★★</span></label>
+          <label class="choice"><input type="radio" name="rating" value="2"><span>★★</span></label>
+          <label class="choice"><input type="radio" name="rating" value="1"><span>★</span></label>
+        </div>
+      </fieldset>
+      <div class="form-row two-col">
+        <div class="field"><label for="clientSide">You <span class="required-mark">*</span></label>
+          <select id="clientSide"><option value="sold">Sold a home</option><option value="bought">Bought a home</option><option value="both">Sold and bought</option></select>
+        </div>
+        <div class="field"><label for="saleYear">Year <span class="required-mark">*</span></label><select id="saleYear"></select></div>
+      </div>
+      <div class="form-row two-col">
+        <div class="field"><label for="saleCity">City of the home <span class="required-mark">*</span></label><input type="text" id="saleCity" maxlength="80" autocomplete="address-level2"></div>
+        <div class="field"><label for="saleAddress">Street address <span class="required-mark">*</span></label><input type="text" id="saleAddress" maxlength="200" autocomplete="street-address"></div>
+      </div>
+      <p class="tiny">The street address stays private: only Amico Haus sees it, so reviews can be checked against public sale records. Your review shows your name, the year, the city and whether you bought or sold.</p>
+      <div class="field"><label for="reviewComment">Your review</label><textarea id="reviewComment" maxlength="1500" placeholder="What was it like working with them? What did they do well, and what could have been better?"></textarea></div>
+      <p class="tiny">Please write about your own experience with this agent: their work, communication and results. Honest reviews, good or not so good, are welcome. Neither Amico Haus nor the agent can offer anything in return for a review, and the agent can't hide or remove yours. Amico Haus removes a review only if it's fake, abusive or not about the agent's work, the same rule for every rating.</p>
+      <div class="form-actions"><button type="submit" class="btn btn-primary" id="pastReviewBtn">Post my review</button></div>
+      <p class="inline-alert hidden" id="pastReviewError" role="alert"></p>
+    </form>
+  </main>
+
+  <footer class="site-footer">
+    <span class="footer-tagline">Amico Haus: the real estate marketplace of tomorrow! Everything that's missing from the real estate market for the homeowner!</span> <a href="/about">About</a> · <a href="/whats-new">What's New</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a>
+  </footer>
+</div>
+<script src="client.js"></script>
+<script src="page-past-client-review.js"></script>
+<!-- Cloudflare Web Analytics -->
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "91a193988b2d45e58aa1c27d5abf6bdb"}'></script>
+<!-- End Cloudflare Web Analytics -->
+</body>
+</html>

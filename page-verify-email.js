@@ -11,6 +11,9 @@ const token = params.get('token') || '';
 // once they're in, drop them where that side starts.
 const LANDING = { homeowner: '/app#post-home', agent: '/app#become-agent' };
 const landing = LANDING[params.get('as')] || '/app';
+// A past-client review link they signed up from (also carried in the emailed link, in case it opened elsewhere).
+const nextParam = params.get('next') || '';
+const nextPage = /^\/past-client-review\?t=[A-Za-z0-9]{8,64}$/.test(nextParam) ? nextParam : null;
 
 function showResend(message) {
   $('verifyTitle').textContent = 'This link can’t be used';
@@ -50,7 +53,7 @@ $('passwordForm').addEventListener('submit', async (e) => {
     $('verifyTitle').textContent = 'You’re in!';
     $('statusLine').textContent = 'Taking you to your account…';
     $('passwordForm').classList.add('hidden');
-    window.location.href = landing;
+    window.location.href = takeReturnTo() || nextPage || landing;
   } catch (err) {
     const code = err.data && err.data.code;
     if (code === 'expired' || code === 'invalid') { showResend(err.message); return; }

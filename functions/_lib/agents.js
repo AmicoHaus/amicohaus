@@ -153,6 +153,7 @@ export async function getAgentProfile(db, userId) {
     soloAgent: !!row.solo_agent,
     acceptingClients: !!row.accepting_clients, carriesEoInsurance: !!row.carries_eo_insurance,
     appliedAt: row.applied_at, reviewedAt: row.reviewed_at, rejectionReason: row.rejection_reason,
+    reviewInviteFromYear: row.review_invite_from_year || null, reviewInviteToYear: row.review_invite_to_year || null,
   };
 }
 

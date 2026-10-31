@@ -10,6 +10,7 @@ import { seedDefaultMilestones } from './milestones.js';
 import { markInviteResponded } from './agentInvites.js';
 import { fetchFoundingZips } from './zipBoard.js';
 import { countFinalistHomes, DEBRIEF_REASONS } from './decisionNight.js';
+import { fetchPastClientSummary } from './pastClientReviews.js';
 
 // A pending proposal that's sat untouched this long gets flagged so the
 // homeowner sees a nudge — same idea as matches.js's "gone quiet" flag for
@@ -125,6 +126,7 @@ export async function fetchBids(db, requestType, requestId, { dueAt = null } = {
       approvedAt: r.agent_approved_at || null,
     }), dueAt),
     foundingZips: founding.get(r.agent_user_id) || [],
+    pastClients: await fetchPastClientSummary(db, r.agent_user_id),
   })));
 }
 

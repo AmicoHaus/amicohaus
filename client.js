@@ -43,6 +43,30 @@ const ATTRIBUTION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const ATTRIBUTION_PARAMS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'gclid', 'ttclid'];
 
 // TikTok's, Instagram's and Facebook's built-in browsers name themselves in the user agent.
+// Coming back after signing in or up from a page that needs an account (a past-client review link). Only those
+// pages are allowed as a destination, so this can never send someone off to another site; it lasts a day.
+const RETURN_TO_KEY = 'ah_return_to';
+function rememberReturnTo(path) {
+  try { localStorage.setItem(RETURN_TO_KEY, JSON.stringify({ path, at: Date.now() })); } catch { /* optional */ }
+}
+// Where to come back to, without using it up (signup sends it along in the confirmation email).
+function peekReturnTo() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(RETURN_TO_KEY) || 'null');
+    if (saved && Date.now() - saved.at < 86400000 && /^\/past-client-review\?t=[A-Za-z0-9]{8,64}$/.test(saved.path)) return saved.path;
+  } catch { /* optional */ }
+  return '';
+}
+
+function takeReturnTo() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(RETURN_TO_KEY) || 'null');
+    localStorage.removeItem(RETURN_TO_KEY);
+    if (saved && Date.now() - saved.at < 86400000 && /^\/past-client-review\?t=[A-Za-z0-9]{8,64}$/.test(saved.path)) return saved.path;
+  } catch { /* optional */ }
+  return null;
+}
+
 function inAppBrowser() {
   const ua = navigator.userAgent || '';
   if (/BytedanceWebview|musical_ly|TikTok/i.test(ua)) return 'tiktok';

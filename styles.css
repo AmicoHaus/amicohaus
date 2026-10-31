@@ -1073,6 +1073,12 @@ body.reel-open .toast { z-index: 1100; }
 .reel-overlay .btn-ghost { color: #f2efe8; border-color: rgba(242, 239, 232, 0.4); }
 .reel-report { text-align: center; margin-top: 10px; font-size: 0.85rem; }
 .reel-report .link-btn { color: #c9c4b8; }
+/* Bring Your Reviews + Brag Cards (agent-growth.js, past-client-review.html) */
+.brag-list { margin: 8px 0 12px; padding-left: 20px; }
+.brag-list li { margin: 4px 0; }
+.brag-badge { display: block; max-width: 100%; height: auto; margin: 8px 0; }
+.star-choice { flex-wrap: wrap; }
+.star-choice .choice span { color: var(--gold); letter-spacing: 2px; }
 :root[data-theme="dark"] .opinion-summary { background: var(--navy-2); }
 
 /* Phones. Kept at the END of the file on purpose: several rules it overrides (e.g. #globalSearchInput) appear

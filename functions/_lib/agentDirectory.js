@@ -3,6 +3,7 @@
 // agents/directory.js) and saved agent-search alerts (agentSearchAlerts.js),
 // so the two can never drift out of sync on what counts as a match.
 import { fetchAgentRatingSummary, fetchAgentStats } from './marketplace.js';
+import { fetchPastClientSummary } from './pastClientReviews.js';
 import { fetchAgentPackages } from './agentPackages.js';
 import { fetchCaseStudies } from './caseStudies.js';
 import { fetchActiveTeamName } from './agentTeams.js';
@@ -63,6 +64,7 @@ export async function buildAgentDirectoryEntry(db, agentUserId) {
     hiresOnPlatform: stats.acceptedBids, isNewToAmicoHaus: stats.isNewAgent, finalistCount: stats.finalistCount,
     // The admin account that runs Amico Haus, when it competes as an agent: always labeled (Fair Play rules).
     isPlatformOperator: row.role === 'admin',
+    pastClients: await fetchPastClientSummary(db, agentUserId),
     packages, priceRange, caseStudies,
     hasPastWork: caseStudies.length > 0 || row.portfolio_photo_count > 0,
     commissionRange: commission,

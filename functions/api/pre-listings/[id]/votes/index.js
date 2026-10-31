@@ -12,7 +12,7 @@ export async function onRequestGet(context) {
   const tally = await getVoteTally(db, id);
   // Sealed until this agent has voted (see sealTally).
   const owner = await db.prepare('SELECT user_id FROM pre_listings WHERE id = ?').bind(id).first();
-  const isOtherAgent = owner && owner.user_id !== viewer.id && viewer.role !== 'admin' && (await isApprovedAgent(db, viewer.id));
+  const isOtherAgent = owner && owner.user_id !== viewer.id && (await isApprovedAgent(db, viewer.id));
   if (isOtherAgent) {
     const mine = await fetchMyVote(db, id, viewer.id);
     if (!(mine && mine.vote)) return json({ votes: sealTally(tally) });

@@ -43,12 +43,16 @@ function requestLink(requestType, requestId) {
   return requestType === 'pre_listing' ? `/app#pre-listing-${requestId}` : `/app#transaction-${requestId}`;
 }
 
-export async function notifyNewBid(context, requestType, requestId, ownerUserIds, agentUserId) {
+// sealed: the owner set a Decision Night, so the message says a proposal came in without saying whose.
+// updated: an edit of a live proposal rather than a new one.
+export async function notifyNewBid(context, requestType, requestId, ownerUserIds, agentUserId, { sealed = false, updated = false } = {}) {
   const db = context.env.DB;
-  const agent = await db.prepare('SELECT display_name FROM users WHERE id = ?').bind(agentUserId).first();
+  const agent = sealed ? null : await db.prepare('SELECT display_name FROM users WHERE id = ?').bind(agentUserId).first();
   const owners = Array.isArray(ownerUserIds) ? ownerUserIds : [ownerUserIds];
   const link = requestLink(requestType, requestId);
-  const body = `${agent ? agent.display_name : 'An agent'} submitted a proposal.`;
+  const body = sealed
+    ? 'A new proposal came in. Every proposal opens to you together on your Decision Night.'
+    : `${agent ? agent.display_name : 'An agent'} ${updated ? 'updated their proposal' : 'submitted a proposal'}.`;
   const ownerRows = await db.batch(owners.map(id => db.prepare('SELECT id, email, email_frequency FROM users WHERE id = ?').bind(id)));
   await Promise.allSettled(ownerRows.map(r => {
     const owner = r.results[0];
@@ -130,7 +134,23 @@ export async function notifyAgentInvited(context, requestType, requestId, agentU
 export async function notifyBidDecision(context, agentUserId, requestType, requestId, accepted) {
   const db = context.env.DB;
   const link = requestLink(requestType, requestId);
-  await notify(db, agentUserId, accepted ? 'Your proposal was accepted!' : 'Your proposal was not selected this time.', link);
+  await notify(db, agentUserId, accepted ? 'Your proposal was accepted!' : 'The homeowner chose another agent this time. Thanks for sending a proposal.', link);
+}
+
+// Decision Night arrived: the homeowner's proposals are all open now (see decisionNight.js runDueDecisionNights).
+export async function notifyProposalsOpen(context, owner, preListingId, count) {
+  const body = count > 0
+    ? `It's Decision Night: your ${count} proposal${count === 1 ? ' is' : 's are'} open. Compare them side by side.`
+    : "It's Decision Night, but no proposals came in yet. You can invite a local agent or keep the pre-listing open.";
+  await notifyAndMaybeEmail(context, owner, body, requestLink('pre_listing', preListingId), 'Your proposals are open on Amico Haus', 'compare them');
+}
+
+// Finalist feedback: what tipped the homeowner's decision, from a preset list. It doesn't say which home (the agent
+// may have been a finalist on several), who was hired, or anything about fees.
+export async function notifyFinalistDebrief(context, agentUserId, reasonLabels) {
+  await notify(context.env.DB, agentUserId,
+    `A homeowner who had you as a finalist chose another agent. What tipped their decision: ${reasonLabels.join(', ')}. Finalist spots count on your profile.`,
+    '/app#become-agent');
 }
 
 export async function notifyTransactionOpened(context, requestId, notifyUserId, openedByUserId) {
@@ -145,7 +165,8 @@ export async function notifyTransactionOpened(context, requestId, notifyUserId, 
 // service area covers it; a transaction request is tied to two trade
 // listings with no zip on file, so it pings every opted-in approved agent
 // instead of trying to guess a location match.
-export async function notifyAgentsNewRequest(context, requestType, requestId, zip) {
+// excludeUserIds: the people who opened the request (a homeowner who is also an agent isn't pinged about their own).
+export async function notifyAgentsNewRequest(context, requestType, requestId, zip, excludeUserIds = []) {
   const db = context.env.DB;
   const link = requestLink(requestType, requestId);
   const bodyText = requestType === 'pre_listing' ? 'A new pre-listing opened for proposals near you.' : 'A new trade transaction request opened for proposals.';
@@ -154,8 +175,11 @@ export async function notifyAgentsNewRequest(context, requestType, requestId, zi
   const agentsRow = await db.prepare(
     `SELECT agent_profiles.user_id, agent_profiles.service_zips_json, users.email, users.email_frequency
      FROM agent_profiles JOIN users ON users.id = agent_profiles.user_id
-     WHERE agent_profiles.status = 'approved' AND agent_profiles.notify_new_requests = 1`
+     WHERE agent_profiles.status = 'approved' AND agent_profiles.notify_new_requests = 1
+       AND users.status = 'active' AND users.email NOT LIKE '%@demo.amicohaus.local'`
   ).all();
+  const excluded = new Set(excludeUserIds.map(Number));
+  agentsRow.results = agentsRow.results.filter(a => !excluded.has(Number(a.user_id)));
   if (agentsRow.results.length === 0) return;
 
   const asRecipient = a => ({ userId: a.user_id, email: a.email, emailFrequency: a.email_frequency });

@@ -52,7 +52,7 @@ export async function onRequestGet(context) {
   if (user) {
     const agentProfile = await getAgentProfile(db, user.id);
     if (agentProfile && agentProfile.status === 'approved') {
-      if (user.role !== 'admin') votedIds = await fetchVotedIds(db, user.id);
+      votedIds = await fetchVotedIds(db, user.id);
       if (agentProfile.serviceZips.length > 0) {
         serviceZips = agentProfile.serviceZips;
         agentZipCoords = await lookupZipCoords(db, serviceZips);
@@ -109,7 +109,7 @@ export async function onRequestPost(context) {
   if (validated.error) return badRequest(validated.error);
 
   const id = await insertPreListing(context.env.DB, user.id, validated.data);
-  context.waitUntil(notifyAgentsNewRequest(context, 'pre_listing', id, validated.data.zip));
+  context.waitUntil(notifyAgentsNewRequest(context, 'pre_listing', id, validated.data.zip, [user.id]));
   const d = validated.data;
   alertAdmin(context, user, {
     kind: 'pre_listing',

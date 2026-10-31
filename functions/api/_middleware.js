@@ -1,9 +1,23 @@
 import { json } from '../_lib/util.js';
 import { withSecurityHeaders } from '../_lib/withSecurityHeaders.js';
+import { runDueDecisionNights } from '../_lib/decisionNight.js';
 
 // Runs in front of every /api route only (Pages scopes a middleware file to its
 // own directory), so static pages and images never pass through it.
 const BODY_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+// There's no scheduler, so time-based messages (a homeowner's Decision Night arriving) go out from here: at most
+// every few minutes per running instance, in the background after the response, never slowing a request down.
+// Each job claims its rows with a conditional UPDATE, so instances running it at the same time can't double-send.
+const DUE_JOBS_EVERY_MS = 5 * 60 * 1000;
+let lastDueJobsRun = 0;
+function maybeRunDueJobs(context) {
+  if (!context.env || !context.env.DB || typeof context.waitUntil !== 'function') return;
+  const now = Date.now();
+  if (now - lastDueJobsRun < DUE_JOBS_EVERY_MS) return;
+  lastDueJobsRun = now;
+  context.waitUntil(runDueDecisionNights(context).catch(err => console.log(`[due jobs failed] ${err && err.message}`)));
+}
 
 export async function onRequest(context) {
   const { request } = context;
@@ -26,6 +40,8 @@ export async function onRequest(context) {
       }
     }
   }
+
+  maybeRunDueJobs(context);
 
   // Anything a route still lets escape becomes a JSON error the client can
   // show, rather than an HTML page it can't parse.

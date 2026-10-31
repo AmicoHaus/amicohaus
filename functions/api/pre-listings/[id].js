@@ -8,6 +8,8 @@ import { buyerDemandForDisplay } from '../../_lib/buyerDemand.js';
 import { homeCostsFromRow } from '../../_lib/homeCosts.js';
 import { wrapUpSellerPrep } from '../../_lib/sellerPrepWrapUp.js';
 import { LAUNCH_ZIPS, FOUNDING_SPOTS, LIVE_FOUNDERS_SQL } from '../../_lib/zipBoard.js';
+import { proposalsSealed, countSealedProposals, fetchFinalists, sqlTime } from '../../_lib/decisionNight.js';
+import { logAdminAction } from '../../_lib/audit.js';
 
 export async function onRequestGet(context) {
   const id = context.params.id;
@@ -60,14 +62,38 @@ export async function onRequestGet(context) {
   let myVote = null;
   let priceOpinions = null;
 
+  // Decision Night: the owner and agents both see the time; until then the owner sees how many proposals came in,
+  // not the proposals themselves.
+  const sealed = proposalsSealed(row);
+  if (row.proposals_due_at && (isOwner || isApprovedAgentViewer)) preListing.decisionNight = { dueAt: row.proposals_due_at, sealed };
+
   if (isOwner) {
-    bids = await fetchBids(db, 'pre_listing', id);
+    if (sealed) {
+      bids = [];
+      preListing.decisionNight.sealedCount = await countSealedProposals(db, id);
+    } else {
+      bids = await fetchBids(db, 'pre_listing', id, { dueAt: row.proposals_due_at });
+      if (row.proposals_due_at) {
+        const due = Date.parse(row.proposals_due_at);
+        for (const b of bids) b.afterDecisionNight = sqlTime(b.submittedAt) > due;
+        // They're looking at them now, so the "your proposals are open" message would be old news.
+        if (!row.proposals_open_notified_at) await db.prepare("UPDATE pre_listings SET proposals_open_notified_at = datetime('now') WHERE id = ? AND proposals_open_notified_at IS NULL").bind(id).run();
+      }
+    }
     priceOpinions = await fetchPriceOpinions(db, id);
+    // After hiring: the finalists who could get feedback, and whether it was sent.
+    if (row.status === 'awarded') {
+      const hired = bids.find(b => b.id === row.awarded_bid_id);
+      const finalists = await fetchFinalists(db, id, hired ? hired.agentUserId : 0);
+      const sent = await db.prepare('SELECT COUNT(*) AS n FROM finalist_debriefs WHERE pre_listing_id = ?').bind(id).first();
+      preListing.debrief = { finalists, sent: sent.n > 0 };
+    }
   } else if (isApprovedAgentViewer) {
     myBid = await fetchMyBid(db, 'pre_listing', id, user.id);
     myVote = await fetchMyVote(db, id, user.id);
-    // Sealed until this agent has voted: they see how many agents weighed in, not how.
-    if (!(myVote && myVote.vote) && user.role !== 'admin') preListing.votes = sealTally(votes);
+    // Sealed until this agent has voted: they see how many agents weighed in, not how. No exception for staff
+    // (Fair Play): an admin account that also competes as an agent plays by the same rule.
+    if (!(myVote && myVote.vote)) preListing.votes = sealTally(votes);
   }
 
   if (isApprovedAgentViewer && agentProfile.serviceZips.length > 0) {
@@ -160,6 +186,11 @@ export async function onRequestDelete(context) {
 
   await wrapUpSellerPrep(context, id);
   await deleteOpinionDecks(db, context.env.PHOTOS, id);
+  // Pitch reels live in storage, not just in the rows the delete cascades away.
+  const pitches = await db.prepare("SELECT pitch_video_r2_key FROM service_bids WHERE request_type = 'pre_listing' AND request_id = ? AND pitch_video_r2_key IS NOT NULL").bind(id).all();
+  if (context.env.PHOTOS) await Promise.all(pitches.results.map(p => context.env.PHOTOS.delete(p.pitch_video_r2_key).catch(() => {})));
+  // Removing someone else's pre-listing (moderation) is on the admin activity log, like other admin deletes.
+  if (existing.user_id !== user.id) await logAdminAction(db, user.id, 'delete_pre_listing', 'pre_listing', id);
   const video = await db.prepare('SELECT video_r2_key FROM pre_listings WHERE id = ?').bind(id).first();
   if (video && video.video_r2_key && context.env.PHOTOS) {
     try { await context.env.PHOTOS.delete(video.video_r2_key); } catch (err) { console.log(`[video delete failed] ${err.message}`); }

@@ -31,7 +31,7 @@ function flatFeeRange(defaultFlatFee, packages) {
 export async function buildAgentDirectoryEntry(db, agentUserId) {
   // Suspended accounts never appear, even if their agent profile is still marked approved.
   const row = await db.prepare(
-    `SELECT agent_profiles.*, users.display_name, users.is_verified,
+    `SELECT agent_profiles.*, users.display_name, users.is_verified, users.role,
             (SELECT COUNT(*) FROM agent_portfolio_photos WHERE agent_portfolio_photos.agent_user_id = agent_profiles.user_id) AS portfolio_photo_count
      FROM agent_profiles JOIN users ON users.id = agent_profiles.user_id
      WHERE agent_profiles.user_id = ? AND agent_profiles.status = 'approved' AND users.status = 'active'`
@@ -60,7 +60,9 @@ export async function buildAgentDirectoryEntry(db, agentUserId) {
     rating: rating.avgRating, reviewCount: rating.reviewCount, topRated: stats.topRated,
     avgResponseHours: stats.avgResponseHours,
     // Times a homeowner on Amico Haus picked this agent's proposal -- measured by the platform, not typed in by the agent.
-    hiresOnPlatform: stats.acceptedBids, isNewToAmicoHaus: stats.isNewAgent,
+    hiresOnPlatform: stats.acceptedBids, isNewToAmicoHaus: stats.isNewAgent, finalistCount: stats.finalistCount,
+    // The admin account that runs Amico Haus, when it competes as an agent: always labeled (Fair Play rules).
+    isPlatformOperator: row.role === 'admin',
     packages, priceRange, caseStudies,
     hasPastWork: caseStudies.length > 0 || row.portfolio_photo_count > 0,
     commissionRange: commission,

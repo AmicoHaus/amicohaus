@@ -34,8 +34,9 @@ export async function onRequestPut(context) {
     if (bid.status !== 'pending') return badRequest('This proposal is no longer pending.');
     if (!(await isAgentActive(db, bid.agent_user_id))) return badRequest("This agent's account isn't active right now, so this proposal can't be accepted.");
 
-    await acceptBid(db, 'transaction', id, bidId);
+    const declined = await acceptBid(db, 'transaction', id, bidId);
     context.waitUntil(notifyBidDecision(context, bid.agent_user_id, 'transaction', id, true));
+    for (const agentId of declined) context.waitUntil(notifyBidDecision(context, agentId, 'transaction', id, false).catch(() => {}));
     return json({ ok: true });
   }
 

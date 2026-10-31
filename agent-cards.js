@@ -45,6 +45,7 @@ function directoryAgentInfo(a) {
     status: [
       { text: a.acceptingClients ? 'Accepting new clients' : 'Not accepting new clients', tone: a.acceptingClients ? 'good' : 'bad' },
       a.isLocalSpecialist && { text: 'Local specialist', tone: 'gold' },
+      a.isPlatformOperator && { text: 'Platform operator: runs Amico Haus' },
       a.licenseVerified && { text: 'License checked on DRE', tone: 'good' },
       (a.foundingZips || []).length > 0 && { text: `Founding agent · ${a.foundingZips.join(', ')}`, tone: 'good' },
       a.carriesEoInsurance && { text: 'E&O insured (self-reported)', tone: 'good' },
@@ -53,6 +54,7 @@ function directoryAgentInfo(a) {
     ].filter(Boolean),
     stats: [
       a.hiresOnPlatform > 0 && { k: 'Hired here', v: `${a.hiresOnPlatform} time${a.hiresOnPlatform === 1 ? '' : 's'}` },
+      a.finalistCount > 0 && { k: 'Finalist', v: `${a.finalistCount} home${a.finalistCount === 1 ? '' : 's'}` },
       // Measures how soon after a request opens (or after an invite) the agent sends a proposal -- not message replies.
       respLabel && { k: 'Proposal speed', v: respLabel },
       a.caseStudies && a.caseStudies.length > 0 && { k: 'Case studies', v: String(a.caseStudies.length) },

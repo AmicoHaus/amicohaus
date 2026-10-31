@@ -1,4 +1,5 @@
 import { getSessionUser } from '../../../../_lib/auth.js';
+import { logAdminAction } from '../../../../_lib/audit.js';
 import { json, badRequest, unauthorized, forbidden, notFound } from '../../../../_lib/util.js';
 
 const MAX_PHOTOS_PER_LISTING = 8;
@@ -45,5 +46,7 @@ export async function onRequestPost(context) {
     'INSERT INTO listing_photos (listing_id, r2_key, content_type, position) VALUES (?, ?, ?, ?)'
   ).bind(listingId, key, file.type, countRow.n).run();
 
+  // An admin acting on someone else's content is on the admin activity log.
+  if (listing.user_id !== user.id) await logAdminAction(db, user.id, 'add_listing_photo', 'listing', listingId);
   return json({ id: result.meta.last_row_id }, { status: 201 });
 }

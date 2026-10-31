@@ -427,6 +427,9 @@ CREATE TABLE IF NOT EXISTS pre_listings (
   video_content_type TEXT,
   listing_ready_json TEXT NOT NULL DEFAULT '[]',
   target_list_date TEXT,
+  -- Decision Night (migration_v39): proposals stay sealed from the owner until this ISO time.
+  proposals_due_at TEXT,
+  proposals_open_notified_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -482,6 +485,11 @@ CREATE TABLE IF NOT EXISTS service_bids (
   flat_fee INTEGER,
   services_json TEXT NOT NULL DEFAULT '[]',
   status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','accepted','declined','withdrawn')),
+  -- Pitch Reels (migration_v39): a short owner-only video pitch, and the owner's private shortlist / pass.
+  pitch_video_r2_key TEXT,
+  pitch_video_content_type TEXT,
+  owner_pick TEXT CHECK(owner_pick IN ('shortlist','pass')),
+  submitted_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(request_type, request_id, agent_user_id)
@@ -1160,4 +1168,16 @@ CREATE TABLE IF NOT EXISTS market_pulse_alerts (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_market_pulse_alerts_user ON market_pulse_alerts(user_id);
+
+-- Finalist feedback (migration_v39): up to 3 preset reasons a homeowner sends the finalists they didn't hire.
+CREATE TABLE IF NOT EXISTS finalist_debriefs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pre_listing_id INTEGER NOT NULL REFERENCES pre_listings(id) ON DELETE CASCADE,
+  agent_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  reasons_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(pre_listing_id, agent_user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_finalist_debriefs_agent ON finalist_debriefs(agent_user_id);
+CREATE INDEX IF NOT EXISTS idx_pre_listings_proposals_due ON pre_listings(proposals_due_at) WHERE proposals_open_notified_at IS NULL;
 

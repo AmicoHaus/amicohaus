@@ -1,4 +1,5 @@
 import { getSessionUser } from '../../../../_lib/auth.js';
+import { proposalsSealed } from '../../../../_lib/decisionNight.js';
 import { json, badRequest, unauthorized, forbidden, notFound } from '../../../../_lib/util.js';
 import { isApprovedAgent } from '../../../../_lib/agents.js';
 import { validateInterviewRequest, MAX_ACTIVE_INTERVIEWS, parseJsonArray, parseJsonObject } from '../../../../_lib/sellerPrep.js';
@@ -35,10 +36,11 @@ export async function onRequestPost(context) {
   if (!user) return unauthorized();
   const db = context.env.DB;
   const id = context.params.id;
-  const preListing = await db.prepare('SELECT user_id, status FROM pre_listings WHERE id = ?').bind(id).first();
+  const preListing = await db.prepare('SELECT user_id, status, proposals_due_at FROM pre_listings WHERE id = ?').bind(id).first();
   if (!preListing) return notFound('Pre-listing not found.');
   if (preListing.user_id !== user.id) return forbidden();
   if (preListing.status !== 'open') return badRequest('Only an open pre-listing can schedule interviews.');
+  if (proposalsSealed(preListing)) return badRequest('Your proposals open together on your Decision Night. You can ask for interviews then.');
 
   let body;
   try { body = await context.request.json(); } catch { return badRequest('Invalid request body.'); }

@@ -37,7 +37,7 @@ export async function onRequestPost(context) {
   const row = await db.prepare('SELECT user_a_id, user_b_id FROM transaction_requests WHERE id = ?').bind(result.id).first();
   const otherUserId = row.user_a_id === user.id ? row.user_b_id : row.user_a_id;
   context.waitUntil(notifyTransactionOpened(context, result.id, otherUserId, user.id));
-  if (result.isNew) context.waitUntil(notifyAgentsNewRequest(context, 'transaction', result.id));
+  if (result.isNew) context.waitUntil(notifyAgentsNewRequest(context, 'transaction', result.id, null, [row.user_a_id, row.user_b_id]));
 
   return json({ id: result.id }, { status: 201 });
 }

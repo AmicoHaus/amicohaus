@@ -1052,6 +1052,27 @@ main > .demo-section:first-of-type > [data-pills] { display: none; }
 .zip-card .card-head { align-items: baseline; }
 .zip-card-focus { outline: 2px solid var(--gold); outline-offset: 2px; }
 .search-empty { padding: 8px 10px; }
+/* Decision Night, Pitch Reels, finalist feedback (decision-night.js) */
+.dn-sealed { margin: 8px 0; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--cream); border: 1px solid var(--border); }
+.dn-button-field { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; }
+.debrief-form { margin-top: 10px; }
+.debrief-reasons { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 12px; margin: 8px 0 12px; }
+body.reel-open { overflow: hidden; }
+.reel-overlay { position: fixed; inset: 0; z-index: 1000; background: #0b1016; display: flex; align-items: flex-start; justify-content: center; padding: 16px; overflow-y: auto; }
+.reel-stage { width: 100%; max-width: 440px; margin: auto; color: #f2efe8; }
+body.reel-open .toast { z-index: 1100; }
+.reel-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.reel-counter { font-size: 0.9rem; opacity: 0.8; }
+.reel-video { display: block; width: 100%; max-height: calc(100vh - 260px); max-height: calc(100dvh - 260px); border-radius: var(--radius-sm); background: #000; touch-action: pan-y; }
+.reel-caption { margin: 10px 0; line-height: 1.4; touch-action: pan-y; }
+.reel-pick { display: inline-block; margin-left: 6px; padding: 2px 8px; border-radius: 999px; font-size: 0.8rem; }
+.reel-pick-shortlist { background: var(--gold); color: #201404; }
+.reel-pick-pass { background: #3a4552; color: #f2efe8; }
+.reel-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.reel-actions .btn { width: 100%; padding-left: 6px; padding-right: 6px; font-size: 0.9rem; }
+.reel-overlay .btn-ghost { color: #f2efe8; border-color: rgba(242, 239, 232, 0.4); }
+.reel-report { text-align: center; margin-top: 10px; font-size: 0.85rem; }
+.reel-report .link-btn { color: #c9c4b8; }
 :root[data-theme="dark"] .opinion-summary { background: var(--navy-2); }
 
 /* Phones. Kept at the END of the file on purpose: several rules it overrides (e.g. #globalSearchInput) appear

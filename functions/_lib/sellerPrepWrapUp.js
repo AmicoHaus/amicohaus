@@ -18,10 +18,16 @@ export async function wrapUpSellerPrep(context, preListingId, { keepAgentId = nu
       await db.prepare('DELETE FROM pre_listing_previews WHERE id = ?').bind(pv.id).run();
       if (rsvps.results.length) notices.push(notifyPreviewCanceled(context, preListingId, rsvps.results.map(r => r.agent_user_id), pv.starts_at));
     }
-    const open = await db.prepare("SELECT agent_user_id, status FROM pre_listing_interviews WHERE pre_listing_id = ? AND status IN ('requested','scheduled')")
+    const open = await db.prepare("SELECT agent_user_id, status, chosen_slot FROM pre_listing_interviews WHERE pre_listing_id = ? AND status IN ('requested','scheduled')")
       .bind(preListingId).all();
     for (const i of open.results) {
       if (i.agent_user_id === keepAgentId && i.status === 'scheduled') continue;
+      // An interview whose time has already come happened: it's kept as done (a finalist), with nothing to cancel.
+      if (i.status === 'scheduled' && i.chosen_slot && Date.parse(i.chosen_slot) <= Date.now()) {
+        await db.prepare("UPDATE pre_listing_interviews SET status = 'done', updated_at = datetime('now') WHERE pre_listing_id = ? AND agent_user_id = ?")
+          .bind(preListingId, i.agent_user_id).run();
+        continue;
+      }
       await db.prepare("UPDATE pre_listing_interviews SET status = 'canceled', updated_at = datetime('now') WHERE pre_listing_id = ? AND agent_user_id = ?")
         .bind(preListingId, i.agent_user_id).run();
       notices.push(notifyInterviewCanceled(context, preListingId, i.agent_user_id));

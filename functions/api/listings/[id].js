@@ -92,6 +92,8 @@ export async function onRequestPut(context) {
     // widens a price range or drops a beds/baths minimum can surface a wave
     // of new matches at once.
     context.waitUntil(notifyNewMatches(context, id));
+  // An admin acting on someone else's content is on the admin activity log.
+    if (existing.user_id !== user.id) await logAdminAction(db, user.id, 'edit_listing', 'listing', id);
     return json({ ok: true });
   }
 
@@ -107,6 +109,7 @@ export async function onRequestPut(context) {
     fields.push("updated_at = datetime('now')");
     values.push(id);
     await db.prepare(`UPDATE listings SET ${fields.join(', ')} WHERE id = ?`).bind(...values).run();
+    if (existing.user_id !== user.id) await logAdminAction(db, user.id, 'edit_listing', 'listing', id);
   }
 
   return json({ ok: true });

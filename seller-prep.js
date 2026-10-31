@@ -209,7 +209,9 @@ function ownerInterviewsHtml(interviews, bids, status) {
   const open = status === 'open';
   const live = interviews.filter(i => i.status === 'scheduled' || (i.status === 'requested' && !timesPassed(i)));
   const askable = bids.filter(b => (b.status === 'pending' || b.status === 'accepted')
-    && !interviews.some(i => i.agentUserId === b.agentUserId && i.status !== 'canceled' && !timesPassed(i)));
+    && !interviews.some(i => i.agentUserId === b.agentUserId && i.status !== 'canceled' && !timesPassed(i)))
+    // The agents shortlisted from the pitch reels come first.
+    .sort((a, b) => (a.ownerPick === 'shortlist' ? 0 : 1) - (b.ownerPick === 'shortlist' ? 0 : 1));
   const badge = i => (i.status === 'scheduled' ? ['badge-active', 'Scheduled'] : i.status === 'done' ? ['badge-paused', 'Done'] : timesPassed(i) ? ['badge-paused', 'Times passed'] : ['badge-gold', 'Awaiting their pick']);
   const cards = interviews.filter(i => i.status !== 'canceled').map(i => {
     const [tone, label] = badge(i);
@@ -236,7 +238,7 @@ function ownerInterviewsHtml(interviews, bids, status) {
   const form = open && askable.length && live.length < 3 ? `
     <div class="interview-request">
       <div class="form-row two-col">
-        <div class="field"><label for="interviewAgent">Agent</label><select id="interviewAgent">${askable.map(b => `<option value="${b.agentUserId}">${escapeHtml(b.agentName)}</option>`).join('')}</select></div>
+        <div class="field"><label for="interviewAgent">Agent</label><select id="interviewAgent">${askable.map(b => `<option value="${b.agentUserId}">${b.ownerPick === 'shortlist' ? '★ ' : ''}${escapeHtml(b.agentName)}</option>`).join('')}</select></div>
         <div class="field"><label for="interviewFormat">How</label><select id="interviewFormat">${Object.entries(INTERVIEW_FORMAT_LABELS).map(([k, v]) => `<option value="${k}"${k === 'video' ? ' selected' : ''}>${v}</option>`).join('')}</select></div>
       </div>
       <div class="form-row three-col">
@@ -252,6 +254,23 @@ function ownerInterviewsHtml(interviews, bids, status) {
       ${cards}
       ${form}
     </div>`;
+}
+
+// After a shortlist / pass: the "who to interview" options re-sorted in place (shortlisted first), so nothing typed
+// in the interviews panel is lost to a reload.
+function reorderInterviewAgents(bids) {
+  const select = document.getElementById('interviewAgent');
+  if (!select) return;
+  const pickOf = new Map((bids || []).map(b => [String(b.agentUserId), b.ownerPick]));
+  const chosen = select.value;
+  const options = [...select.options];
+  for (const o of options) {
+    const name = o.textContent.replace(/^★ /, '');
+    o.textContent = pickOf.get(o.value) === 'shortlist' ? `★ ${name}` : name;
+  }
+  options.sort((a, b) => (pickOf.get(a.value) === 'shortlist' ? 0 : 1) - (pickOf.get(b.value) === 'shortlist' ? 0 : 1));
+  options.forEach(o => select.appendChild(o));
+  select.value = chosen;
 }
 
 function agentInterviewHtml(i, status) {

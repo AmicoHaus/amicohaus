@@ -1,4 +1,5 @@
 import { getSessionUser } from '../../../../_lib/auth.js';
+import { logAdminAction } from '../../../../_lib/audit.js';
 import { json, unauthorized, forbidden, notFound } from '../../../../_lib/util.js';
 
 // The owner (or an admin) can take a photo back down — e.g. one that shows the street number or a lockbox.
@@ -20,5 +21,7 @@ export async function onRequestDelete(context) {
   if (bucket) await bucket.delete(photo.r2_key);
   await db.prepare('DELETE FROM pre_listing_photos WHERE id = ?').bind(photoId).run();
 
+  // An admin acting on someone else's content is on the admin activity log.
+  if (preListing.user_id !== user.id) await logAdminAction(db, user.id, 'delete_pre_listing_photo', 'pre_listing', preListingId);
   return json({ ok: true });
 }

@@ -1968,6 +1968,7 @@ async function loadMyBids() {
           <strong>${label}</strong>
           <span class="tiny">Your proposal: ${b.commissionPct ? `${b.commissionPct}% commission` : ''}${b.commissionPct && b.flatFee ? ' + ' : ''}${b.flatFee ? money(b.flatFee) + ' flat' : ''} · <span class="badge ${b.status === 'accepted' ? 'badge-active' : b.status === 'declined' ? 'badge-paused' : ''}">${b.status}</span></span>
           ${b.isStale ? '<span class="tiny gone-quiet-nudge">Still pending after a while — maybe follow up with the homeowner.</span>' : ''}
+          ${b.finalistFeedback && b.finalistFeedback.length ? `<span class="tiny">You were a finalist. What tipped the homeowner's decision: ${b.finalistFeedback.map(escapeHtml).join(', ')}.</span>` : ''}
           <button class="link-btn" data-action="open-${b.requestType === 'pre_listing' ? 'pre-listing' : 'transaction'}" data-id="${b.requestId}">View</button>
           ${checkInTarget ? `<button class="link-btn" data-action="check-in-bid" data-user-id="${checkInTarget}" data-title="${escapeHtml(target.title || 'your pre-listing')}">Send a check-in</button>` : ''}
         </div>
@@ -2081,13 +2082,18 @@ function proposalControlsHtml(feeSort) {
         <label class="checkbox-row"><input type="checkbox" id="proposalLicenseVerified" data-proposal-control><span>License checked on the DRE only</span></label>
         <label class="checkbox-row"><input type="checkbox" id="proposalHideDeclined" data-proposal-control><span>Hide declined proposals</span></label>
       </div>
+      ${proposalView && proposalView.preListingId ? `<div class="form-row two-col">
+        <div class="field"><label for="proposalPick">Your picks</label>
+          <select id="proposalPick" data-proposal-control><option value="">Show all</option><option value="shortlist">Shortlisted only</option><option value="hidePassed">Hide the ones I passed on</option></select>
+        </div>
+      </div>` : ''}
     </div>`;
 }
 
 // opts come from the on-screen controls on a re-render; the first render of a detail view passes nothing, so it can't
 // pick up controls left over from the previously opened listing while the new HTML is still being built.
 function filteredProposals(bids, opts = {}) {
-  const { sort = 'newest', feeType = '', mustInclude = '', licenseOnly = false, hideDeclined = false } = opts;
+  const { sort = 'newest', feeType = '', mustInclude = '', licenseOnly = false, hideDeclined = false, pick = '' } = opts;
   const kept = bids.filter(b => {
     if (b.status === 'accepted') return true;
     if (feeType === 'commission' && !b.commissionPct) return false;
@@ -2095,6 +2101,8 @@ function filteredProposals(bids, opts = {}) {
     if (mustInclude && !(b.services || []).some(s => s.type === mustInclude)) return false;
     if (licenseOnly && !b.licenseVerified) return false;
     if (hideDeclined && b.status === 'declined') return false;
+    if (pick === 'shortlist' && b.ownerPick !== 'shortlist') return false;
+    if (pick === 'hidePassed' && b.ownerPick === 'pass') return false;
     return true;
   });
   return kept.sort(PROPOSAL_SORTS[sort] || PROPOSAL_SORTS.newest);
@@ -2108,8 +2116,9 @@ function proposalResultsHtml(bids, backLink, opts, feePrice = null) {
 }
 
 // feeSort (pre-listings): adds the "most take-home" sort and a fee-in-dollars column at the owner's expected price.
-function renderProposalsSection(bids, backLink, { feeSort = false, startPrice = 0 } = {}) {
-  proposalView = { bids, backLink, feeSort, startPrice };
+// preListingId (pre-listings only): enables pitch reels and the shortlist / pass picks on each card.
+function renderProposalsSection(bids, backLink, { feeSort = false, startPrice = 0, preListingId = null } = {}) {
+  proposalView = { bids, backLink, feeSort, startPrice, preListingId };
   if (!bids.length) return '<h3>Proposals (0)</h3><div class="empty-state">No proposals yet.</div>';
   return `<h3>Proposals (${bids.length})</h3>${bids.length >= 3 ? proposalControlsHtml(feeSort) : ''}<div id="proposalResults">${proposalResultsHtml(bids, backLink, {}, feeSort ? startPrice : null)}</div>`;
 }
@@ -2125,6 +2134,7 @@ function rerenderProposalResults() {
     mustInclude: ctl('proposalMustInclude') ? ctl('proposalMustInclude').value : '',
     licenseOnly: !!(ctl('proposalLicenseVerified') && ctl('proposalLicenseVerified').checked),
     hideDeclined: !!(ctl('proposalHideDeclined') && ctl('proposalHideDeclined').checked),
+    pick: ctl('proposalPick') ? ctl('proposalPick').value : '',
   }, proposalView.feeSort ? takeHomePrice() : null);
 }
 
@@ -2140,7 +2150,7 @@ function renderBidComparisonTable(bids, canAct, feePrice = null) {
     const serviceCount = (b.services || []).length;
     const statusBadge = `<span class="badge ${b.status === 'accepted' ? 'badge-active' : b.status === 'declined' ? 'badge-paused' : 'badge-gold'}">${b.status}</span>`;
     return `<tr>
-      <td><a class="profile-link" href="/profile/${b.agentUserId}">${escapeHtml(b.agentName)}</a>${b.topRated ? ' 🏆' : ''}</td>
+      <td>${b.ownerPick === 'shortlist' ? '<span title="Shortlisted">★</span> ' : ''}<a class="profile-link" href="/profile/${b.agentUserId}">${escapeHtml(b.agentName)}</a>${b.topRated ? ' 🏆' : ''}${b.isPlatformOperator ? ' <span class="tiny">(platform operator)</span>' : ''}</td>
       <td>${ratingChipHtml(b.rating, b.reviewCount)}</td>
       <td>${feeParts.length ? feeParts.join(' + ') : '—'}</td>
       ${feePrice ? `<td>${money(proposalFeeDollars(b, feePrice))}</td>` : ''}
@@ -2169,12 +2179,15 @@ function renderBidCard(b, canAct, backLink) {
   const statusBadge = `<span class="badge ${b.status === 'accepted' ? 'badge-active' : b.status === 'declined' ? 'badge-paused' : 'badge-gold'}">${b.status}</span>`;
   const details = agentDetailsHtml({
     status: [
+      b.isPlatformOperator && { text: 'Platform operator: runs Amico Haus' },
       b.licenseVerified && { text: 'License checked on DRE', tone: 'good' },
       (b.foundingZips || []).length > 0 && { text: `Founding agent · ${b.foundingZips.join(', ')}`, tone: 'good' },
+      b.afterDecisionNight && { text: 'Sent or updated after your Decision Night' },
     ].filter(Boolean),
     stats: [
       winRatePct !== null && { k: 'Win rate', v: `${winRatePct}%` },
       b.hiresOnPlatform > 0 && { k: 'Hired here', v: `${b.hiresOnPlatform} time${b.hiresOnPlatform === 1 ? '' : 's'}` },
+      b.finalistCount > 0 && { k: 'Finalist', v: `${b.finalistCount} home${b.finalistCount === 1 ? '' : 's'}` },
       respLabel && { k: 'Proposal speed', v: respLabel },
     ].filter(Boolean),
     selfReported: [
@@ -2189,11 +2202,12 @@ function renderBidCard(b, canAct, backLink) {
         nameHtml: `<a class="profile-link" href="/profile/${b.agentUserId}${backLink ? `?back=${encodeURIComponent(backLink)}` : ''}">${escapeHtml(b.agentName)}</a>${b.isVerified ? ' <span class="badge badge-verified" title="Verified">✓</span>' : ''}${b.topRated ? ' <span class="badge badge-gold" title="4.5+ rating, 3+ reviews, 30%+ win rate">🏆 Top Rated</span>' : ''}`,
         sub: b.brokerageName || '',
         chips: [ratingChipHtml(b.rating, b.reviewCount), b.yearsExperience ? chipHtml(`${b.yearsExperience} yrs experience`, 'outline') : ''].filter(Boolean),
-        aside: statusBadge,
+        aside: `${b.ownerPick ? `<span class="badge ${b.ownerPick === 'shortlist' ? 'badge-gold' : 'badge-paused'}">${b.ownerPick === 'shortlist' ? '★ Shortlisted' : 'Passed'}</span> ` : ''}${statusBadge}`,
       })}
       ${b.isStale ? `<p class="tiny gone-quiet-nudge">This proposal has been pending a while — consider reviewing it or letting the agent know where things stand.</p>` : ''}
       ${details}
-      ${b.hasVideo ? `<video controls preload="none" class="media-video media-video-sm" src="/api/agent-video/${b.agentUserId}"></video>` : ''}
+      ${b.hasPitchVideo && proposalView && proposalView.preListingId ? `<p class="tiny"><span class="label">Pitch reel for your home</span></p><video controls preload="none" playsinline class="media-video media-video-sm" src="/api/pre-listings/${proposalView.preListingId}/pitch-video?agent=${b.agentUserId}&v=${escapeHtml(b.pitchVersion || '')}"></video>`
+        : b.hasVideo ? `<video controls preload="none" class="media-video media-video-sm" src="/api/agent-video/${b.agentUserId}"></video>` : ''}
       <p>${escapeHtml(b.message)}</p>
       <div class="mini-two">
         <div class="mini-block"><span class="label">Proposed fee</span>${b.commissionPct ? `${b.commissionPct}% commission` : ''}${b.commissionPct && b.flatFee ? ' + ' : ''}${b.flatFee ? `${money(b.flatFee)} flat` : ''}</div>
@@ -2204,6 +2218,7 @@ function renderBidCard(b, canAct, backLink) {
         ${canAct && b.status === 'pending' ? `<button class="btn btn-primary btn-sm" data-action="accept-bid" data-bid-id="${b.id}">Accept This Proposal</button>` : ''}
         ${canAct ? `<button class="btn btn-ghost btn-sm" data-action="message-user" data-id="${b.agentUserId}" data-name="${escapeHtml(b.agentName)}">Message ${escapeHtml(b.agentName)}</button>` : ''}
         ${canAct ? `<button class="btn btn-ghost btn-sm" data-action="toggle-favorite-agent" data-agent-id="${b.agentUserId}">☆ Favorite</button>` : ''}
+        ${canAct && proposalView && proposalView.preListingId && b.status === 'pending' ? `<button class="btn btn-ghost btn-sm" data-action="pick-bid" data-bid-id="${b.id}" data-pick="${b.ownerPick === 'shortlist' ? 'clear' : 'shortlist'}">${b.ownerPick === 'shortlist' ? 'Remove from shortlist' : '★ Shortlist'}</button>` : ''}
       </div>
     </div>
   `;
@@ -2424,7 +2439,7 @@ function renderPriceOpinionsPanel(data, preListingId) {
     const comps = (o.comps || []).map(c => `<li><strong>${escapeHtml(c.address)}</strong> sold for ${money(c.soldPrice)}${c.soldDate ? ` on ${escapeHtml(compDateLabel(c.soldDate))}` : ''}${c.sqft ? ` · ${c.sqft.toLocaleString('en-US')} sq ft (${money(Math.round(c.soldPrice / c.sqft))}/sq ft)` : ''}</li>`).join('');
     return `
       <div class="card opinion-card">
-        <div class="card-head"><h4><a class="profile-link" href="/profile/${o.agentUserId}">${escapeHtml(o.agentName)}</a></h4>${o.vote ? `<span class="badge badge-gold">${VOTE_LABELS[o.vote] || ''}</span>` : ''}</div>
+        <div class="card-head"><h4><a class="profile-link" href="/profile/${o.agentUserId}">${escapeHtml(o.agentName)}</a>${o.isPlatformOperator ? ` ${chipHtml('Platform operator: runs Amico Haus', 'outline')}` : ''}</h4>${o.vote ? `<span class="badge badge-gold">${VOTE_LABELS[o.vote] || ''}</span>` : ''}</div>
         ${o.priceOpinion ? `<p class="opinion-price">Suggests ${money(o.priceOpinion)}</p>` : '<p class="tiny">No suggested price yet.</p>'}
         ${o.note ? `<p>${escapeHtml(o.note)}</p>` : ''}
         ${prepListHtml(o.prep)}
@@ -2669,14 +2684,16 @@ async function openPreListingDetail(id, opts = {}) {
       ${isOwner ? renderListingReadyPanel(p) : ''}
       ${isOwner || isApprovedAgentViewer ? '<div id="previewsPanel"></div><div id="interviewsPanel"></div>' : ''}
       ${isOwner ? '<div id="showingsPanel"></div>' : ''}
+      ${isOwner ? decisionNightOwnerHtml(p, bids) : ''}
       ${isOwner
-        ? `${renderTakeHomePanel(p, bids, priceOpinions)}${renderProposalsSection(bids, `pre-listing-${id}`, { feeSort: true, startPrice: takeHomeStartPrice(p, priceOpinions) })}
+        ? `${p.decisionNight && p.decisionNight.sealed ? sealedProposalsHtml(p.decisionNight)
+            : `${renderTakeHomePanel(p, bids, priceOpinions)}${renderProposalsSection(bids, `pre-listing-${id}`, { feeSort: true, startPrice: takeHomeStartPrice(p, priceOpinions), preListingId: id })}`}
            ${p.status === 'open' ? renderInviteAgentPanel() : ''}
            ${p.status === 'awarded' ? `<div id="milestonesPanel"></div>${renderDisputePanel()}${renderReviewForm()}` : ''}`
         : (currentAgentProfile && currentAgentProfile.status === 'approved'
           ? (isAwardedAgent
             ? `<div id="milestonesPanel"></div>${renderDisputePanel()}${renderHomeownerReviewForm()}`
-            : `${renderBidFormAndVote(myBid, myVote, p.status === 'open')}${p.status === 'open' ? renderRequestShowingForm() : ''}`)
+            : `${agentDecisionLineHtml(p)}${renderBidFormAndVote(myBid, myVote, p.status === 'open')}${agentPitchHtml(p, myBid)}${p.status === 'open' ? renderRequestShowingForm() : ''}`)
           : '<p class="tiny">Only approved agents can submit proposals or vote on pricing.</p>')}
     `;
     if (!isOwner && currentAgentProfile && currentAgentProfile.status === 'approved' && !isAwardedAgent) {
@@ -3619,6 +3636,8 @@ function renderAgentStatsPanel(stats, pendingCount) {
   return `
     <div class="mini-block"><span class="label">Proposals</span>${stats.totalBids} submitted, ${stats.acceptedBids} accepted${winRatePct !== null ? ` (${winRatePct}% win rate)` : ''}</div>
     <div class="mini-block"><span class="label">Typical proposal speed</span>${respLabel || 'Not enough data yet'}${stats.topRated ? ' · <span class="badge badge-gold">🏆 Top Rated</span>' : ''}</div>
+    ${stats.finalistCount > 0 ? `<div class="mini-block"><span class="label">Finalist</span>On ${stats.finalistCount} home${stats.finalistCount === 1 ? '' : 's'} (the homeowner interviewed you, or shortlisted you before deciding)</div>` : ''}
+    <div class="mini-block"><span class="label">Who sees your proposals</span>Only the homeowner you send them to. Amico Haus has no staff screen for your proposals, price opinions, pitch reels or files.</div>
     ${pendingCount !== undefined ? `<div class="mini-block"><span class="label">Your pipeline</span>${pendingCount} proposal${pendingCount === 1 ? '' : 's'} awaiting a homeowner's decision right now</div>` : ''}
   `;
 }
@@ -4986,6 +5005,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     const { kind, id } = marketplaceDetail;
     const basePath = kind === 'pre_listing' ? `/api/pre-listings/${id}` : `/api/transactions/${id}`;
 
+    const pickBtn = e.target.closest('[data-action="pick-bid"]');
+    if (pickBtn && kind === 'pre_listing') {
+      pickBtn.disabled = true;
+      try {
+        const { ownerPick } = await apiPut(`${basePath}/bids/${pickBtn.dataset.bidId}`, { action: pickBtn.dataset.pick });
+        const bid = proposalView && proposalView.bids.find(b => String(b.id) === pickBtn.dataset.bidId);
+        if (bid) bid.ownerPick = ownerPick;
+        rerenderProposalResults();
+        reorderInterviewAgents(proposalView ? proposalView.bids : []);
+      } catch (err) { toast(err.message); pickBtn.disabled = false; }
+      return;
+    }
     const copyInviteBtn = e.target.closest('[data-action="copy-agent-invite"]');
     if (copyInviteBtn) {
       // Shared with someone new, so it carries its own source tag (it's their first visit, not an internal click).

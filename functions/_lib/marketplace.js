@@ -9,15 +9,22 @@ import { validateServices } from './agents.js';
 import { seedDefaultMilestones } from './milestones.js';
 import { markInviteResponded } from './agentInvites.js';
 import { fetchFoundingZips } from './zipBoard.js';
+import { countFinalistHomes, DEBRIEF_REASONS } from './decisionNight.js';
 
 // A pending proposal that's sat untouched this long gets flagged so the
 // homeowner sees a nudge — same idea as matches.js's "gone quiet" flag for
 // stale matches, just pointed at proposals instead.
+// Under a Decision Night nothing is late while the proposals are sealed, and once they open the clock starts from then.
 const STALE_PROPOSAL_DAYS = 5;
-function isStaleProposal(status, createdAt) {
+function isStaleProposal(status, createdAt, dueAt = null) {
   if (status !== 'pending') return false;
-  const ageMs = Date.now() - new Date(createdAt + 'Z').getTime();
-  return ageMs > STALE_PROPOSAL_DAYS * 86400000;
+  let start = new Date(createdAt + 'Z').getTime();
+  if (dueAt) {
+    const due = Date.parse(dueAt);
+    if (due > Date.now()) return false;
+    start = Math.max(start, due);
+  }
+  return Date.now() - start > STALE_PROPOSAL_DAYS * 86400000;
 }
 
 function num(value, { min = 0, max = Infinity } = {}) {
@@ -41,22 +48,25 @@ function validateBidInput(body) {
 
 // One active proposal per agent per request — re-submitting (including
 // after withdrawing or being declined) just overwrites it and puts it back
-// to pending, rather than piling up duplicate rows.
+// to pending, rather than piling up duplicate rows. isNew: a first proposal, or one sent again after it was
+// withdrawn or declined (an edit of a live proposal isn't new).
 export async function upsertBid(db, requestType, requestId, agentUserId, body) {
   const validated = validateBidInput(body);
   if (validated.error) return validated;
   const d = validated.data;
+  const before = await db.prepare('SELECT status FROM service_bids WHERE request_type = ? AND request_id = ? AND agent_user_id = ?')
+    .bind(requestType, requestId, agentUserId).first();
 
   await db.prepare(
-    `INSERT INTO service_bids (request_type, request_id, agent_user_id, message, commission_pct, flat_fee, services_json, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+    `INSERT INTO service_bids (request_type, request_id, agent_user_id, message, commission_pct, flat_fee, services_json, status, submitted_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', datetime('now'))
      ON CONFLICT(request_type, request_id, agent_user_id) DO UPDATE SET
        message = excluded.message, commission_pct = excluded.commission_pct, flat_fee = excluded.flat_fee,
-       services_json = excluded.services_json, status = 'pending', updated_at = datetime('now')`
+       services_json = excluded.services_json, status = 'pending', updated_at = datetime('now'), submitted_at = datetime('now')`
   ).bind(requestType, requestId, agentUserId, d.message, d.commissionPct, d.flatFee, JSON.stringify(d.services)).run();
 
   await markInviteResponded(db, requestType, requestId, agentUserId);
-  return { ok: true };
+  return { ok: true, isNew: !before || before.status === 'withdrawn' || before.status === 'declined' };
 }
 
 export async function withdrawBid(db, bidId, agentUserId) {
@@ -65,26 +75,32 @@ export async function withdrawBid(db, bidId, agentUserId) {
   ).bind(bidId, agentUserId).run();
 }
 
-function mapBidRow(r, stats) {
+function mapBidRow(r, stats, dueAt = null) {
   return {
     id: r.id, agentUserId: r.agent_user_id, agentName: r.agent_name, isVerified: !!r.is_verified,
     brokerageName: r.brokerage_name, yearsExperience: r.years_experience, hasVideo: !!r.video_r2_key,
     rating: r.agent_rating, reviewCount: r.agent_review_count,
     avgDaysOnMarket: r.avg_days_on_market, homesSoldLastYear: r.homes_sold_last_year,
     openHouseDays: JSON.parse(r.open_house_days_json || '[]'),
-    licenseVerified: !!r.license_verified,
+    licenseVerified: !!r.license_verified, licenseNumber: r.license_number || '',
+    // The admin account that runs Amico Haus, when it competes as an agent: always labeled (Fair Play rules).
+    isPlatformOperator: r.agent_role === 'admin',
     winRate: stats.winRate, topRated: stats.topRated, avgResponseHours: stats.avgResponseHours,
-    hiresOnPlatform: stats.acceptedBids, isNewToAmicoHaus: stats.isNewAgent,
+    hiresOnPlatform: stats.acceptedBids, isNewToAmicoHaus: stats.isNewAgent, finalistCount: stats.finalistCount,
+    hasPitchVideo: !!r.pitch_video_r2_key, pitchVersion: r.pitch_video_r2_key ? r.pitch_video_r2_key.slice(-8) : null,
+    ownerPick: r.owner_pick || null,
     message: r.message, commissionPct: r.commission_pct, flatFee: r.flat_fee,
     services: JSON.parse(r.services_json || '[]'), status: r.status, createdAt: r.created_at, updatedAt: r.updated_at,
-    isStale: isStaleProposal(r.status, r.created_at),
+    submittedAt: r.submitted_at || r.created_at,
+    isStale: isStaleProposal(r.status, r.created_at, dueAt),
   };
 }
 
-export async function fetchBids(db, requestType, requestId) {
+// dueAt: the pre-listing's Decision Night, if any (proposals aren't "pending a while" before it).
+export async function fetchBids(db, requestType, requestId, { dueAt = null } = {}) {
   const rows = await db.prepare(
-    `SELECT service_bids.*, users.display_name AS agent_name, users.is_verified,
-            agent_profiles.brokerage_name, agent_profiles.years_experience, agent_profiles.video_r2_key,
+    `SELECT service_bids.*, users.display_name AS agent_name, users.is_verified, users.role AS agent_role,
+            agent_profiles.brokerage_name, agent_profiles.years_experience, agent_profiles.video_r2_key, agent_profiles.license_number,
             agent_profiles.avg_days_on_market, agent_profiles.homes_sold_last_year, agent_profiles.open_house_days_json,
             agent_profiles.license_verified, agent_profiles.reviewed_at AS agent_approved_at,
             (SELECT ROUND(AVG(rating), 1) FROM agent_reviews WHERE agent_reviews.agent_user_id = service_bids.agent_user_id) AS agent_rating,
@@ -107,7 +123,7 @@ export async function fetchBids(db, requestType, requestId) {
     ...mapBidRow(r, await fetchAgentStats(db, r.agent_user_id, {
       rating: { avgRating: r.agent_rating, reviewCount: r.agent_review_count },
       approvedAt: r.agent_approved_at || null,
-    })),
+    }), dueAt),
     foundingZips: founding.get(r.agent_user_id) || [],
   })));
 }
@@ -120,6 +136,7 @@ export async function fetchMyBid(db, requestType, requestId, agentUserId) {
   return {
     id: row.id, message: row.message, commissionPct: row.commission_pct, flatFee: row.flat_fee,
     services: JSON.parse(row.services_json || '[]'), status: row.status,
+    hasPitchVideo: !!row.pitch_video_r2_key, pitchVersion: row.pitch_video_r2_key ? row.pitch_video_r2_key.slice(-8) : null,
   };
 }
 
@@ -134,10 +151,13 @@ export async function fetchAgentOwnBids(db, agentUserId) {
   const transactionIds = rows.results.filter(r => r.request_type === 'transaction').map(r => r.request_id);
 
   const preListingsById = new Map();
+  const debriefById = new Map();
   if (preListingIds.length > 0) {
     const placeholders = preListingIds.map(() => '?').join(',');
-    const pl = await db.prepare(`SELECT id, user_id, title, city, state, asking_price, status FROM pre_listings WHERE id IN (${placeholders})`).bind(...preListingIds).all();
+    const pl = await db.prepare(`SELECT id, user_id, title, city, state, asking_price, status, proposals_due_at FROM pre_listings WHERE id IN (${placeholders})`).bind(...preListingIds).all();
     for (const r of pl.results) preListingsById.set(r.id, r);
+    const debriefs = await db.prepare(`SELECT pre_listing_id, reasons_json FROM finalist_debriefs WHERE agent_user_id = ? AND pre_listing_id IN (${placeholders})`).bind(agentUserId, ...preListingIds).all();
+    for (const d of debriefs.results) debriefById.set(d.pre_listing_id, JSON.parse(d.reasons_json || '[]').map(k => DEBRIEF_REASONS[k]).filter(Boolean));
   }
   const transactionsById = new Map();
   if (transactionIds.length > 0) {
@@ -158,7 +178,9 @@ export async function fetchAgentOwnBids(db, agentUserId) {
       // showing every agent a wrong price on their own proposal list rather than visibly failing.
       preListing: pl ? { id: pl.id, userId: pl.user_id, title: pl.title, city: pl.city, state: pl.state, askingPrice: pl.asking_price, status: pl.status } : undefined,
       transaction: tx ? { id: tx.id, listingAId: tx.listing_a_id, listingBId: tx.listing_b_id, status: tx.status } : undefined,
-      isStale: isStaleProposal(r.status, r.created_at),
+      // Not "pending a while" (with its check-in nudge) while the homeowner's Decision Night still has proposals sealed.
+      isStale: isStaleProposal(r.status, r.created_at, pl ? pl.proposals_due_at : null),
+      finalistFeedback: r.request_type === 'pre_listing' ? debriefById.get(r.request_id) || null : null,
     };
   });
 }
@@ -172,14 +194,18 @@ export async function isAgentActive(db, agentUserId) {
   return !!row;
 }
 
+// Returns the agents whose pending proposals were declined by this, so the caller can let them know.
 export async function acceptBid(db, requestType, requestId, bidId) {
   const table = requestType === 'pre_listing' ? 'pre_listings' : 'transaction_requests';
+  const declining = await db.prepare("SELECT agent_user_id FROM service_bids WHERE request_type = ? AND request_id = ? AND id != ? AND status = 'pending'")
+    .bind(requestType, requestId, bidId).all();
   await db.batch([
     db.prepare("UPDATE service_bids SET status = 'declined', updated_at = datetime('now') WHERE request_type = ? AND request_id = ? AND id != ? AND status = 'pending'").bind(requestType, requestId, bidId),
     db.prepare("UPDATE service_bids SET status = 'accepted', updated_at = datetime('now') WHERE id = ?").bind(bidId),
     db.prepare(`UPDATE ${table} SET status = 'awarded', awarded_bid_id = ?, updated_at = datetime('now') WHERE id = ?`).bind(bidId, requestId),
   ]);
   await seedDefaultMilestones(db, requestType, requestId);
+  return declining.results.map(r => r.agent_user_id);
 }
 
 export function validateReviewInput(body) {
@@ -352,5 +378,8 @@ export async function fetchAgentStats(db, agentUserId, options = {}) {
   // Tenure, not track record: an agent who's been approved for months but never picked is not "new".
   const isNewAgent = !!approvedAt && Date.now() - new Date(approvedAt + 'Z').getTime() < NEW_AGENT_DAYS * 86400000;
 
-  return { totalBids, acceptedBids, decidedBids, winRate, avgResponseHours, topRated, isNewAgent };
+  // Homes where the homeowner interviewed or shortlisted them (see decisionNight.js).
+  const finalistCount = await countFinalistHomes(db, agentUserId);
+
+  return { totalBids, acceptedBids, decidedBids, winRate, avgResponseHours, topRated, isNewAgent, finalistCount };
 }

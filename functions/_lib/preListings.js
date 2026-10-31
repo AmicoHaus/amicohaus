@@ -232,24 +232,25 @@ export async function fetchVotedIds(db, agentUserId) {
 export const OPINION_SUMMARY_MIN = 3;
 export async function fetchPriceOpinions(db, preListingId) {
   const opinionRows = await db.prepare(
-    `SELECT o.agent_user_id, o.price_opinion, o.comps_json, o.note, o.prep_json, o.deck_name, o.deck_size, o.updated_at, users.display_name AS agent_name
+    `SELECT o.agent_user_id, o.price_opinion, o.comps_json, o.note, o.prep_json, o.deck_name, o.deck_size, o.updated_at, users.display_name AS agent_name, users.role AS agent_role
      FROM pre_listing_price_opinions o JOIN users ON users.id = o.agent_user_id
      WHERE o.pre_listing_id = ? AND users.status = 'active'`
   ).bind(preListingId).all();
   const voteRows = await db.prepare(
-    `SELECT v.agent_user_id, v.vote, v.note, users.display_name AS agent_name
+    `SELECT v.agent_user_id, v.vote, v.note, users.display_name AS agent_name, users.role AS agent_role
      FROM pre_listing_price_votes v JOIN users ON users.id = v.agent_user_id
      WHERE v.pre_listing_id = ? AND users.status = 'active'`
   ).bind(preListingId).all();
   // One entry per agent who either voted or gave an opinion.
   const byAgent = new Map();
-  const entry = (id, name) => {
-    if (!byAgent.has(id)) byAgent.set(id, { agentUserId: id, agentName: name, vote: null, note: '', priceOpinion: null, comps: [], prep: [], deck: null, updatedAt: null });
+  // isPlatformOperator: the admin account that runs Amico Haus, when it weighs in as an agent (always labeled).
+  const entry = (id, name, role) => {
+    if (!byAgent.has(id)) byAgent.set(id, { agentUserId: id, agentName: name, isPlatformOperator: role === 'admin', vote: null, note: '', priceOpinion: null, comps: [], prep: [], deck: null, updatedAt: null });
     return byAgent.get(id);
   };
-  for (const r of voteRows.results) Object.assign(entry(r.agent_user_id, r.agent_name), { vote: r.vote, note: r.note });
+  for (const r of voteRows.results) Object.assign(entry(r.agent_user_id, r.agent_name, r.agent_role), { vote: r.vote, note: r.note });
   for (const r of opinionRows.results) {
-    const e = entry(r.agent_user_id, r.agent_name);
+    const e = entry(r.agent_user_id, r.agent_name, r.agent_role);
     Object.assign(e, {
       note: r.note || e.note, priceOpinion: r.price_opinion, comps: parseComps(r.comps_json), prep: validatePrep(parseComps(r.prep_json)),
       deck: r.deck_name ? { name: r.deck_name, size: r.deck_size } : null, updatedAt: r.updated_at,

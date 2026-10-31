@@ -157,7 +157,7 @@ async function renderProfilePage(context) {
 
   const db = context.env.DB;
   const userRow = await db.prepare(
-    `SELECT id, display_name, bio, phone, is_verified, created_at FROM users WHERE id = ? AND email NOT LIKE ?`
+    `SELECT id, display_name, bio, phone, is_verified, role, created_at FROM users WHERE id = ? AND email NOT LIKE ?`
   ).bind(id, DEMO_EMAIL_PATTERN).first();
   if (!userRow) return notFoundPage();
 
@@ -311,12 +311,19 @@ async function renderAgentProfilePage(context, db, user, agentProfile, { viewer,
   const respLabel = formatResponseHours(stats.avgResponseHours);
   const statusChips = [
     chipHtml(agentProfile.acceptingClients ? 'Accepting new clients' : 'Not accepting new clients', agentProfile.acceptingClients ? 'good' : 'bad'),
+    // The admin account that runs Amico Haus, when it competes as an agent: always labeled (Fair Play rules).
+    user.role === 'admin' ? chipHtml('Platform operator: runs Amico Haus', 'outline') : '',
     agentProfile.licenseVerified ? chipHtml('License checked on DRE', 'good') : '',
     foundingZips.length ? chipHtml(`Founding agent · ${foundingZips.join(', ')}`, 'good') : '',
     agentProfile.carriesEoInsurance ? chipHtml('E&O insured (self-reported)', 'good') : '',
     agentProfile.soloAgent ? chipHtml('Sole point of contact', 'outline') : '',
   ].filter(Boolean);
-  const onPlatformChips = [respLabel ? statChipHtml('Proposal speed', respLabel) : '', caseStudies.length ? statChipHtml('Case studies', String(caseStudies.length)) : ''].filter(Boolean);
+  const onPlatformChips = [
+    stats.acceptedBids > 0 ? statChipHtml('Hired here', `${stats.acceptedBids} time${stats.acceptedBids === 1 ? '' : 's'}`) : '',
+    stats.finalistCount > 0 ? statChipHtml('Finalist', `${stats.finalistCount} home${stats.finalistCount === 1 ? '' : 's'}`) : '',
+    respLabel ? statChipHtml('Proposal speed', respLabel) : '',
+    caseStudies.length ? statChipHtml('Case studies', String(caseStudies.length)) : '',
+  ].filter(Boolean);
   const selfReportedChips = [
     agentProfile.homesSoldLastYear ? statChipHtml('Sold, last 12 mo', String(agentProfile.homesSoldLastYear)) : '',
     agentProfile.avgDaysOnMarket ? statChipHtml('On market', `~${agentProfile.avgDaysOnMarket} days`) : '',

@@ -1,4 +1,5 @@
 import { getSessionUser } from '../../_lib/auth.js';
+import { logAdminAction } from '../../_lib/audit.js';
 import { json, badRequest, unauthorized, forbidden, notFound } from '../../_lib/util.js';
 import { validateGreenHomeInput, updateGreenHome, fetchGreenHomePhotos, setGreenHomeStatus } from '../../_lib/greenHomes.js';
 import { isFavorited, fetchFavoriterIds } from '../../_lib/greenHomeFavorites.js';
@@ -89,6 +90,8 @@ export async function onRequestDelete(context) {
   const existing = await db.prepare('SELECT user_id FROM green_homes WHERE id = ?').bind(id).first();
   if (!existing) return notFound('Listing not found.');
   if (existing.user_id !== user.id && user.role !== 'admin') return forbidden();
+  // An admin acting on someone else's content is on the admin activity log.
+  if (existing.user_id !== user.id) await logAdminAction(db, user.id, 'delete_green_home', 'green_home', id);
 
   await db.prepare('DELETE FROM green_homes WHERE id = ?').bind(id).run();
   return json({ ok: true });

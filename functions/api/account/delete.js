@@ -33,6 +33,11 @@ export async function onRequestPost(context) {
     await Promise.all(decks.results.map(row => photos.delete(row.deck_r2_key).catch(() => {})));
     const videos = await db.prepare('SELECT video_r2_key FROM pre_listings WHERE user_id = ? AND video_r2_key IS NOT NULL').bind(user.id).all();
     await Promise.all(videos.results.map(row => photos.delete(row.video_r2_key).catch(() => {})));
+    const pitches = await db.prepare(
+      `SELECT pitch_video_r2_key FROM service_bids WHERE pitch_video_r2_key IS NOT NULL
+       AND (agent_user_id = ? OR (request_type = 'pre_listing' AND request_id IN (SELECT id FROM pre_listings WHERE user_id = ?)))`
+    ).bind(user.id, user.id).all();
+    await Promise.all(pitches.results.map(row => photos.delete(row.pitch_video_r2_key).catch(() => {})));
   }
 
   await db.prepare('DELETE FROM users WHERE id = ?').bind(user.id).run();

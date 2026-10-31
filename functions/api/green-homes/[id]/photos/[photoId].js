@@ -1,4 +1,5 @@
 import { getSessionUser } from '../../../../_lib/auth.js';
+import { logAdminAction } from '../../../../_lib/audit.js';
 import { json, unauthorized, forbidden, notFound } from '../../../../_lib/util.js';
 
 export async function onRequestDelete(context) {
@@ -18,5 +19,7 @@ export async function onRequestDelete(context) {
   if (bucket) await bucket.delete(photo.r2_key);
   await db.prepare('DELETE FROM green_home_photos WHERE id = ?').bind(photoId).run();
 
+  // An admin acting on someone else's content is on the admin activity log.
+  if (home.user_id !== user.id) await logAdminAction(db, user.id, 'delete_green_home_photo', 'green_home', homeId);
   return json({ ok: true });
 }

@@ -101,11 +101,14 @@ export function toCsv(header, rows) {
   return [header, ...rows].map(row => row.map(csvField).join(',')).join('\n') + '\n';
 }
 
+// Every CSV here is someone's own data (or needs a sign-in), and Cloudflare caches any URL ending in .csv at the
+// edge by default, so one person's download could be served to the next visitor. private + no-store stops that.
 export function csvResponse(csv, filename) {
   return new Response(csv, {
     headers: {
       'Content-Type': 'text/csv; charset=utf-8',
       'Content-Disposition': `attachment; filename="${filename}"`,
+      'Cache-Control': 'private, no-store',
     },
   });
 }

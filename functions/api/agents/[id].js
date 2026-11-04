@@ -19,7 +19,8 @@ export async function onRequestGet(context) {
   const profile = await getAgentProfile(db, id);
   if (!profile || profile.status !== 'approved') return notFound('Agent not found.');
 
-  const user = await db.prepare('SELECT display_name, is_verified FROM users WHERE id = ?').bind(id).first();
+  // A suspended account isn't served, the same as one that doesn't exist (the directory hides it too).
+  const user = await db.prepare("SELECT display_name, is_verified FROM users WHERE id = ? AND status = 'active'").bind(id).first();
   if (!user) return notFound('Agent not found.');
 
   const photos = await fetchAgentPortfolioPhotos(db, id);

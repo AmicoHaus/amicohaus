@@ -1,4 +1,5 @@
-import { getSessionUser } from '../_lib/auth.js';
+import { getSessionUser, phoneVisibleTo } from '../_lib/auth.js';
+import { identityLine } from '../_lib/contactPolicy.js';
 import { escapeHtml, parseJsonSafe } from '../_lib/util.js';
 import { propertyArtUrl } from '../_lib/propertyArt.js';
 import { fetchPortfolioMembers } from '../_lib/portfolios.js';
@@ -99,8 +100,9 @@ ${jsonLd}
     </a>
     <nav class="tabs">
       <a class="tab tab-demo" href="/demo">Demo - Start Here!</a>
+      <a class="tab tab-cta tab-cta-post" href="/signup?as=homeowner">Post a Pre-Listing</a>
+      <a class="tab tab-cta tab-cta-agent" href="/signup?as=agent">I'm an Agent</a>
       <a class="tab" href="/#how">How it works</a>
-      <a class="tab" href="/#for-agents">For agents</a>
       <a class="tab" href="/about">About</a>
     </nav>
     <div class="auth-cta">${authCta || '<a class="btn btn-ghost btn-sm" href="/login">Log In</a> <a class="btn btn-primary btn-sm" href="/signup">Sign Up</a>'}</div>
@@ -133,15 +135,17 @@ async function renderListingPage(context) {
   // Sample listings seeded for the demo have no public page: the demo and the live site stay separate.
   const listing = await db.prepare(
     `SELECT listings.*, users.id AS owner_id, users.display_name AS owner_name,
-            users.phone AS owner_phone, users.is_verified AS owner_verified,
+            users.phone AS owner_phone, users.phone_public AS owner_phone_public, users.is_verified AS owner_verified,
+            owner_agent.license_number AS owner_license, owner_agent.brokerage_name AS owner_brokerage,
             desired_criteria.locations, desired_criteria.property_type AS desired_type,
             desired_criteria.price_min, desired_criteria.price_max,
             (SELECT id FROM listing_photos WHERE listing_photos.listing_id = listings.id ORDER BY position ASC LIMIT 1) AS photo_id
      FROM listings
      JOIN users ON users.id = listings.user_id
+     LEFT JOIN agent_profiles AS owner_agent ON owner_agent.user_id = users.id AND owner_agent.status = 'approved'
      LEFT JOIN desired_criteria ON desired_criteria.listing_id = listings.id
      WHERE listings.id = ? AND listings.status = 'active'
-       AND users.email NOT LIKE ?`
+       AND users.email NOT LIKE ? AND users.status = 'active'`
   ).bind(id, DEMO_EMAIL_PATTERN).first();
 
   if (!listing) return notFoundPage();
@@ -151,6 +155,14 @@ async function renderListingPage(context) {
   const priceSeries = [...(priceSeriesMap.get(listing.id) || []), listing.estimated_value];
 
   const viewer = await getSessionUser(context);
+  // The owner's phone is private unless they turned on "Show my phone number" (or shared their contact with this
+  // agent); otherwise visitors reach them through Amico Haus messages.
+  const ownerPhone = await phoneVisibleTo(db, viewer, { id: listing.owner_id, phone: listing.owner_phone, phone_public: listing.owner_phone_public });
+  // An approved agent who posted this (e.g. for a client) carries their DRE identity line at this point of contact
+  // (California rule): "Name · DRE #01234567 · Brokerage". Homeowners and buyers keep the plain name.
+  const ownerLicense = String(listing.owner_license || '').trim();
+  const ownerBrokerage = String(listing.owner_brokerage || '').trim();
+  const ownerIdentity = ownerLicense || ownerBrokerage ? identityLine({ name: listing.owner_name, licenseNumber: ownerLicense, brokerageName: ownerBrokerage }) : '';
   const isOwnerOrAdmin = viewer && (viewer.id === listing.owner_id || viewer.role === 'admin');
   const showAddress = listing.show_exact_address && isOwnerOrAdmin && listing.address;
 
@@ -316,7 +328,7 @@ async function renderListingPage(context) {
       <div class="card-head">
         <div>
           <h1>${escapeHtml(listing.title || listing.property_type)}</h1>
-          <div class="card-agent">Listed by <a class="profile-link" href="/profile/${listing.owner_id}">${escapeHtml(listing.owner_name)}</a>${listing.owner_verified ? ' <span class="badge badge-verified" title="Verified by Amico Haus">✓ Verified</span>' : ''}${(listing.client_name && isOwnerOrAdmin) ? ` on behalf of <strong>${escapeHtml(listing.client_name)}</strong>` : ''}${isOwnerOrAdmin ? ` · ${listing.views} view${listing.views === 1 ? '' : 's'}` : ''}</div>
+          <div class="card-agent">Listed by <a class="profile-link" href="/profile/${listing.owner_id}">${escapeHtml(ownerIdentity || listing.owner_name)}</a>${listing.owner_verified ? ' <span class="badge badge-verified" title="Verified by Amico Haus">✓ Verified</span>' : ''}${(listing.client_name && isOwnerOrAdmin) ? ` on behalf of <strong>${escapeHtml(listing.client_name)}</strong>` : ''}${isOwnerOrAdmin ? ` · ${listing.views} view${listing.views === 1 ? '' : 's'}` : ''}</div>
         </div>
         <span class="badge badge-gold">${listing.is_portfolio ? `Portfolio · ${members.length}` : (listing.is_rental ? 'For Rent' : escapeHtml(listing.price_tier))}</span>
       </div>
@@ -353,9 +365,10 @@ async function renderListingPage(context) {
 
     <div class="card about-card">
       <h2>Contact ${escapeHtml(listing.owner_name)}</h2>
-      ${listing.owner_phone
-        ? `<p>Call or text: <a href="tel:${escapeHtml(listing.owner_phone.replace(/[^0-9+]/g, ''))}"><strong>${escapeHtml(listing.owner_phone)}</strong></a></p>`
-        : `<p class="tiny">No phone on file — sign up to message ${escapeHtml(listing.owner_name)} directly through Amico Haus.</p>`}
+      ${ownerIdentity ? `<p class="tiny">${escapeHtml(ownerIdentity)}</p>` : ''}
+      ${ownerPhone
+        ? `<p>Call or text: <a href="tel:${escapeHtml(ownerPhone.replace(/[^0-9+]/g, ''))}"><strong>${escapeHtml(ownerPhone)}</strong></a></p>`
+        : `<p class="tiny">${viewer ? 'Message' : 'Sign up to message'} ${escapeHtml(listing.owner_name)} directly through Amico Haus.</p>`}
       <div class="card-actions">
         <a class="btn btn-primary btn-sm" href="/profile/${listing.owner_id}">View Full Profile</a>
       </div>

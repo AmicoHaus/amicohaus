@@ -1,4 +1,5 @@
 import { getSessionUser } from '../../_lib/auth.js';
+import { identityLine } from '../../_lib/contactPolicy.js';
 import { escapeHtml, parseJsonSafe, DEMO_EMAIL_PATTERN } from '../../_lib/util.js';
 import { propertyArtUrl } from '../../_lib/propertyArt.js';
 import { withSecurityHeaders } from '../../_lib/withSecurityHeaders.js';
@@ -25,8 +26,10 @@ async function renderFlyer(context) {
   if (!viewer) return new Response('Sign in required.', { status: 401 });
 
   const listing = await db.prepare(
-    `SELECT listings.*, users.id AS owner_id, users.display_name AS owner_name, users.phone AS owner_phone
+    `SELECT listings.*, users.id AS owner_id, users.display_name AS owner_name, users.phone AS owner_phone,
+            owner_agent.license_number AS owner_license, owner_agent.brokerage_name AS owner_brokerage
      FROM listings JOIN users ON users.id = listings.user_id
+     LEFT JOIN agent_profiles AS owner_agent ON owner_agent.user_id = users.id AND owner_agent.status = 'approved'
      WHERE listings.id = ? AND users.email NOT LIKE ?`
   ).bind(id, DEMO_EMAIL_PATTERN).first();
   if (!listing) return new Response('Not found.', { status: 404 });
@@ -50,7 +53,7 @@ async function renderFlyer(context) {
     ${listing.description ? `<p>${escapeHtml(listing.description)}</p>` : ''}
     <hr>
     <p class="flyer-brand">
-      <strong>${escapeHtml(listing.owner_name)}</strong>${listing.owner_phone ? ` · ${escapeHtml(listing.owner_phone)}` : ''}<br>
+      <strong>${escapeHtml(identityLine({ name: listing.owner_name, licenseNumber: String(listing.owner_license || '').trim(), brokerageName: String(listing.owner_brokerage || '').trim() }))}</strong>${listing.owner_phone ? ` · ${escapeHtml(listing.owner_phone)}` : ''}<br>
       Presented on Amico Haus · amicohaus.com/listing/${id}<br>
       Rudy Flores · Coldwell Banker West · DRE #02257808
     </p>

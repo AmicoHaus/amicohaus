@@ -1,4 +1,5 @@
-import { getSessionUser } from '../_lib/auth.js';
+import { getSessionUser, phoneVisibleTo } from '../_lib/auth.js';
+import { identityLine } from '../_lib/contactPolicy.js';
 import { escapeHtml } from '../_lib/util.js';
 import { ASSET_VERSIONS } from '../_lib/assetVersions.js';
 import { withSecurityHeaders } from '../_lib/withSecurityHeaders.js';
@@ -56,8 +57,9 @@ ${jsonLd}
     </a>
     <nav class="tabs">
       <a class="tab tab-demo" href="/demo">Demo - Start Here!</a>
+      <a class="tab tab-cta tab-cta-post" href="/signup?as=homeowner">Post a Pre-Listing</a>
+      <a class="tab tab-cta tab-cta-agent" href="/signup?as=agent">I'm an Agent</a>
       <a class="tab" href="/#how">How it works</a>
-      <a class="tab" href="/#for-agents">For agents</a>
       <a class="tab" href="/about">About</a>
     </nav>
     <div class="auth-cta">${authCta || '<a class="btn btn-ghost btn-sm" href="/login">Log In</a> <a class="btn btn-primary btn-sm" href="/signup">Sign Up</a>'}</div>
@@ -88,15 +90,25 @@ async function renderPage(context) {
   const db = context.env.DB;
   const project = await db.prepare(
     `SELECT dev_projects.*, users.id AS owner_id, users.display_name AS owner_name, users.phone AS owner_phone,
-            users.is_verified AS owner_verified,
+            users.phone_public AS owner_phone_public, users.is_verified AS owner_verified,
+            owner_agent.license_number AS owner_license, owner_agent.brokerage_name AS owner_brokerage,
             (SELECT id FROM dev_project_photos WHERE dev_project_photos.dev_project_id = dev_projects.id ORDER BY position ASC LIMIT 1) AS photo_id,
             (SELECT COUNT(*) FROM dev_project_interests WHERE dev_project_interests.dev_project_id = dev_projects.id) AS interest_count
      FROM dev_projects JOIN users ON users.id = dev_projects.user_id
-     WHERE dev_projects.id = ? AND dev_projects.status = 'open'`
+     LEFT JOIN agent_profiles AS owner_agent ON owner_agent.user_id = users.id AND owner_agent.status = 'approved'
+     WHERE dev_projects.id = ? AND dev_projects.status = 'open' AND users.status = 'active'`
   ).bind(id).first();
   if (!project) return notFoundPage();
 
   const viewer = await getSessionUser(context);
+  // The owner's phone is private unless they turned on "Show my phone number" (or shared their contact with this
+  // agent); otherwise visitors reach them through Amico Haus messages.
+  const ownerPhone = await phoneVisibleTo(db, viewer, { id: project.owner_id, phone: project.owner_phone, phone_public: project.owner_phone_public });
+  // An approved agent who posted this (e.g. for a client) carries their DRE identity line at this point of contact
+  // (California rule): "Name · DRE #01234567 · Brokerage". Homeowners and buyers keep the plain name.
+  const ownerLicense = String(project.owner_license || '').trim();
+  const ownerBrokerage = String(project.owner_brokerage || '').trim();
+  const ownerIdentity = ownerLicense || ownerBrokerage ? identityLine({ name: project.owner_name, licenseNumber: ownerLicense, brokerageName: ownerBrokerage }) : '';
   const adaptations = JSON.parse(project.adaptations_json || '[]');
   const greenFeatures = JSON.parse(project.green_features_json || '[]');
   const similar = await fetchSimilarEntities(db, 'dev_project', { excludeId: id, city: project.city, state: project.state, propertyType: project.project_type });
@@ -116,7 +128,7 @@ async function renderPage(context) {
       <div class="card-head">
         <div>
           <h1>${escapeHtml(project.title)}</h1>
-          <div class="card-agent">Posted by <a class="profile-link" href="/profile/${project.owner_id}">${escapeHtml(project.owner_name)}</a>${project.owner_verified ? ' <span class="badge badge-verified" title="Verified by Amico Haus">✓ Verified</span>' : ''}</div>
+          <div class="card-agent">Posted by <a class="profile-link" href="/profile/${project.owner_id}">${escapeHtml(ownerIdentity || project.owner_name)}</a>${project.owner_verified ? ' <span class="badge badge-verified" title="Verified by Amico Haus">✓ Verified</span>' : ''}</div>
         </div>
         <span class="badge badge-gold">FinderMine</span>
       </div>
@@ -145,9 +157,10 @@ async function renderPage(context) {
 
     <div class="card about-card">
       <h2>Contact ${escapeHtml(project.owner_name)}</h2>
-      ${project.owner_phone
-        ? `<p>Call or text: <a href="tel:${escapeHtml(project.owner_phone.replace(/[^0-9+]/g, ''))}"><strong>${escapeHtml(project.owner_phone)}</strong></a></p>`
-        : `<p class="tiny">No phone on file — sign up to message ${escapeHtml(project.owner_name)} directly through Amico Haus.</p>`}
+      ${ownerIdentity ? `<p class="tiny">${escapeHtml(ownerIdentity)}</p>` : ''}
+      ${ownerPhone
+        ? `<p>Call or text: <a href="tel:${escapeHtml(ownerPhone.replace(/[^0-9+]/g, ''))}"><strong>${escapeHtml(ownerPhone)}</strong></a></p>`
+        : `<p class="tiny">${viewer ? 'Message' : 'Sign up to message'} ${escapeHtml(project.owner_name)} directly through Amico Haus.</p>`}
       <div class="card-actions">
         <a class="btn btn-primary btn-sm" href="/profile/${project.owner_id}">View Full Profile</a>
       </div>

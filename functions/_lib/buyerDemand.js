@@ -41,7 +41,10 @@ function fitsPrice(price, min, max) {
   return (!min || price >= min) && (!max || price <= max);
 }
 
+// home.priceOpen: the owner left the price blank ("open to price opinions"), so a home like this in this area is
+// enough: the price check is skipped rather than run against a $0 price.
 export async function countBuyerDemand(db, home) {
+  const checkPrice = !home.priceOpen;
   const buyers = new Set();
   const searches = await db.prepare(
     `SELECT s.user_id, s.locations, s.property_type, s.price_min, s.price_max
@@ -52,7 +55,7 @@ export async function countBuyerDemand(db, home) {
   for (const s of searches.results) {
     if (!namesThisArea(s.locations, home)) continue;
     if (s.property_type !== 'Any' && s.property_type !== home.propertyType) continue;
-    if (!fitsPrice(home.price, s.price_min, s.price_max)) continue;
+    if (checkPrice && !fitsPrice(home.price, s.price_min, s.price_max)) continue;
     buyers.add(s.user_id);
   }
   const wishes = await db.prepare(
@@ -64,7 +67,7 @@ export async function countBuyerDemand(db, home) {
   for (const w of wishes.results) {
     if (!namesThisArea(w.locations, home)) continue;
     if (w.property_type !== 'Any' && w.property_type !== home.propertyType) continue;
-    if (!fitsPrice(home.price, w.price_min, w.price_max)) continue;
+    if (checkPrice && !fitsPrice(home.price, w.price_min, w.price_max)) continue;
     if ((Number(home.beds) || 0) < (Number(w.min_beds) || 0) || (Number(home.baths) || 0) < (Number(w.min_baths) || 0)) continue;
     buyers.add(w.user_id);
   }

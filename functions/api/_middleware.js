@@ -3,6 +3,7 @@ import { withSecurityHeaders } from '../_lib/withSecurityHeaders.js';
 import { runDueDecisionNights } from '../_lib/decisionNight.js';
 import { runDueHeldEmails } from '../_lib/agentDuty.js';
 import { runDueScorecards } from '../_lib/scorecard.js';
+import { runDueWeeklyMessages } from '../_lib/contactPolicy.js';
 
 // Runs in front of every /api route only (Pages scopes a middleware file to its
 // own directory), so static pages and images never pass through it.
@@ -20,7 +21,8 @@ function maybeRunDueJobs(context) {
   lastDueJobsRun = now;
   // One after another (the email provider allows about 2 a second, and the background work about 30 seconds).
   context.waitUntil((async () => {
-    for (const job of [runDueDecisionNights, runDueHeldEmails, runDueScorecards]) {
+    // The weekly agent-message delivery runs right after held emails (its emails can be held by quiet hours too).
+    for (const job of [runDueDecisionNights, runDueHeldEmails, runDueWeeklyMessages, runDueScorecards]) {
       if (Date.now() - now > 22000) break;
       try { await job(context); } catch (err) { console.log(`[due jobs failed] ${err && err.message}`); }
     }

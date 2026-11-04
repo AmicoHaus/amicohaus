@@ -89,13 +89,14 @@ function readCookie(request, name) {
 
 // Attaches the signed-in user (or null) to the request. Expired sessions are
 // lazily cleaned up here rather than via a cron, since D1 has no scheduler tied to it.
+// A suspended account counts as signed out, on every device at once (login refuses it too).
 export async function getSessionUser(context) {
   const token = readCookie(context.request, SESSION_COOKIE);
   if (!token) return null;
   const db = context.env.DB;
   const row = await db.prepare(
     `SELECT users.* FROM sessions JOIN users ON users.id = sessions.user_id
-     WHERE sessions.token = ? AND datetime(sessions.expires_at) > datetime('now')`
+     WHERE sessions.token = ? AND datetime(sessions.expires_at) > datetime('now') AND users.status = 'active'`
   ).bind(token).first();
   return row || null;
 }
@@ -115,6 +116,27 @@ export function publicUser(user) {
     emailFrequency: user.email_frequency || 'capped',
     phone: user.phone || '', isVerified: !!user.is_verified,
   };
+}
+
+// A person's phone number is private: someone else sees it only when the person turned on "Show my phone number"
+// (users.phone_public), or the viewer is an agent they shared their contact info with on one of their homes that is
+// still open or awarded, while that agent is still approved.
+// owner needs { id, phone, phone_public }; viewer is the signed-in user or null. Returns the number to show, or ''.
+// Admin screens read users.phone directly; public pages and APIs go through this.
+export async function phoneVisibleTo(db, viewer, owner) {
+  const phone = owner && owner.phone ? String(owner.phone).trim() : '';
+  if (!phone) return '';
+  if (viewer && viewer.id === owner.id) return phone;
+  if (Number(owner.phone_public) === 1) return phone;
+  if (!viewer) return '';
+  // A share counts only while its home is still open or awarded and the agent is still approved (the same rules as
+  // the pre-listing's shared contact).
+  const share = await db.prepare(
+    `SELECT 1 AS ok FROM contact_shares s JOIN pre_listings p ON p.id = s.pre_listing_id
+       JOIN agent_profiles ap ON ap.user_id = s.agent_id AND ap.status = 'approved'
+     WHERE s.owner_id = ? AND s.agent_id = ? AND p.user_id = s.owner_id AND p.status IN ('open', 'awarded') LIMIT 1`
+  ).bind(owner.id, viewer.id).first();
+  return share ? phone : '';
 }
 
 export function generateToken() {

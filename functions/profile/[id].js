@@ -3,7 +3,7 @@
 // used to get. Unlike the listing page this one needs real interactivity (Message, Edit, Favorite, admin
 // verify), so unlike listing/[id].js it still loads client.js + profile-actions.js — the HTML below is real
 // content for crawlers and first paint, and those scripts progressively enhance the buttons already in it.
-import { getSessionUser } from '../_lib/auth.js';
+import { getSessionUser, phoneVisibleTo } from '../_lib/auth.js';
 import { fetchPastClientReviews, fetchPastClientSummary, PAST_CLIENT_SIDES } from '../_lib/pastClientReviews.js';
 import { escapeHtml, parseJsonSafe, DEMO_EMAIL_PATTERN } from '../_lib/util.js';
 import { getAgentProfile, fetchAgentPortfolioPhotos } from '../_lib/agents.js';
@@ -17,6 +17,12 @@ import { propertyArtUrl } from '../_lib/propertyArt.js';
 import { ASSET_VERSIONS } from '../_lib/assetVersions.js';
 import { withSecurityHeaders } from '../_lib/withSecurityHeaders.js';
 import { fetchFoundingZips } from '../_lib/zipBoard.js';
+
+// Shown with someone's phone number on their own profile (it's private unless they turn it on).
+const PHONE_PRIVATE_NOTE = "Private unless you turn on 'Show my phone number' in You're in Control.";
+const PHONE_PUBLIC_NOTE = "Shown on your public profile and listings. You can turn this off in You're in Control.";
+// The settings live in the app (main.js opens them for /app#control).
+const CONTROL_LINK = '<a href="/app#control">Change this setting</a>';
 
 // Signed-out visitors can't message anyone, so they get the way in instead of a button that can only fail.
 const SIGN_UP_TO_MESSAGE = '<a class="btn btn-primary btn-sm" href="/signup">Sign up to message</a> <a class="btn btn-ghost btn-sm" href="/login">Log in</a>';
@@ -95,16 +101,18 @@ function notFoundPage() {
   return new Response(renderShell('Profile Not Found — Amico Haus', '', `
     <div class="empty-state">This profile doesn't exist.</div>
     <div class="form-actions"><a class="btn btn-primary" href="/#directory">Browse the Directory</a></div>
-  `, null, null, null), { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+  `, null, null, null, { noindex: true }), { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 
-function renderShell(title, description, bodyHtml, authCta, jsonLd, canonicalPath) {
+// noindex: homeowner and buyer profiles stay out of search engines (only agents' professional pages are listed).
+function renderShell(title, description, bodyHtml, authCta, jsonLd, canonicalPath, { noindex = false } = {}) {
   return `<!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${escapeHtml(title)}</title>
+${noindex ? '<meta name="robots" content="noindex">' : ''}
 ${description ? `<meta name="description" content="${escapeHtml(description)}">` : ''}
 ${canonicalPath ? `<link rel="canonical" href="${escapeHtml('https://amicohaus.com' + canonicalPath)}">` : ''}
 <meta property="og:type" content="profile">
@@ -126,8 +134,9 @@ ${jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd)}</script
     </a>
     <nav class="tabs">
       <a class="tab tab-demo" href="/demo">Demo - Start Here!</a>
+      <a class="tab tab-cta tab-cta-post" href="/signup?as=homeowner">Post a Pre-Listing</a>
+      <a class="tab tab-cta tab-cta-agent" href="/signup?as=agent">I'm an Agent</a>
       <a class="tab" href="/#how">How it works</a>
-      <a class="tab" href="/#for-agents">For agents</a>
       <a class="tab" href="/about">About</a>
     </nav>
     <div class="auth-cta" id="authCta">${authCta || '<a class="btn btn-ghost btn-sm" href="/login">Log In</a> <a class="btn btn-primary btn-sm" href="/signup">Sign Up</a>'}</div>
@@ -158,7 +167,7 @@ async function renderProfilePage(context) {
 
   const db = context.env.DB;
   const userRow = await db.prepare(
-    `SELECT id, display_name, bio, phone, is_verified, role, created_at FROM users WHERE id = ? AND email NOT LIKE ?`
+    `SELECT id, display_name, bio, phone, phone_public, is_verified, role, created_at FROM users WHERE id = ? AND email NOT LIKE ? AND status = 'active'`
   ).bind(id, DEMO_EMAIL_PATTERN).first();
   if (!userRow) return notFoundPage();
 
@@ -214,6 +223,15 @@ async function renderUserProfilePage(context, db, user, { viewer, isMine, isAdmi
     ? user.bio.slice(0, 160)
     : `${user.display_name}'s profile on Amico Haus — the home-trading and agent-matching marketplace.`;
 
+  // The phone is private unless they turned it on (or shared their contact with this agent); otherwise people reach
+  // them through Amico Haus messages.
+  const phone = await phoneVisibleTo(db, viewer, user);
+  const contactHtml = isMine
+    ? `<p>${user.phone ? escapeHtml(user.phone) : '<span class="tiny">No phone on file.</span>'}</p>${user.phone ? `<p class="tiny">${escapeHtml(user.phone_public ? PHONE_PUBLIC_NOTE : PHONE_PRIVATE_NOTE)} ${CONTROL_LINK}</p>` : ''}`
+    : phone
+      ? `<p><a href="tel:${escapeHtml(phone.replace(/[^0-9+]/g, ''))}">${escapeHtml(phone)}</a></p>`
+      : `<p class="tiny">${viewer ? 'Message' : 'Sign up to message'} ${escapeHtml(user.display_name)} directly through Amico Haus.</p>`;
+
   const listingCard = l => `
     <div class="card">
       <img class="directory-thumb" src="${l.photo_id ? `/api/photos/${l.photo_id}` : propertyArtUrl(l.property_type, l.id)}" alt="${l.photo_id ? '' : 'Illustrative photo, not this home'}" loading="lazy">
@@ -260,8 +278,8 @@ async function renderUserProfilePage(context, db, user, { viewer, isMine, isAdmi
         <span class="label">Contact</span>
         ${isMine ? '<button type="button" class="btn btn-ghost btn-sm" id="editPhoneBtn">Edit</button>' : ''}
       </div>
-      <div id="phoneSection" data-phone="${escapeHtml(user.phone || '')}">
-        <p>${user.phone ? escapeHtml(user.phone) : '<span class="tiny">No phone on file.</span>'}</p>
+      <div id="phoneSection"${isMine ? ` data-phone="${escapeHtml(user.phone || '')}"` : ''}>
+        ${contactHtml}
       </div>
     </div>
 
@@ -277,11 +295,11 @@ async function renderUserProfilePage(context, db, user, { viewer, isMine, isAdmi
     url: `https://amicohaus.com/profile/${user.id}`,
     ...(user.bio ? { description: user.bio.slice(0, 500) } : {}),
   };
-  return renderFinal(title, description, body, authCta, jsonLd, `/profile/${user.id}`);
+  return renderFinal(title, description, body, authCta, jsonLd, `/profile/${user.id}`, { noindex: true });
 }
 
-function renderFinal(title, description, body, authCta, jsonLd, canonicalPath) {
-  return new Response(renderShell(title, description, body, authCta, jsonLd, canonicalPath), {
+function renderFinal(title, description, body, authCta, jsonLd, canonicalPath, options) {
+  return new Response(renderShell(title, description, body, authCta, jsonLd, canonicalPath, options), {
     headers: { 'Content-Type': 'text/html; charset=utf-8' },
   });
 }
@@ -300,6 +318,8 @@ async function renderAgentProfilePage(context, db, user, agentProfile, { viewer,
     fetchPastClientSummary(db, user.id),
   ]);
   const isFavorited = viewer ? (await fetchFavoriteAgentIds(db, viewer.id)).includes(user.id) : false;
+  // An agent's phone shows here only once they turn on "Show my phone number", the same rule as everyone's.
+  const phone = isMine ? (user.phone_public ? String(user.phone || '').trim() : '') : await phoneVisibleTo(db, viewer, user);
   const topRated = ratingSummary.avgRating >= 4.5 && ratingSummary.reviewCount >= 3 && stats.winRate !== null && stats.winRate >= 0.3;
 
   const title = `${user.display_name}, Real Estate Agent${agentProfile.brokerageName ? ` at ${agentProfile.brokerageName}` : ''} — Amico Haus`;
@@ -390,7 +410,8 @@ async function renderAgentProfilePage(context, db, user, agentProfile, { viewer,
       ${personHeadHtml({
         avatar: avatarHtml(user.display_name, { seed: user.id, size: 'lg' }),
         nameHtml: `${escapeHtml(user.display_name)}${user.is_verified ? ' <span class="badge badge-verified" title="Verified by Amico Haus">✓ Verified</span>' : ''}${topRated ? ' <span class="badge badge-gold">🏆 Top Rated</span>' : ''}`,
-        sub: [agentProfile.brokerageName, teamName ? `${teamName} Team` : ''].filter(Boolean).join(' · '),
+        // The DRE license number and brokerage, as California requires wherever an agent meets a homeowner.
+        sub: [agentProfile.licenseNumber ? `DRE #${agentProfile.licenseNumber}` : '', agentProfile.brokerageName, teamName ? `${teamName} Team` : ''].filter(Boolean).join(' · '),
         chips: [ratingChipHtml(ratingSummary.avgRating, ratingSummary.reviewCount), agentProfile.yearsExperience ? chipHtml(`${agentProfile.yearsExperience} yrs experience`, 'outline') : ''].filter(Boolean),
       })}
       <div class="card-actions">
@@ -398,6 +419,7 @@ async function renderAgentProfilePage(context, db, user, agentProfile, { viewer,
         ${viewer && !isMine ? `<button type="button" class="btn btn-ghost btn-sm" id="favoriteAgentBtn" data-id="${user.id}">${isFavorited ? '★ Favorited' : '☆ Favorite'}</button>` : ''}
         ${isAdmin ? `<button type="button" class="btn btn-ghost btn-sm" id="toggleVerifiedBtn" data-id="${user.id}" data-action="${user.is_verified ? 'unverify' : 'verify'}">${user.is_verified ? 'Remove Verification' : 'Mark as Verified'}</button>` : ''}
       </div>
+      ${phone ? `<p class="tiny"><span class="label">Phone</span> <a href="tel:${escapeHtml(phone.replace(/[^0-9+]/g, ''))}">${escapeHtml(phone)}</a></p>` : ''}
       ${agentProfile.bio ? `<p>${escapeHtml(agentProfile.bio)}</p>` : ''}
       ${agentProfile.certifications ? `<p class="tiny"><span class="label">Certifications (self-reported)</span> ${escapeHtml(agentProfile.certifications)}</p>` : ''}
       <p class="tiny">Before approving an agent, Amico Haus looks up their license on the California DRE's public license lookup. It's still worth confirming a license yourself before engaging anyone.</p>

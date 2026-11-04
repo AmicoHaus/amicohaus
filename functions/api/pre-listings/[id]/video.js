@@ -1,10 +1,12 @@
 import { getSessionUser } from '../../../_lib/auth.js';
 import { json, badRequest, unauthorized, forbidden, notFound } from '../../../_lib/util.js';
 import { isApprovedAgent } from '../../../_lib/agents.js';
+import { scrubVideoUpload } from '../../../_lib/videoMetadata.js';
 
 // A short phone video walkthrough of the home, so agents can weigh in on the price without a visit. One per
-// pre-listing; streamed straight to R2 (no buffering, same as an agent's intro video, see agents/video.js), and the
-// 2-minute length cap is checked in the browser before upload since a Worker can't read a video's duration. Only
+// pre-listing; streamed straight to R2 (no buffering, same as an agent's intro video, see agents/video.js) with the
+// phone's recorded location removed on the way (videoMetadata.js), and the 2-minute length cap is checked in the
+// browser before upload since a Worker can't read a video's duration. Only
 // the owner and approved agents can watch it: it shows the inside of a home that isn't on the market yet.
 // Cloudflare refuses request bodies over 100MB on this plan, so the limit sits just under that.
 const MAX_VIDEO_BYTES = 95 * 1024 * 1024; // 95MB
@@ -32,7 +34,7 @@ export async function onRequestPut(context) {
   if (contentLength > MAX_VIDEO_BYTES) return badRequest('The video must be under 95MB. Exporting at 1080p usually brings it under.');
 
   const key = `pre-listing-video/${context.params.id}/${crypto.randomUUID()}`;
-  await bucket.put(key, context.request.body, { httpMetadata: { contentType } });
+  await bucket.put(key, scrubVideoUpload(context.request.body, contentLength), { httpMetadata: { contentType } });
   await db.prepare('UPDATE pre_listings SET video_r2_key = ?, video_content_type = ? WHERE id = ?').bind(key, contentType, context.params.id).run();
   if (preListing.video_r2_key) {
     try { await bucket.delete(preListing.video_r2_key); } catch (err) { console.log(`[old video delete failed] ${err.message}`); }

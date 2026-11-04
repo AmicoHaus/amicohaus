@@ -465,8 +465,15 @@ function signedMoney(n) {
 
 // A tiny inline price-history line for a listing card. Needs at least 2 points to mean anything -- a single
 // point is just "the asking price," not a trend -- so a brand-new listing with no history renders nothing.
-function sparklineHtml(series) {
-  if (!series || series.length < 2) return '';
+// A 0 is a pre-listing with no price set yet ("Open to price opinions"), so it's left out rather than drawn as $0
+// (and so is the old $1 a blank price used to save as, which made a "▲ 74999900%" badge).
+function pricedPoints(series) {
+  return (series || []).filter(v => Number(v) >= 1000);
+}
+
+function sparklineHtml(rawSeries) {
+  const series = pricedPoints(rawSeries);
+  if (series.length < 2) return '';
   const w = 88, h = 22, pad = 2;
   const min = Math.min(...series), max = Math.max(...series);
   const range = max - min || 1;
@@ -482,8 +489,9 @@ function sparklineHtml(series) {
 }
 
 // Compact "▼ 4%" chip alongside the sparkline, for when the shape alone isn't specific enough.
-function priceTrendBadge(series) {
-  if (!series || series.length < 2 || !series[0] || series[0] === series[series.length - 1]) return '';
+function priceTrendBadge(rawSeries) {
+  const series = pricedPoints(rawSeries);
+  if (series.length < 2 || series[0] === series[series.length - 1]) return '';
   const pct = Math.round(((series[series.length - 1] - series[0]) / series[0]) * 100);
   const tone = pct < 0 ? 'ticker-down' : 'ticker-up';
   return `<span class="trend-badge ${tone}">${pct < 0 ? '▼' : '▲'} ${Math.abs(pct)}%</span>`;
@@ -1477,12 +1485,17 @@ async function loadConversations() {
   try {
     const { conversations } = await apiGet('/api/conversations');
     updateMessagesTabBadge(conversations);
-    list.innerHTML = conversations.length ? conversations.map(c => `
+    list.innerHTML = conversations.length ? conversations.map(c => {
+      // An agent's DRE number and brokerage sit right under their name (California DRE rule).
+      const creds = c.otherAgent ? agentCredentialsLine(c.otherAgent.licenseNumber, c.otherAgent.brokerageName) : '';
+      return `
       <div class="card conversation-item" data-action="open-conversation" data-id="${c.id}" data-name="${escapeHtml(c.other_name)}" data-user-id="${c.other_user_id}">
         <h3><a class="profile-link" href="/profile/${c.other_user_id}">${escapeHtml(c.other_name)}</a>${c.unread_count > 0 ? '<span class="unread-dot"></span>' : ''}</h3>
+        ${creds ? `<p class="tiny agent-id-line">${escapeHtml(creds)}</p>` : ''}
         <p class="tiny">${c.last_message ? escapeHtml(c.last_message) : 'No messages yet.'}</p>
       </div>
-    `).join('') : '<div class="empty-state">No conversations yet — message someone from your Matches tab.</div>';
+    `;
+    }).join('') : '<div class="empty-state">No conversations yet — message someone from your Matches tab.</div>';
   } catch (e) {
     list.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`;
   }
@@ -1494,6 +1507,9 @@ async function openConversation(id, name, otherUserId) {
   thread.classList.remove('hidden');
   thread.dataset.conversationId = id;
   document.getElementById('threadTitle').textContent = name;
+  // Cleared first so the last thread's identity line or Quiet-mode note never shows on this one while it loads.
+  setThreadIdentity(null);
+  setComposerMode('open');
   await renderMessages(id); // marks this conversation's messages read server-side
   refreshMessagesTabBadge();
   if (otherUserId) checkThreadOpenToBids(otherUserId);
@@ -1519,12 +1535,48 @@ async function checkThreadOpenToBids(otherUserId) {
   } catch { /* non-critical */ }
 }
 
+// The other person's DRE number and brokerage under the thread title, when they're an agent.
+function setThreadIdentity(other) {
+  const el = document.getElementById('threadIdentity');
+  if (!el) return;
+  const creds = other && other.agent ? agentCredentialsLine(other.agent.licenseNumber, other.agent.brokerageName) : '';
+  el.textContent = creds;
+  el.classList.toggle('hidden', !creds);
+}
+
+// How the other person takes agent messages, as it applies to this viewer: 'open' (as usual), 'weekly' (delivered
+// together Sunday morning) or 'quiet' (no agent messages: the composer is switched off with a pointer to opinions and
+// proposals, which still reach them right away).
+// 'weekly_held': Weekly, and this week's one message is already waiting for Sunday, so a second would be refused.
+const COMPOSER_NOTES = {
+  weekly: 'This homeowner reads agent messages once a week. Your message will be delivered Sunday morning.',
+  weekly_held: CONTACT_ERROR_COPY.weekly_limit,
+  quiet: 'This homeowner has chosen Quiet mode. Send a price opinion or a proposal instead.',
+};
+function setComposerMode(mode) {
+  const note = document.getElementById('threadComposerNote');
+  const form = document.getElementById('messageForm');
+  if (!note || !form) return;
+  const text = COMPOSER_NOTES[mode] || '';
+  note.textContent = text;
+  note.classList.toggle('hidden', !text);
+  const off = mode === 'quiet' || mode === 'weekly_held';
+  form.querySelectorAll('input, button').forEach(el => { el.disabled = off; });
+  form.classList.toggle('composer-off', off);
+}
+
 async function renderMessages(conversationId) {
-  const { messages } = await apiGet(`/api/conversations/${conversationId}/messages`);
+  const { messages, other } = await apiGet(`/api/conversations/${conversationId}/messages`);
+  // The user may have opened another thread while this one loaded.
+  if (String(document.getElementById('messageThread').dataset.conversationId) !== String(conversationId)) return;
+  setThreadIdentity(other);
+  const mode = other && other.deliveryMode ? other.deliveryMode : 'open';
+  const heldMine = messages.some(m => m.sender_id === currentUser.id && m.deliverAfter);
+  setComposerMode(mode === 'weekly' && heldMine ? 'weekly_held' : mode);
   document.getElementById('messageList').innerHTML = messages.map(m => `
-    <div class="side ${m.sender_id === currentUser.id ? 'mine' : ''}">
+    <div class="side ${m.sender_id === currentUser.id ? 'mine' : ''}${m.deliverAfter ? ' held' : ''}">
       <p class="tiny">${escapeHtml(m.body)}</p>
-      <span class="tiny">${timeAgo(m.created_at)}</span>
+      <span class="tiny">${timeAgo(m.created_at)}${m.deliverAfter && m.sender_id === currentUser.id ? ` · <span class="held-label">${escapeHtml(heldDeliveryLabel(m.deliverAfter))}</span>` : ''}</span>
     </div>
   `).join('') || '<p class="tiny">No messages yet — say hello.</p>';
 }
@@ -1534,7 +1586,12 @@ async function startConversationWith(userId, name) {
     const { id } = await apiPost('/api/conversations', { userId: Number(userId) });
     goToTab('messages');
     await openConversation(id, name, userId);
-  } catch (err) { toast(err.message); }
+  } catch (err) { toast(contactErrorMessage(err), { durationMs: 7000 }); }
+}
+
+// What to say after a message goes out: a held (Weekly mode) message waits for Sunday morning.
+function sentMessageToast(result) {
+  if (result && result.held) toast('Sent. It will be delivered Sunday morning.', { durationMs: 5000 });
 }
 
 /* ---------------- Notifications ---------------- */
@@ -1590,7 +1647,8 @@ function toastWithPhotoResult(message, { total, failed }) {
   toast(message ? `${message} ${summary}` : summary, { durationMs: 12000 });
 }
 
-const AGENT_TAB_HASHES = { '#post-home': 'postHomeWrap', '#become-agent': 'becomeAgentWrap', '#find-agent': 'agentDirectoryWrap' };
+// '#control': the You're in Control settings (contact dial, quiet hours, phone privacy), linked from profile pages.
+const AGENT_TAB_HASHES = { '#post-home': 'postHomeWrap', '#become-agent': 'becomeAgentWrap', '#find-agent': 'agentDirectoryWrap', '#control': 'youreInControl' };
 
 function openAgentTabSection(id) {
   const el = document.getElementById(id);
@@ -1614,6 +1672,11 @@ async function openAppLink(link) {
   if (AGENT_TAB_HASHES[hash]) {
     goToTab('marketplace');
     openAgentTabSection(AGENT_TAB_HASHES[hash]);
+    return true;
+  }
+  // The weekly delivery notice ("Your weekly agent messages are here") points at the Messages tab as a whole.
+  if (hash === '#messages') {
+    goToTab('messages');
     return true;
   }
 
@@ -1898,6 +1961,20 @@ async function loadAgentStatus() {
   } catch { /* not signed in / non-critical */ }
 }
 
+// The facts line on a pre-listing card (the owner's list and the browse grid): type, beds/baths, place and price.
+// A home posted without a price reads "Open to price opinions" instead of "$0 asking".
+function preListingFactsHtml(p, { zip = '' } = {}) {
+  const price = isPriceOpen(p)
+    ? `<span class="price-open">${PRICE_OPEN_LABEL}</span>`
+    : `${money(p.askingPrice)} asking${pricePerSqftLabel(p.askingPrice, p.sqft)} ${priceTrendBadge(p.priceSeries)}`;
+  return `${sparklineHtml(p.priceSeries)}${escapeHtml(p.propertyType)} · ${p.beds}bd/${p.baths}ba in ${escapeHtml(p.city)}, ${escapeHtml(p.state)} ${escapeHtml(zip)}<br>${price}`;
+}
+
+// "New proposals paused" (the owner paused new proposals; agents who already sent one can still update it).
+function pausedBadgeHtml(p) {
+  return p && p.proposalsPaused && p.status === 'open' ? '<span class="badge badge-paused">New proposals paused</span>' : '';
+}
+
 async function loadMyPreListings() {
   const el = document.getElementById('myPreListingsList');
   try {
@@ -1914,12 +1991,12 @@ async function loadMyPreListings() {
       <div class="card">
         <div class="card-head">
           <h3>${escapeHtml(p.title || p.propertyType)}</h3>
-          <span class="badge ${p.status === 'open' ? 'badge-active' : 'badge-paused'}">${p.status}</span>
+          <span class="card-badges">${pausedBadgeHtml(p)}<span class="badge ${p.status === 'open' ? 'badge-active' : 'badge-paused'}">${p.status}</span></span>
         </div>
-        <div class="mini-block">${sparklineHtml(p.priceSeries)}${escapeHtml(p.propertyType)} · ${p.beds}bd/${p.baths}ba in ${escapeHtml(p.city)}, ${escapeHtml(p.state)} ${escapeHtml(p.zip || '')}<br>${money(p.askingPrice)} asking${pricePerSqftLabel(p.askingPrice, p.sqft)} ${priceTrendBadge(p.priceSeries)}</div>
+        <div class="mini-block">${preListingFactsHtml(p, { zip: p.zip || '' })}</div>
         <p class="tiny">${daysOnMarketLabel(p.createdAt)}</p>
         <p class="tiny"><span class="badge ${p.occupancyStatus === 'vacant' ? 'badge-gold' : ''}">${p.occupancyStatus === 'vacant' ? 'Vacant' : 'Occupied'}</span></p>
-        <p class="tiny">${voteSummary(p.votes, 'Votes')}</p>
+        <p class="tiny">${voteSummary(p.votes, 'Votes', p.status, { priceOpen: isPriceOpen(p) })}</p>
         ${needsAttention.length ? `<p class="tiny"><span class="badge badge-gold">👋 ${needsAttention.join(' · ')} waiting on you</span></p>` : ''}
         <div class="card-actions">
           <button class="btn btn-primary btn-sm" data-action="open-pre-listing" data-id="${p.id}">View Proposals</button>
@@ -1959,7 +2036,7 @@ async function loadMyBids() {
     el.innerHTML = bids.length ? bids.map(b => {
       const target = b.requestType === 'pre_listing' ? b.preListing : b.transaction;
       const label = b.requestType === 'pre_listing'
-        ? (target ? `${escapeHtml(target.title || target.propertyType)} — ${escapeHtml(target.city)}, ${escapeHtml(target.state)} (${money(target.askingPrice)})` : 'Pre-listing removed')
+        ? (target ? `${escapeHtml(target.title || target.propertyType)} — ${escapeHtml(target.city)}, ${escapeHtml(target.state)} (${askingPriceLabel(target)})` : 'Pre-listing removed')
         : (target ? `Transaction #${target.id}` : 'Transaction removed');
       // Only pre-listings have one clear homeowner to check in with — a transaction has two trade partners, so
       // the check-in button is scoped to the case where "who do I message" isn't ambiguous.
@@ -2006,15 +2083,15 @@ async function loadMarketplaceBrowse() {
       <div class="card">
         <div class="card-head">
           <h3>${escapeHtml(p.title || p.propertyType)}</h3>
-          <span class="badge badge-gold">Pre-Listing</span>${isNew(p) ? ' <span class="badge badge-active">New</span>' : ''}
+          <span class="card-badges">${pausedBadgeHtml(p)}<span class="badge badge-gold">Pre-Listing</span>${isNew(p) ? '<span class="badge badge-active">New</span>' : ''}</span>
         </div>
-        <div class="mini-block">${sparklineHtml(p.priceSeries)}${escapeHtml(p.propertyType)} · ${p.beds}bd/${p.baths}ba in ${escapeHtml(p.city)}, ${escapeHtml(p.state)} ${escapeHtml(p.zip)}<br>${money(p.askingPrice)} asking${pricePerSqftLabel(p.askingPrice, p.sqft)} ${priceTrendBadge(p.priceSeries)}</div>
+        <div class="mini-block">${preListingFactsHtml(p, { zip: p.zip })}</div>
         <p class="tiny">${daysOnMarketLabel(p.createdAt)}</p>
         <p class="tiny">
           <span class="badge ${p.occupancyStatus === 'vacant' ? 'badge-gold' : ''}">${p.occupancyStatus === 'vacant' ? 'Vacant' : 'Occupied'}</span>
           ${p.distanceMiles !== null ? ` · <span class="badge ${p.inServiceArea ? 'badge-active' : 'badge-paused'}">${p.inServiceArea ? `${p.distanceMiles} mi — in your area` : `${p.distanceMiles} mi — outside your area`}</span>` : ''}
         </p>
-        <p class="tiny">${voteSummary(p.votes, 'Votes')}</p>
+        <p class="tiny">${voteSummary(p.votes, 'Votes', p.status, { priceOpen: isPriceOpen(p) })}</p>
         <div class="card-actions"><button class="btn btn-primary btn-sm" data-action="open-pre-listing" data-id="${p.id}">View &amp; Propose</button></div>
       </div>
     `);
@@ -2045,6 +2122,183 @@ async function loadMarketplaceTab() {
   loadFavoriteAgents();
   loadMyDisputes();
   loadAgentAlerts();
+  renderPostFormDial();
+  loadControlPanel();
+}
+
+/* ---------------- You're in Control: contact dial, quiet hours, phone privacy ---------------- */
+// Person-level settings (GET/PUT /api/contact-settings): how agents can message you, quiet hours for emails and
+// phone alerts, and whether your phone number shows publicly. The panel sits under My Pre-Listings; the post form
+// carries the dial too, so it's chosen right when a home goes up.
+let contactSettings = null; // { contactMode, quietStart, quietEnd, phonePublic, hasPhone } once loaded
+
+function currentContactMode() {
+  return contactSettings && CONTACT_MODE_LABELS[contactSettings.contactMode] ? contactSettings.contactMode : 'open';
+}
+
+function contactDialHtml(name, mode) {
+  const choices = Object.entries(CONTACT_MODE_LABELS).map(([key, label]) => {
+    const [lead, rest] = label.split(' — ');
+    return `<label class="choice"><input type="radio" name="${name}" value="${key}"${key === mode ? ' checked' : ''}><span><strong>${escapeHtml(lead)}</strong> — ${escapeHtml(rest)}</span></label>`;
+  }).join('');
+  return `
+    <fieldset class="contact-dial">
+      <legend>How can agents reach you?</legend>
+      <p class="tiny">You decide. Your phone, email and exact address stay private until you tap Share on an agent you like.</p>
+      <div class="dial-choices">${choices}</div>
+    </fieldset>`;
+}
+
+function selectedDialMode(name) {
+  const el = document.querySelector(`input[name="${name}"]:checked`);
+  return el && CONTACT_MODE_LABELS[el.value] ? el.value : null;
+}
+
+// The post form's dial starts at the person's saved choice; a choice already made in the form is never overwritten
+// (force: after posting, when the form is cleared).
+function renderPostFormDial(force = false) {
+  const el = document.getElementById('plContactDial');
+  if (!el || (!force && el.dataset.touched === '1')) return;
+  el.dataset.touched = '';
+  el.innerHTML = contactDialHtml('plContactMode', currentContactMode());
+}
+
+const CONTACT_MODE_SUMMARY = {
+  open: 'Agents can message you anytime.',
+  weekly: 'Agent messages arrive together on Sunday morning, one per agent.',
+  quiet: 'Quiet mode: agents reach you through price opinions and proposals.',
+};
+const CONTACT_MODE_SAVED = {
+  open: 'Saved. Agents can message you anytime.',
+  weekly: 'Saved. Agent messages will arrive together on Sunday mornings.',
+  quiet: 'Saved. Agents will reach you through price opinions and proposals.',
+};
+
+function controlSummaryHtml(s) {
+  const quiet = s.quietStart && s.quietEnd
+    ? `${quietHoursLabel(s.quietStart, s.quietEnd)} Pacific. Emails and phone alerts wait until then.`
+    : 'None set: emails and phone alerts arrive anytime.';
+  const phone = !s.hasPhone ? 'No phone number on your profile.' : s.phonePublic ? 'Shows on your public profile and listings.' : 'Private.';
+  return `
+    <ul class="control-summary">
+      <li><strong>Messages:</strong> ${escapeHtml(CONTACT_MODE_SUMMARY[currentContactMode()])}</li>
+      <li><strong>Quiet hours:</strong> ${escapeHtml(quiet)}</li>
+      <li><strong>Phone number:</strong> ${escapeHtml(phone)}</li>
+    </ul>`;
+}
+
+function renderControlPanel() {
+  const el = document.getElementById('controlPanel');
+  if (!el || !contactSettings) return;
+  const s = contactSettings;
+  const hasQuiet = !!(s.quietStart && s.quietEnd);
+  const isAgent = !!currentAgentProfile && currentAgentProfile.status === 'approved';
+  el.innerHTML = `
+    <div class="panel control-panel">
+      ${controlSummaryHtml(s)}
+      ${contactDialHtml('controlContactMode', currentContactMode())}
+      <div class="control-section">
+        <h3>Quiet hours</h3>
+        <p class="tiny">Emails and phone alerts wait until your quiet hours end. In-app alerts still arrive right away. Times are Pacific.</p>
+        ${isAgent ? '<p class="tiny">Set on-duty hours as an agent? Those decide when your emails arrive; quiet hours apply when no on-duty hours are set.</p>' : ''}
+        <div class="form-row two-col">
+          <div class="field"><label for="quietStart">From</label><input type="time" id="quietStart" value="${escapeHtml(s.quietStart || '')}"></div>
+          <div class="field"><label for="quietEnd">Until</label><input type="time" id="quietEnd" value="${escapeHtml(s.quietEnd || '')}"></div>
+        </div>
+        <div class="card-actions">
+          <button type="button" class="btn btn-primary btn-sm" data-control-action="save-quiet">Save quiet hours</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-control-action="clear-quiet"${hasQuiet ? '' : ' disabled'}>Clear</button>
+        </div>
+      </div>
+      <div class="control-section">
+        <label class="checkbox-row"><input type="checkbox" id="phonePublicToggle"${s.phonePublic && s.hasPhone ? ' checked' : ''}${s.hasPhone ? '' : ' disabled'}><span>Show my phone number on my public profile and listings<br><span class="tiny">Off by default. When it's off, people reach you through Amico Haus messages.</span></span></label>
+        ${s.hasPhone ? '' : `<p class="tiny"><a href="/profile.html?id=${Number(currentUser && currentUser.id) || ''}">Add a phone number on your profile first</a></p>`}
+      </div>
+    </div>`;
+}
+
+async function loadControlPanel() {
+  const el = document.getElementById('controlPanel');
+  try {
+    contactSettings = await apiGet('/api/contact-settings');
+    renderControlPanel();
+  } catch (e) {
+    if (el) el.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`;
+  }
+  renderPostFormDial();
+}
+
+// Saves one change and redraws from what the server says is saved, so a change that didn't save springs back.
+// Keyboard focus comes back to the same control after the redraw (on the dial: the saved choice), and the dial's
+// radios stay enabled while a dial choice saves, so arrowing through Open / Weekly / Quiet keeps working.
+async function saveContactSettings(changes, savedMessage) {
+  const panel = document.getElementById('controlPanel');
+  const active = document.activeElement;
+  const refocus = panel && active && panel.contains(active)
+    ? (active.name === 'controlContactMode' ? 'input[name="controlContactMode"]:checked' : active.id ? `#${active.id}` : null)
+    : null;
+  const dialSave = Object.keys(changes).length === 1 && 'contactMode' in changes;
+  if (panel) panel.querySelectorAll('input, button').forEach(el => { if (!(dialSave && el.name === 'controlContactMode')) el.disabled = true; });
+  try {
+    contactSettings = await apiPut('/api/contact-settings', changes);
+    toast(typeof savedMessage === 'function' ? savedMessage(contactSettings) : savedMessage, { durationMs: 4000 });
+  } catch (err) { toast(err.message, { durationMs: 6000 }); }
+  renderControlPanel();
+  renderPostFormDial();
+  if (refocus) {
+    const target = document.querySelector(`#controlPanel ${refocus}`);
+    if (target && !target.disabled) target.focus();
+  }
+}
+
+// Arrow keys step through a radio group one choice at a time (a change event each), so the dial waits a moment and
+// saves only the choice the person lands on.
+const DIAL_SAVE_DELAY_MS = 450;
+let dialSaveTimer = null;
+
+// One save at a time, in the order they were made. The server writes every setting back from what it read, so two
+// saves in flight together (a dial choice and the phone box inside the dial's wait, or two dial choices) could
+// otherwise undo each other, and the panel could end on a choice the person didn't make last.
+let contactSaveQueue = Promise.resolve();
+function queueContactSave(task) {
+  const next = contactSaveQueue.then(task, task);
+  contactSaveQueue = next.catch(() => {});
+  return next;
+}
+
+function wireControlPanel() {
+  const panel = document.getElementById('controlPanel');
+  panel.addEventListener('change', (e) => {
+    if (e.target.name === 'controlContactMode' && CONTACT_MODE_LABELS[e.target.value]) {
+      const mode = e.target.value;
+      clearTimeout(dialSaveTimer);
+      dialSaveTimer = setTimeout(() => {
+        dialSaveTimer = null;
+        // Compared when its turn comes, against what the save before it left saved.
+        queueContactSave(() => (mode !== currentContactMode() ? saveContactSettings({ contactMode: mode }, CONTACT_MODE_SAVED[mode]) : null));
+      }, DIAL_SAVE_DELAY_MS);
+    } else if (e.target.id === 'phonePublicToggle') {
+      const on = e.target.checked;
+      queueContactSave(() => saveContactSettings({ phonePublic: on }, on ? 'Saved. Your phone number now shows on your public profile and listings.' : 'Saved. Your phone number is private.'));
+    }
+  });
+  panel.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-control-action]');
+    if (!btn) return;
+    if (btn.dataset.controlAction === 'save-quiet') {
+      const quietStart = document.getElementById('quietStart').value;
+      const quietEnd = document.getElementById('quietEnd').value;
+      if (!quietStart || !quietEnd) { toast('Pick when your quiet hours start and end.'); return; }
+      if (quietStart === quietEnd) { toast('Pick two different times for your quiet hours.'); return; }
+      queueContactSave(() => saveContactSettings({ quietStart, quietEnd }, s => `Quiet hours saved: ${quietHoursLabel(s.quietStart, s.quietEnd)} Pacific.`));
+    } else if (btn.dataset.controlAction === 'clear-quiet') {
+      queueContactSave(() => saveContactSettings({ quietStart: '', quietEnd: '' }, 'Quiet hours cleared. Emails and phone alerts can arrive anytime.'));
+    }
+  });
+  // A dial choice made in the post form stays put when the saved settings finish loading.
+  document.getElementById('plContactDial').addEventListener('change', (e) => {
+    if (e.target.name === 'plContactMode') e.currentTarget.dataset.touched = '1';
+  });
 }
 
 // The homeowner's own proposal comparison (pre-listing or trade). One filtered + sorted list drives both the quick-scan
@@ -2202,7 +2456,8 @@ function renderBidCard(b, canAct, backLink) {
       ${personHeadHtml({
         avatar: avatarHtml(b.agentName, { seed: b.agentUserId, size: 'lg' }),
         nameHtml: `<a class="profile-link" href="/profile/${b.agentUserId}${backLink ? `?back=${encodeURIComponent(backLink)}` : ''}">${escapeHtml(b.agentName)}</a>${b.isVerified ? ' <span class="badge badge-verified" title="Verified">✓</span>' : ''}${b.topRated ? ' <span class="badge badge-gold" title="4.5+ rating, 3+ reviews, 30%+ win rate">🏆 Top Rated</span>' : ''}`,
-        sub: b.brokerageName || '',
+        // Name, DRE number and brokerage together, as California's DRE asks at a first point of contact.
+        sub: agentCredentialsLine(b.licenseNumber, b.brokerageName),
         chips: [ratingChipHtml(b.rating, b.reviewCount), b.yearsExperience ? chipHtml(`${b.yearsExperience} yrs experience`, 'outline') : ''].filter(Boolean),
         aside: `${b.ownerPick ? `<span class="badge ${b.ownerPick === 'shortlist' ? 'badge-gold' : 'badge-paused'}">${b.ownerPick === 'shortlist' ? '★ Shortlisted' : 'Passed'}</span> ` : ''}${statusBadge}`,
       })}
@@ -2221,16 +2476,33 @@ function renderBidCard(b, canAct, backLink) {
         ${canAct ? `<button class="btn btn-ghost btn-sm" data-action="message-user" data-id="${b.agentUserId}" data-name="${escapeHtml(b.agentName)}">Message ${escapeHtml(b.agentName)}</button>` : ''}
         ${canAct ? `<button class="btn btn-ghost btn-sm" data-action="toggle-favorite-agent" data-agent-id="${b.agentUserId}">☆ Favorite</button>` : ''}
         ${canAct && proposalView && proposalView.preListingId && b.status === 'pending' ? `<button class="btn btn-ghost btn-sm" data-action="pick-bid" data-bid-id="${b.id}" data-pick="${b.ownerPick === 'shortlist' ? 'clear' : 'shortlist'}">${b.ownerPick === 'shortlist' ? 'Remove from shortlist' : '★ Shortlist'}</button>` : ''}
+        ${canAct && proposalView && proposalView.preListingId && (b.status === 'pending' || b.status === 'accepted' || isSharingWith(b.agentUserId)) ? shareContactSlotHtml(proposalView.preListingId, b.agentUserId, b.agentName) : ''}
       </div>
     </div>
   `;
 }
 
-function renderBidFormAndVote(myBid, myVote, showVote) {
-  const services = myBid ? myBid.services : [];
+// paused: the homeowner paused new proposals and this agent hasn't sent one yet, so the form gives way to a note
+// (an agent who already sent one can still update it). priceOpen: no asking price yet, so the opinion form asks for a
+// suggested list price instead of a vote.
+function renderBidFormAndVote(myBid, myVote, showVote, { paused = false, priceOpen = false } = {}) {
+  // While paused, only a live (pending) proposal can still be updated; a withdrawn or declined one can't be sent
+  // again until the owner resumes (the server refuses it), so those agents get the paused note, not the form.
+  const canUpdate = !!myBid && myBid.status === 'pending';
+  if (paused && !canUpdate) {
+    return `
+    <div class="panel proposals-paused-panel">
+      <div class="card-head"><h3>Submit a Proposal</h3><span class="badge badge-paused">New proposals paused</span></div>
+      <p class="tiny">${escapeHtml(CONTACT_ERROR_COPY.proposals_paused)}</p>
+      ${myBid && myBid.message ? `<p class="tiny"><strong>Your earlier proposal:</strong> ${escapeHtml(myBid.message)}</p>` : ''}
+    </div>
+    ${showVote ? renderPriceOpinionForm(myVote, { priceOpen }) : ''}
+  `;
+  }
   return `
     <div class="panel">
       <h3>${myBid ? 'Your Proposal' : 'Submit a Proposal'}</h3>
+      ${paused ? '<p class="tiny">This homeowner paused new proposals for now. Yours is already in, so you can still update it.</p>' : ''}
       ${!myBid && currentAgentPackages.length > 0 ? `
         <div class="field"><label>Quick-fill from a package</label>
           <div class="card-actions">
@@ -2249,7 +2521,7 @@ function renderBidFormAndVote(myBid, myVote, showVote) {
         ${myBid && myBid.status === 'pending' ? '<button type="button" class="btn btn-danger btn-sm" data-action="withdraw-bid" data-bid-id="' + myBid.id + '">Withdraw</button>' : ''}
       </div>
     </div>
-    ${showVote ? renderPriceOpinionForm(myVote) : ''}
+    ${showVote ? renderPriceOpinionForm(myVote, { priceOpen }) : ''}
   `;
 }
 
@@ -2269,8 +2541,12 @@ function takeHomePrice() {
   return proposalView && proposalView.startPrice ? proposalView.startPrice : 0;
 }
 
+// The middle of the agents' price opinions once 3+ have priced it; else the asking price. With no asking price yet
+// ("Open to price opinions"), the middle of whatever opinions are in, or nothing (the owner types a price).
 function takeHomeStartPrice(p, opinions) {
-  return opinions && opinions.summary ? opinions.summary.median : p.askingPrice;
+  if (opinions && opinions.summary) return opinions.summary.median;
+  if (!isPriceOpen(p)) return p.askingPrice;
+  return medianOf(((opinions && opinions.opinions) || []).map(o => o.priceOpinion)) || 0;
 }
 
 function keepMoney(n) {
@@ -2287,6 +2563,7 @@ function takeHomeInputs() {
 }
 
 function takeHomeResultHtml(bids, inp) {
+  if (!inp.price) return '<p class="tiny">Type the price you expect to sell for, and this shows what you\'d keep with each proposal.</p>';
   const costs = Math.round(inp.price * inp.buyerPct / 100 + inp.price / 1000 * inp.transfer + inp.price * inp.closingPct / 100);
   const beforeFee = inp.price - inp.payoff - costs;
   const live = (bids || []).filter(b => b.status === 'pending' || b.status === 'accepted')
@@ -2303,12 +2580,13 @@ function renderTakeHomePanel(p, bids, opinions) {
   let payoff = '';
   try { payoff = localStorage.getItem(`ah_payoff_${p.id}`) || ''; } catch { /* storage blocked */ }
   const inp = { price: startPrice, payoff: Number(payoff) || 0, buyerPct: 0, transfer: 1.1, closingPct: 1 };
+  const fromOpinions = (opinions && opinions.summary) || (isPriceOpen(p) && startPrice);
   return `
     <details class="panel" id="takeHomePanel" data-pre-listing-id="${p.id}" open>
       <summary>Your take-home estimate</summary>
-      <p class="tiny">A rough estimate for comparing proposals in dollars${opinions && opinions.summary ? ", starting from the middle of the agents' price opinions" : ''}. Your loan payoff stays on this device. Your escrow officer will give you the real numbers.</p>
+      <p class="tiny">A rough estimate for comparing proposals in dollars${fromOpinions ? ", starting from the middle of the agents' price opinions" : ''}. Your loan payoff stays on this device. Your escrow officer will give you the real numbers.</p>
       <div class="form-row three-col">
-        <div class="field"><label for="thPrice">Expected sale price ($)</label><input type="number" id="thPrice" data-take-home min="0" step="1000" inputmode="numeric" value="${startPrice}"></div>
+        <div class="field"><label for="thPrice">Expected sale price ($)</label><input type="number" id="thPrice" data-take-home min="0" step="1000" inputmode="numeric" value="${startPrice ? Number(startPrice) : ''}"></div>
         <div class="field"><label for="thPayoff">Loan payoff ($)</label><input type="number" id="thPayoff" data-take-home min="0" step="1000" inputmode="numeric" placeholder="0 if paid off" value="${escapeHtml(payoff)}"></div>
         <div class="field"><label for="thBuyerPct">Buyer's agent pay you'll offer (%)</label><input type="number" id="thBuyerPct" data-take-home min="0" max="10" step="0.25" inputmode="decimal" value="0"></div>
       </div>
@@ -2338,7 +2616,8 @@ function zipCoverageHtml(p, isOwner, myVote) {
   const when = by ? by.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
   const lines = [];
   if (z.viewerIsFounding && p.status === 'open') {
-    if (myVote && myVote.vote) lines.push(`Thanks, founding agent: your price opinion on this ${escapeHtml(z.zip)} home is in.`);
+    // With no asking price there's nothing to vote on: the suggested list price is the opinion.
+    if (myVote && (myVote.vote || (isPriceOpen(p) && myVote.priceOpinion))) lines.push(`Thanks, founding agent: your price opinion on this ${escapeHtml(z.zip)} home is in.`);
     else if (by && by.getTime() > Date.now()) lines.push(`You're a founding agent in ${escapeHtml(z.zip)}: aim to send your price opinion by ${escapeHtml(when)}.`);
   }
   if (isOwner && by && by.getTime() > Date.now() && p.status === 'open' && !(p.votes && p.votes.total)) lines.push(`Founding agents in ${escapeHtml(z.zip)} aim to send their first price opinion by ${escapeHtml(when)}.`);
@@ -2387,23 +2666,29 @@ function deckHint(deck) {
 }
 
 // The agent's sealed price opinion: their vote on the asking price, the list price they'd suggest, up to 3 sold
-// comps, a note, and one presentation file. Only the homeowner ever sees any of it.
-function renderPriceOpinionForm(myVote) {
+// comps, a note, and one presentation file. Only the homeowner ever sees any of it. When the homeowner hasn't set an
+// asking price (priceOpen), there's nothing to vote on: the suggested list price is required instead.
+function renderPriceOpinionForm(myVote, { priceOpen = false } = {}) {
   const mine = myVote || { vote: null, note: '', priceOpinion: null, comps: [], deck: null };
   const comps = [0, 1, 2].map(i => mine.comps[i] || {});
   const v = x => escapeHtml(x ?? '');
   const today = new Date().toISOString().slice(0, 10);
-  return `
-    <div class="panel" id="priceOpinionPanel" data-vote="${v(mine.vote)}">
-      <div class="card-head"><h3>Your price opinion</h3><span class="badge badge-gold">Sealed</span></div>
-      <p class="tiny">Only the homeowner sees your suggested price, comps, note and file. Your vote counts toward the too high / just right / too low totals, which other agents see only after casting their own.</p>
-      ${myVote && !myVote.vote && (myVote.priceOpinion || myVote.comps.length) ? '<p class="tiny gone-quiet-nudge">The homeowner changed the asking price, so votes were reset. Your suggested price, comps and file are still here. Pick your vote again and save.</p>' : ''}
+  const voteHtml = priceOpen
+    ? '<p class="inline-note">This homeowner hasn\'t set a price yet. Share your suggested list price and comps.</p>'
+    : `${myVote && !myVote.vote && (myVote.priceOpinion || myVote.comps.length) ? '<p class="tiny gone-quiet-nudge">The homeowner changed the asking price, so votes were reset. Your suggested price, comps and file are still here. Pick your vote again and save.</p>' : ''}
       <div class="field"><span class="label">Is the asking price right?</span>
         <div class="card-actions" role="group" aria-label="Your vote on the asking price">
           ${Object.entries(VOTE_LABELS).map(([key, label]) => `<button type="button" class="btn ${mine.vote === key ? 'btn-primary' : 'btn-ghost'} btn-sm" data-action="pick-vote" data-vote="${key}" aria-pressed="${mine.vote === key}">${label}</button>`).join('')}
         </div>
-      </div>
-      <div class="field"><label for="opinionPrice">The list price you'd suggest ($)</label><input type="number" id="opinionPrice" min="10000" max="500000000" step="1000" inputmode="numeric" value="${v(mine.priceOpinion)}"></div>
+      </div>`;
+  return `
+    <div class="panel" id="priceOpinionPanel" data-vote="${priceOpen ? '' : v(mine.vote)}"${priceOpen ? ' data-price-open="1"' : ''}>
+      <div class="card-head"><h3>Your price opinion</h3><span class="badge badge-gold">Sealed</span></div>
+      <p class="tiny">${priceOpen
+        ? 'Only the homeowner sees your suggested price, comps, note and file. Other agents see only how many agents shared an opinion.'
+        : 'Only the homeowner sees your suggested price, comps, note and file. Your vote counts toward the too high / just right / too low totals, which other agents see only after casting their own.'}</p>
+      ${voteHtml}
+      <div class="field"><label for="opinionPrice">The list price you'd suggest ($)${priceOpen ? ' <span class="required-mark">*</span>' : ''}</label><input type="number" id="opinionPrice" min="10000" max="500000000" step="1000" inputmode="numeric" value="${v(mine.priceOpinion)}"${priceOpen ? ' required' : ''}></div>
       <details class="score-breakdown"${mine.comps.length ? ' open' : ''}>
         <summary>Comps that back it up (up to 3)</summary>
         ${comps.map((c, i) => `
@@ -2439,14 +2724,18 @@ function renderPriceOpinionsPanel(data, preListingId) {
     : `<p class="tiny">The range and middle show up once 3 agents have suggested a price (${priced} so far).</p>`;
   const cards = opinions.map(o => {
     const comps = (o.comps || []).map(c => `<li><strong>${escapeHtml(c.address)}</strong> sold for ${money(c.soldPrice)}${c.soldDate ? ` on ${escapeHtml(compDateLabel(c.soldDate))}` : ''}${c.sqft ? ` · ${c.sqft.toLocaleString('en-US')} sq ft (${money(Math.round(c.soldPrice / c.sqft))}/sq ft)` : ''}</li>`).join('');
+    // Name, DRE number and brokerage together (California DRE rule for a first point of contact).
+    const creds = agentCredentialsLine(o.licenseNumber, o.brokerageName);
+    const share = shareContactSlotHtml(preListingId, o.agentUserId, o.agentName);
     return `
       <div class="card opinion-card">
-        <div class="card-head"><h4><a class="profile-link" href="/profile/${o.agentUserId}">${escapeHtml(o.agentName)}</a>${o.isPlatformOperator ? ` ${chipHtml('Platform operator: runs Amico Haus', 'outline')}` : ''}</h4>${o.vote ? `<span class="badge badge-gold">${VOTE_LABELS[o.vote] || ''}</span>` : ''}</div>
+        <div class="card-head"><h4><a class="profile-link" href="/profile/${o.agentUserId}">${escapeHtml(o.agentName)}</a>${creds ? `<span class="agent-id-rest"> · ${escapeHtml(creds)}</span>` : ''}${o.isPlatformOperator ? ` ${chipHtml('Platform operator: runs Amico Haus', 'outline')}` : ''}</h4>${o.vote ? `<span class="badge badge-gold">${VOTE_LABELS[o.vote] || ''}</span>` : ''}</div>
         ${o.priceOpinion ? `<p class="opinion-price">Suggests ${money(o.priceOpinion)}</p>` : '<p class="tiny">No suggested price yet.</p>'}
         ${o.note ? `<p>${escapeHtml(o.note)}</p>` : ''}
         ${prepListHtml(o.prep)}
         ${comps ? `<span class="label">Comps</span><ul class="comp-list">${comps}</ul>` : ''}
         ${o.deck ? `<p class="tiny">📎 <a href="/api/pre-listings/${preListingId}/votes/deck?agent=${o.agentUserId}">${escapeHtml(o.deck.name)}</a> · ${formatFileSize(o.deck.size)}</p>` : ''}
+        ${share ? `<div class="card-actions">${share}</div>` : ''}
       </div>`;
   }).join('');
   return `
@@ -2484,11 +2773,14 @@ function renderDisclosuresChecklist(p) {
 function renderPreListingOwnerBar(p) {
   const deleteBtn = `<button type="button" class="btn btn-danger btn-sm" data-action="delete-pre-listing" data-id="${p.id}">Delete</button>`;
   if (p.status === 'open') {
+    // Pausing stops new proposals only: agents who already sent one can still update it, and opinions keep coming.
     return `<div class="card-actions">
       <button type="button" class="btn btn-ghost btn-sm" data-action="edit-pre-listing">Edit details</button>
+      <button type="button" class="btn btn-ghost btn-sm" data-action="${p.proposalsPaused ? 'resume-proposals' : 'pause-proposals'}">${p.proposalsPaused ? 'Resume proposals' : 'Pause new proposals'}</button>
       <button type="button" class="btn btn-ghost btn-sm" data-action="close-pre-listing">Close pre-listing</button>
       ${deleteBtn}
-    </div>`;
+    </div>
+    ${p.proposalsPaused ? '<p class="inline-note paused-note">New proposals are paused. Agents who already sent one can still update it.</p>' : ''}`;
   }
   if (p.status === 'closed') return `<p class="tiny">You closed this pre-listing, so agents can no longer vote or send proposals.</p><div class="card-actions">${deleteBtn}</div>`;
   return ''; // awarded — deletion is blocked server-side too, same protection as closing/editing
@@ -2502,14 +2794,17 @@ function renderPreListingEditForm(p) {
       <img src="/api/pre-listing-photos/${pid}" alt="" loading="lazy">
       <button type="button" class="btn btn-ghost btn-sm" data-action="delete-pre-listing-photo" data-photo-id="${pid}">Remove</button>
     </div>`).join('');
-  const total = p.votes && p.votes.total ? p.votes.total : 0;
+  // Only real votes (too high / just right / too low) are cleared by a price change; a home with no price has none.
+  const priceOpen = isPriceOpen(p);
+  const total = !priceOpen && p.votes && p.votes.total ? p.votes.total : 0;
+  const price = priceOpen ? 0 : Number(p.askingPrice) || 0;
   return `
-    <div class="card hidden" id="preListingEditPanel" data-asking-price="${v(p.askingPrice)}" data-votes="${total}">
+    <div class="card hidden" id="preListingEditPanel" data-asking-price="${price}" data-votes="${total}">
       <div class="card-head"><h2>Edit pre-listing</h2></div>
-      <p class="tiny">Changing the asking price clears the price votes agents have already cast, because they were about the old price. Proposals stay.</p>
+      <p class="tiny">Changing the asking price clears the price votes agents have already cast, because they were about the old price. Proposals and agents' suggested prices stay.</p>
       <div class="form-row two-col">
         <div class="field"><label for="pleTitle">Title (optional)</label><input type="text" id="pleTitle" maxlength="120" value="${v(p.title)}"></div>
-        <div class="field"><label for="pleAskingPrice">Asking price ($) <span class="required-mark">*</span></label><input type="number" id="pleAskingPrice" min="1" max="500000000" step="1000" value="${v(p.askingPrice)}"></div>
+        <div class="field"><label for="pleAskingPrice">Asking price (optional)</label><input type="text" id="pleAskingPrice" maxlength="15" inputmode="numeric" autocomplete="off" placeholder="e.g. 750,000" aria-describedby="pleAskingPriceHint" value="${price ? price : ''}"><p class="tiny field-hint" id="pleAskingPriceHint">Not sure yet? Leave it blank and local agents will tell you what they think it's worth.</p></div>
       </div>
       <div class="form-row three-col">
         <div class="field"><label for="pleCity">City <span class="required-mark">*</span></label><input type="text" id="pleCity" maxlength="80" value="${v(p.city)}"></div>
@@ -2517,11 +2812,11 @@ function renderPreListingEditForm(p) {
         <div class="field"><label for="pleZip">Zip <span class="required-mark">*</span></label><input type="text" id="pleZip" maxlength="10" inputmode="numeric" value="${v(p.zip)}"></div>
       </div>
       <div class="field"><label for="pleNeighborhood">Neighborhood (public)</label><input type="text" id="pleNeighborhood" maxlength="80" value="${v(p.neighborhood)}"></div>
-      <div class="field"><label for="pleAddress">Street address (private — only you can see it)</label><input type="text" id="pleAddress" maxlength="150" value="${v(p.address)}"></div>
+      <div class="field"><label for="pleAddress">Street address (private — only agents you share it with, or who RSVP to a broker preview you open, see it)</label><input type="text" id="pleAddress" maxlength="150" value="${v(p.address)}"></div>
       <div class="form-row three-col">
         <div class="field"><label for="plePropertyType">Property type <span class="required-mark">*</span></label><select id="plePropertyType">${typeOptions}</select></div>
-        <div class="field"><label for="pleBeds">Beds <span class="required-mark">*</span></label><input type="number" id="pleBeds" min="0" max="50" value="${v(p.beds)}"></div>
-        <div class="field"><label for="pleBaths">Baths <span class="required-mark">*</span></label><input type="number" id="pleBaths" min="0" max="50" step="0.5" value="${v(p.baths)}"></div>
+        <div class="field"><label for="pleBeds">Beds <span class="required-mark">*</span></label><input type="number" id="pleBeds" min="0" max="50" required value="${v(p.beds)}"></div>
+        <div class="field"><label for="pleBaths">Baths <span class="required-mark">*</span></label><input type="number" id="pleBaths" min="0" max="50" step="0.5" required value="${v(p.baths)}"></div>
       </div>
       <div class="field"><label for="pleSqft">Sq ft</label><input type="number" id="pleSqft" min="0" max="200000" step="50" value="${v(p.sqft)}"></div>
       <div class="field"><label for="pleDescription">Description</label><textarea id="pleDescription" maxlength="2000">${v(p.description)}</textarea></div>
@@ -2567,14 +2862,34 @@ function showPreListingEditor(on) {
   if (on) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+// What the post and edit forms check before sending (prefix 'pl' or 'ple'): the asking price is blank or a
+// whole-dollar amount, and beds and baths are filled in (a typed 0 is fine: a studio has 0 beds). The server checks
+// the same things; this just says so before a round trip. null = all good.
+function preListingFormProblem(prefix) {
+  const priceEl = document.getElementById(`${prefix}AskingPrice`);
+  const price = parseAskingPriceInput(priceEl.value);
+  if (price.error) return { field: priceEl, message: price.error };
+  const missing = el => el.value.trim() === '' || !!(el.validity && el.validity.badInput);
+  const beds = document.getElementById(`${prefix}Beds`);
+  if (missing(beds)) return { field: beds, message: 'Please fill in the number of beds (0 is fine for a studio).' };
+  const baths = document.getElementById(`${prefix}Baths`);
+  if (missing(baths)) return { field: baths, message: 'Please fill in the number of baths.' };
+  return null;
+}
+
 async function savePreListingEdit(id) {
   const panel = document.getElementById('preListingEditPanel');
   if (!panel) return;
   const val = key => document.getElementById('ple' + key).value;
   const checked = key => document.getElementById('ple' + key).checked;
 
+  const problem = preListingFormProblem('ple');
+  if (problem) { toast(problem.message); problem.field.focus(); return; }
+  const askingPrice = parseAskingPriceInput(val('AskingPrice')).value;
+
+  // Clearing the price (or setting one where there was none) is a price change too.
   const voteCount = Number(panel.dataset.votes) || 0;
-  if (voteCount > 0 && Number(val('AskingPrice')) !== Number(panel.dataset.askingPrice)
+  if (voteCount > 0 && (askingPrice || 0) !== Number(panel.dataset.askingPrice)
       && !confirm(`Changing the asking price clears the ${voteCount} price vote${voteCount === 1 ? '' : 's'} agents already cast, since they were about the old price. Continue?`)) return;
 
   const btn = panel.querySelector('[data-action="save-pre-listing"]');
@@ -2583,7 +2898,7 @@ async function savePreListingEdit(id) {
     const costs = readHomeCosts('plec');
     const result = await apiPut(`/api/pre-listings/${id}`, {
       title: val('Title').trim(),
-      askingPrice: val('AskingPrice'),
+      askingPrice, // null = open to price opinions
       city: val('City').trim(),
       state: val('State').trim(),
       zip: val('Zip').trim(),
@@ -2629,6 +2944,133 @@ async function deletePreListing(id, fromList) {
   } catch (err) { toast(err.message); }
 }
 
+// ---- "Share my contact info with this agent" and "Who saw my address" (the owner's own pre-listing) ----
+// Who the owner shares their contact info with on the pre-listing that's open, so every proposal card and
+// price-opinion card for one agent shows the same state, and a share or a stop redraws them in place (no jump back to
+// the top). Set by openPreListingDetail. Only the owner gets any of it; a new share needs the home open or awarded,
+// while stopping a share works in any status.
+const contactShareView = { preListingId: null, isOwner: false, canShare: false, shares: new Map(), addressViews: [] };
+let lastPriceOpinions = null; // the owner's price opinions on the open pre-listing (for a new share's identity line)
+
+function setContactShareView(preListingId, isOwner, canShare, shares, addressViews) {
+  contactShareView.preListingId = preListingId;
+  contactShareView.isOwner = !!isOwner;
+  contactShareView.canShare = !!isOwner && !!canShare;
+  contactShareView.shares = new Map((isOwner ? shares || [] : []).map(s => [String(s.agentId), s]));
+  contactShareView.addressViews = isOwner ? addressViews || [] : [];
+}
+
+function isSharingWith(agentId) {
+  return contactShareView.isOwner && contactShareView.shares.has(String(agentId));
+}
+
+function shareSlotInnerHtml(agentId, agentName) {
+  const attrs = `data-agent-id="${Number(agentId)}" data-agent-name="${escapeHtml(agentName)}"`;
+  if (isSharingWith(agentId)) return `<span class="contact-shared">Contact shared ✓</span> <button type="button" class="link-btn" data-action="unshare-contact" ${attrs}>Stop sharing</button>`;
+  return contactShareView.canShare ? `<button type="button" class="btn btn-ghost btn-sm" data-action="share-contact" ${attrs}>Share my contact info</button>` : '';
+}
+
+function shareContactSlotHtml(preListingId, agentId, agentName) {
+  if (!contactShareView.isOwner || !agentId || String(contactShareView.preListingId) !== String(preListingId)) return '';
+  if (!contactShareView.canShare && !isSharingWith(agentId)) return '';
+  return `<span class="share-slot" data-share-slot="${Number(agentId)}">${shareSlotInnerHtml(agentId, agentName)}</span>`;
+}
+
+// After a share or a stop: every button for that agent, and the panel's list.
+function refreshShareSlots(agentId, agentName) {
+  document.querySelectorAll(`[data-share-slot="${Number(agentId)}"]`).forEach(slot => { slot.innerHTML = shareSlotInnerHtml(agentId, agentName); });
+  const panel = document.getElementById('addressPrivacyPanel');
+  if (panel) panel.innerHTML = addressPrivacyPanelHtml();
+}
+
+function identityOf(row) {
+  return agentIdentityLine({ name: row.agentName, licenseNumber: row.licenseNumber, brokerageName: row.brokerageName });
+}
+
+// The owner's record: every agent their exact address was shown to (through their share, or a broker preview they
+// opened), and who they're sharing their contact info with right now.
+function addressPrivacyPanelHtml() {
+  const views = [...contactShareView.addressViews].sort((a, b) => String(b.lastSeenAt || '').localeCompare(String(a.lastSeenAt || '')));
+  const shares = [...contactShareView.shares.values()];
+  const viewRows = views.map(v => {
+    const how = v.via === 'preview' ? 'via your broker preview' : 'via your share';
+    const first = shortDateLabel(v.firstSeenAt);
+    const last = shortDateLabel(v.lastSeenAt);
+    return `<li class="address-view-row">${escapeHtml(identityOf(v))} — ${how}${first ? ` · first ${escapeHtml(first)}` : ''}${last ? `, last ${escapeHtml(last)}` : ''}</li>`;
+  }).join('');
+  const shareRows = shares.map(s => `
+      <li class="address-view-row">${escapeHtml(identityOf(s))}${shortDateLabel(s.sharedAt) ? ` · shared ${escapeHtml(shortDateLabel(s.sharedAt))}` : ''}
+        <button type="button" class="link-btn" data-action="unshare-contact" data-agent-id="${Number(s.agentId)}" data-agent-name="${escapeHtml(s.agentName)}">Stop sharing</button></li>`).join('');
+  return `
+    <div class="panel address-privacy">
+      <h3>Who saw my address</h3>
+      <p class="tiny">Only agents you share with, or who RSVP to a broker preview you open, can see your exact address. Each one is listed here.</p>
+      ${viewRows ? `<ul class="address-view-list">${viewRows}</ul>` : '<p class="tiny">No agent has seen your exact address yet.</p>'}
+      ${shareRows ? `<h4>Sharing your contact info with</h4><ul class="address-view-list">${shareRows}</ul>` : ''}
+      ${contactShareView.canShare ? '<p class="tiny">Like an agent\'s proposal or price opinion? Tap "Share my contact info" on it, and they\'ll see your address, phone and email for this home.</p>' : ''}
+    </div>`;
+}
+
+// What an agent sees once the homeowner shares their contact info with them.
+function sharedContactHtml(c) {
+  if (!c) return '';
+  const phoneDigits = String(c.phone || '').replace(/[^\d+]/g, '');
+  const email = String(c.email || '').trim();
+  const emailOk = /^[^\s@<>"'()]+@[^\s@<>"'()]+\.[^\s@<>"'()]+$/.test(email);
+  const lines = [
+    c.address && `<li><span class="label">Address</span>${escapeHtml(c.address)}</li>`,
+    c.phone && `<li><span class="label">Phone</span>${phoneDigits ? `<a href="tel:${escapeHtml(phoneDigits)}">${escapeHtml(c.phone)}</a>` : escapeHtml(c.phone)}</li>`,
+    email && `<li><span class="label">Email</span>${emailOk ? `<a href="mailto:${escapeHtml(email)}">${escapeHtml(email)}</a>` : escapeHtml(email)}</li>`,
+  ].filter(Boolean).join('');
+  return `
+    <div class="panel shared-contact">
+      <h3>${escapeHtml(c.ownerName || 'The homeowner')} shared their contact info</h3>
+      <ul class="shared-contact-lines">${lines}</ul>
+      ${shortDateLabel(c.sharedAt) ? `<p class="tiny">Shared with you on ${escapeHtml(shortDateLabel(c.sharedAt))}. Reach out directly anytime.</p>` : ''}
+    </div>`;
+}
+
+async function shareContactWith(btn) {
+  const agentId = Number(btn.dataset.agentId);
+  const agentName = btn.dataset.agentName || 'this agent';
+  const preListingId = contactShareView.preListingId;
+  if (!agentId || !preListingId) return;
+  if (!confirm(`Share your contact info with ${agentName}? They'll see your exact address, phone number and email for this home, so they can reach you directly. You can stop sharing anytime (they won't see it here anymore).`)) return;
+  btn.disabled = true;
+  try {
+    const { share } = await apiPost(`/api/pre-listings/${preListingId}/contact-shares`, { agentId });
+    if (String(contactShareView.preListingId) !== String(preListingId)) return; // moved on to another home meanwhile
+    contactShareView.shares.set(String(agentId), { agentId, agentName, ...shareIdentity(agentId), sharedAt: (share && share.sharedAt) || '' });
+    refreshShareSlots(agentId, agentName);
+    toast(`Shared with ${agentName}. They'll get a heads-up.`);
+  } catch (err) { toast(contactErrorMessage(err), { durationMs: 7000 }); btn.disabled = false; }
+}
+
+async function stopSharingWith(btn) {
+  const agentId = Number(btn.dataset.agentId);
+  const agentName = btn.dataset.agentName || 'this agent';
+  const preListingId = contactShareView.preListingId;
+  if (!agentId || !preListingId) return;
+  if (!confirm(`Stop sharing your contact info with ${agentName}? They won't see your address, phone or email here anymore (they may already have noted them).`)) return;
+  btn.disabled = true;
+  try {
+    await apiDelete(`/api/pre-listings/${preListingId}/contact-shares/${agentId}`);
+    if (String(contactShareView.preListingId) !== String(preListingId)) return;
+    contactShareView.shares.delete(String(agentId));
+    refreshShareSlots(agentId, agentName);
+    toast(`Stopped sharing with ${agentName}.`);
+  } catch (err) { toast(contactErrorMessage(err)); btn.disabled = false; }
+}
+
+// The DRE number and brokerage for an agent on the open pre-listing, from their proposal or price opinion, so a new
+// share's row in the panel carries the identity line right away (before the next reload).
+function shareIdentity(agentId) {
+  const fromBid = proposalView && (proposalView.bids || []).find(b => String(b.agentUserId) === String(agentId));
+  const fromOpinion = (lastPriceOpinions && lastPriceOpinions.opinions || []).find(o => String(o.agentUserId) === String(agentId));
+  const src = fromBid || fromOpinion || {};
+  return { licenseNumber: src.licenseNumber || '', brokerageName: src.brokerageName || '' };
+}
+
 function showMarketplaceDetail() {
   document.getElementById('marketplaceListView').classList.add('hidden');
   document.getElementById('marketplaceDetailView').classList.remove('hidden');
@@ -2647,7 +3089,8 @@ function backToMarketplaceList() {
 async function openPreListingDetail(id, opts = {}) {
   const contentEl = document.getElementById('marketplaceDetailContent');
   try {
-    const { preListing: p, bids, myBid, myVote, priceOpinions, isOwner, homeownerRating } = await apiGet(`/api/pre-listings/${id}`);
+    const data = await apiGet(`/api/pre-listings/${id}`);
+    const { preListing: p, bids, myBid, myVote, priceOpinions, isOwner, homeownerRating } = data;
     marketplaceDetail = { kind: 'pre_listing', id };
     showMarketplaceDetail();
 
@@ -2656,11 +3099,20 @@ async function openPreListingDetail(id, opts = {}) {
       : '';
     const isAwardedAgent = !isOwner && myBid && myBid.status === 'accepted';
     const isApprovedAgentViewer = !isOwner && !!currentAgentProfile && currentAgentProfile.status === 'approved';
+    const priceOpen = isPriceOpen(p);
+    // Owner only: who they're sharing their contact info with, and every agent the exact address was shown to.
+    // (Read from the top level or the pre-listing object, whichever the API puts them on.)
+    setContactShareView(id, isOwner, p.status === 'open' || p.status === 'awarded', data.contactShares || p.contactShares || [], data.addressViews || p.addressViews || []);
+    // An agent the homeowner chose to share their contact info with.
+    const sharedContact = !isOwner ? (data.sharedContact || p.sharedContact || null) : null;
+    const opinionCount = isOwner && priceOpinions ? priceOpinions.opinions.filter(o => o.priceOpinion).length : null;
+    lastPriceOpinions = isOwner ? priceOpinions : null;
 
     contentEl.innerHTML = `
       <div class="card" id="preListingViewCard">
-        <div class="card-head"><h2>${escapeHtml(p.title || p.propertyType)}</h2><span class="badge ${p.status === 'open' ? 'badge-active' : 'badge-paused'}">${p.status}</span></div>
-        <div class="mini-block">${escapeHtml(p.propertyType)} · ${p.beds}bd/${p.baths}ba${p.sqft ? ` · ${p.sqft.toLocaleString('en-US')} sqft` : ''} in ${escapeHtml(p.neighborhood ? p.neighborhood + ', ' : '')}${escapeHtml(p.city)}, ${escapeHtml(p.state)} ${escapeHtml(p.zip)}<br>${money(p.askingPrice)} asking</div>
+        <div class="card-head"><h2>${escapeHtml(p.title || p.propertyType)}</h2><span class="card-badges">${pausedBadgeHtml(p)}<span class="badge ${p.status === 'open' ? 'badge-active' : 'badge-paused'}">${p.status}</span></span></div>
+        <div class="mini-block">${escapeHtml(p.propertyType)} · ${p.beds}bd/${p.baths}ba${p.sqft ? ` · ${p.sqft.toLocaleString('en-US')} sqft` : ''} in ${escapeHtml(p.neighborhood ? p.neighborhood + ', ' : '')}${escapeHtml(p.city)}, ${escapeHtml(p.state)} ${escapeHtml(p.zip)}<br>${priceOpen ? `<span class="price-open">${PRICE_OPEN_LABEL}</span>` : `${money(p.askingPrice)} asking`}</div>
+        ${isOwner && p.address ? `<p class="tiny"><span class="label">Street address (private)</span> ${escapeHtml(p.address)}</p>` : ''}
         <div class="mini-two">
           <div class="mini-block"><span class="label">Occupancy</span>${p.occupancyStatus === 'vacant' ? 'Vacant' : 'Occupied'} during the sale</div>
           <div class="mini-block"><span class="label">Showing notice</span>${p.showingNoticeHours > 0 ? `${p.showingNoticeHours} hours required` : 'None required'}</div>
@@ -2672,16 +3124,18 @@ async function openPreListingDetail(id, opts = {}) {
         ${!isOwner ? renderHomeownerRatingBadge(homeownerRating, 'Homeowner rating') : ''}
         ${p.description ? `<p>${escapeHtml(p.description)}</p>` : ''}
         ${photosHtml}
-        <p class="tiny">${voteSummary(p.votes, 'Agent votes', p.status)}</p>
+        <p class="tiny">${voteSummary(p.votes, 'Agent votes', p.status, { priceOpen, opinionCount })}</p>
         ${zipCoverageHtml(p, isOwner, myVote)}
         ${isOwner && p.agentsOnDuty > 0 ? `<p class="tiny on-duty-line">🟢 ${p.agentsOnDuty} agent${p.agentsOnDuty === 1 ? '' : 's'} who serve${p.agentsOnDuty === 1 ? 's' : ''} ${escapeHtml(p.zip)} ${p.agentsOnDuty === 1 ? 'is' : 'are'} on duty right now.</p>` : ''}
-        ${p.buyerDemand ? `<p class="demand-meter">👀 <strong>${p.buyerDemand} buyers</strong> on Amico Haus are looking for a home like this in ${escapeHtml(p.city)} at this price.</p>` : ''}
+        ${p.buyerDemand ? `<p class="demand-meter">👀 <strong>${p.buyerDemand} buyers</strong> on Amico Haus are looking for a home like this in ${escapeHtml(p.city)}${priceOpen ? '' : ' at this price'}.</p>` : ''}
         ${renderPriceHistory(p.priceHistory)}
         ${isOwner ? `<p class="form-note trust"><strong>Talk to a lender.</strong> If selling here means financing your next place, rates, loan programs and approvals come from lenders, not from websites or real estate agents. Talk to your own mortgage broker, or use our preferred lender, <strong>Point Mortgage Corporation</strong> (NMLS #231073), at <a href="tel:+16194754095">(619) 475-4095</a>. You are always free to choose any lender you like, and you can verify any lender's license at nmlsconsumeraccess.org.</p>` : ''}
         ${isOwner ? renderPreListingOwnerBar(p) : ''}
       </div>
+      ${sharedContactHtml(sharedContact)}
       ${isOwner || isApprovedAgentViewer ? renderVideoTourPanel(p, isOwner) : ''}
       ${isOwner ? renderPriceOpinionsPanel(priceOpinions, id) : ''}
+      ${isOwner ? `<div id="addressPrivacyPanel">${addressPrivacyPanelHtml()}</div>` : ''}
       ${isOwner && p.status === 'open' ? renderPreListingEditForm(p) : ''}
       ${isOwner ? renderDisclosuresChecklist(p) : ''}
       ${isOwner ? renderListingReadyPanel(p) : ''}
@@ -2696,10 +3150,10 @@ async function openPreListingDetail(id, opts = {}) {
         : (currentAgentProfile && currentAgentProfile.status === 'approved'
           ? (isAwardedAgent
             ? `<div id="milestonesPanel"></div>${renderDisputePanel()}${renderHomeownerReviewForm()}`
-            : `${agentDecisionLineHtml(p)}${renderBidFormAndVote(myBid, myVote, p.status === 'open')}${agentPitchHtml(p, myBid)}${p.status === 'open' ? renderRequestShowingForm() : ''}`)
+            : `${agentDecisionLineHtml(p)}${renderBidFormAndVote(myBid, myVote, p.status === 'open', { paused: p.status === 'open' && !!p.proposalsPaused && !p.invitedByOwner, priceOpen })}${agentPitchHtml(p, myBid)}${p.status === 'open' ? renderRequestShowingForm() : ''}`)
           : '<p class="tiny">Only approved agents can submit proposals or vote on pricing.</p>')}
     `;
-    if (!isOwner && currentAgentProfile && currentAgentProfile.status === 'approved' && !isAwardedAgent) {
+    if (!isOwner && currentAgentProfile && currentAgentProfile.status === 'approved' && !isAwardedAgent && document.getElementById('bidServicesEditor')) {
       renderServicesEditor('bidServicesEditor', myBid ? myBid.services : []);
     }
     if (opts.edit && isOwner && p.status === 'open') showPreListingEditor(true);
@@ -3920,7 +4374,7 @@ async function loadMyInvites() {
     el.innerHTML = invites.length ? invites.map(i => {
       const target = i.requestType === 'pre_listing' ? i.preListing : i.transaction;
       const label = i.requestType === 'pre_listing'
-        ? (target ? `${escapeHtml(target.title || 'Pre-listing')} — ${escapeHtml(target.city)}, ${escapeHtml(target.state)} (${money(target.askingPrice)})` : 'Pre-listing removed')
+        ? (target ? `${escapeHtml(target.title || 'Pre-listing')} — ${escapeHtml(target.city)}, ${escapeHtml(target.state)} (${askingPriceLabel(target)})` : 'Pre-listing removed')
         : (target ? `Transaction #${target.id}` : 'Transaction removed');
       return `
         <div class="side">
@@ -4009,7 +4463,15 @@ function renderDisputePanel() {
 // "Agent votes: 1 too high · 0 too low · 5 just right — 4 of 6 from agents within 20 miles of this home".
 // The server counts votes from agents whose service area covers the home (`nearby`); it is null when the
 // home's zip is unknown, and then we simply don't claim anything about distance.
-function voteSummary(v, label, status = 'open') {
+// A home with no asking price ("Open to price opinions") has no votes, only suggested prices: "3 agents shared a
+// price opinion". opinionCount is the owner's own count; otherwise the tally's (the API counts opinions there).
+function voteSummary(v, label, status = 'open', { priceOpen = false, opinionCount = null } = {}) {
+  v = v || {};
+  if (priceOpen || v.priceOpen) {
+    const n = opinionCount ?? v.opinionCount ?? v.total ?? 0;
+    if (n > 0) return `${n} agent${n === 1 ? '' : 's'} shared a price opinion`;
+    return status === 'open' ? 'Price opinions: none yet. Local agents will share what they think it\'s worth.' : 'No price opinions were shared.';
+  }
   if (v.sealed && status !== 'open') return `${label}: voting is closed.`;
   if (v.sealed) return v.total ? `${label}: ${v.total} agent${v.total === 1 ? ' has' : 's have'} weighed in. Sealed until you cast yours, so nobody anchors on the crowd.` : `${label}: none yet. Be the first to weigh in.`;
   if (!v.total) return `${label}: none yet`;
@@ -4020,7 +4482,8 @@ function voteSummary(v, label, status = 'open') {
 
 function renderPriceHistory(history) {
   if (!history || !history.length) return '';
-  const changes = history.map(h => `${money(h.oldPrice)} → ${money(h.newPrice)} on ${new Date(h.changedAt + 'Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`);
+  // A 0 is a time the owner had no price set ("Open to price opinions").
+  const changes = history.map(h => `${priceAmountLabel(h.oldPrice)} → ${priceAmountLabel(h.newPrice)} on ${new Date(h.changedAt + 'Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`);
   return `<p class="tiny"><span class="label">Price history</span> ${changes.join(' · ')}</p>`;
 }
 
@@ -4071,9 +4534,11 @@ function renderRequestShowingForm() {
 function renderShowingRow(s, isOwner) {
   const when = new Date(s.proposedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
   const statusBadge = `<span class="badge ${s.status === 'accepted' ? 'badge-active' : s.status === 'pending' ? 'badge-gold' : 'badge-paused'}">${s.status}</span>`;
+  // The owner sees who's asking with their DRE number and brokerage (California DRE rule).
+  const who = agentIdentityLine({ name: s.agentName, licenseNumber: s.agentLicenseNumber, brokerageName: s.agentBrokerageName });
   return `
-    <div class="mini-block">
-      <span class="label">${isOwner ? escapeHtml(s.agentName) : when}</span>
+    <div class="mini-block showing-row">
+      ${isOwner ? `<strong class="showing-agent">${escapeHtml(who)}</strong><br>` : `<span class="label">${when}</span>`}
       ${isOwner ? when : ''}${s.note ? ` — ${escapeHtml(s.note)}` : ''} ${statusBadge}
       ${isOwner && s.status === 'pending' ? `
         <div class="card-actions">
@@ -4570,15 +5035,32 @@ document.addEventListener('DOMContentLoaded', async () => {
       openTransactionDetail(id);
     } catch (err) { toast(err.message); }
   });
+  let messageSending = false;
   document.getElementById('messageForm').addEventListener('submit', async (e) => {
     e.preventDefault();
+    // One send at a time: a double click or double Enter would otherwise post the same message twice.
+    if (messageSending) return;
+    const form = e.currentTarget;
+    const sendBtn = form.querySelector('button[type="submit"]');
+    messageSending = true;
+    if (sendBtn) sendBtn.disabled = true;
     const conversationId = document.getElementById('messageThread').dataset.conversationId;
     const input = document.getElementById('messageBody');
     try {
-      await apiPost(`/api/conversations/${conversationId}/messages`, { body: input.value.trim() });
+      const result = await apiPost(`/api/conversations/${conversationId}/messages`, { body: input.value.trim() });
       input.value = '';
+      sentMessageToast(result);
       await renderMessages(conversationId);
-    } catch (err) { toast(err.message); }
+    } catch (err) {
+      toast(contactErrorMessage(err), { durationMs: 7000 });
+      // The homeowner switched modes since this thread was opened: switch the composer off to match.
+      if (apiErrorCode(err) === 'contact_quiet') setComposerMode('quiet');
+      else if (apiErrorCode(err) === 'weekly_limit') setComposerMode('weekly_held');
+    } finally {
+      messageSending = false;
+      // setComposerMode may have switched the composer off (Quiet, or this week's message is on its way).
+      if (sendBtn && !form.classList.contains('composer-off')) sendBtn.disabled = false;
+    }
   });
 
   const notifBtn = document.getElementById('notifBtn');
@@ -4611,11 +5093,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     const text = input.value.trim();
     if (!text) return;
     try {
-      await apiPost(`/api/conversations/${wrap.dataset.conversationId}/messages`, { body: text });
+      const result = await apiPost(`/api/conversations/${wrap.dataset.conversationId}/messages`, { body: text });
       input.value = '';
-      toast('Reply sent.');
+      if (result && result.held) sentMessageToast(result); else toast('Reply sent.');
       loadNotifications();
-    } catch (err) { toast(err.message); }
+    } catch (err) { toast(contactErrorMessage(err), { durationMs: 7000 }); }
   }
 
   const notifList = document.getElementById('notifList');
@@ -4649,6 +5131,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('onboardingCreateBtn').addEventListener('click', () => goToTab('listing'));
 
   /* ---- Marketplace wiring ---- */
+  wireControlPanel();
   resetHomeCostsFields('listingCostsFields', 'lc');
   resetHomeCostsFields('plCostsFields', 'plc');
   // The owner's Mello-Roos / HOA editor on an AugmentedHomes or GreenHomes detail view.
@@ -4668,12 +5151,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   document.getElementById('createPreListingBtn').addEventListener('click', async () => {
     const btn = document.getElementById('createPreListingBtn');
+    const problem = preListingFormProblem('pl');
+    if (problem) { toast(problem.message); problem.field.focus(); return; }
+    const chosenMode = selectedDialMode('plContactMode');
     btn.disabled = true;
     try {
       const costs = readHomeCosts('plc');
       const { id } = await apiPost('/api/pre-listings', {
         title: document.getElementById('plTitle').value.trim(),
-        askingPrice: document.getElementById('plAskingPrice').value,
+        askingPrice: parseAskingPriceInput(document.getElementById('plAskingPrice').value).value, // null = open to price opinions
         city: document.getElementById('plCity').value.trim(),
         state: document.getElementById('plState').value.trim(),
         zip: document.getElementById('plZip').value.trim(),
@@ -4696,8 +5182,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
       await saveHomeCosts('pre_listing', id, costs);
       resetHomeCostsFields('plCostsFields', 'plc');
+      // The contact dial is a setting on the person, not the home: saved only when it changed. A hiccup here never
+      // undoes the post; the You're in Control panel below shows what's actually saved.
+      let dialNote = '';
+      if (chosenMode && chosenMode !== currentContactMode()) {
+        try { contactSettings = await apiPut('/api/contact-settings', { contactMode: chosenMode }); }
+        catch { dialNote = " We couldn't save how agents can reach you, so please set it again under You're in Control."; }
+      }
       const photoResult = await uploadPhotos(`/api/pre-listings/${id}/photos`, [...document.getElementById('plPhotos').files]);
-      toastWithPhotoResult('Pre-listing posted — agents can now weigh in on your price.', photoResult);
+      toastWithPhotoResult(`Pre-listing posted — agents can now weigh in on your price.${dialNote}`, photoResult);
       document.getElementById('postHomeWrap').open = false;
       ['plTitle', 'plAskingPrice', 'plCity', 'plState', 'plZip', 'plNeighborhood', 'plAddress', 'plSqft', 'plDescription', 'plShowingNoticeHours', 'plSpecialInstructions', 'plMinYearsExperience', 'plPreferredLanguage', 'plPreferredAgreementMonths'].forEach(f => document.getElementById(f).value = '');
       document.getElementById('plBeds').value = '';
@@ -4707,8 +5200,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.getElementById('plRequireDedicatedContact').checked = false;
       document.getElementById('plPrefersExclusive').checked = false;
       document.getElementById('plPrefersLocalSpecialist').checked = false;
+      renderPostFormDial(true);
       loadMyPreListings();
       loadMarketplaceBrowse();
+      renderControlPanel();
     } catch (err) { toast(err.message); } finally { btn.disabled = false; }
   });
 
@@ -4975,10 +5470,14 @@ document.addEventListener('DOMContentLoaded', async () => {
           const convo = conversations.find(c => c.id === conversationId);
           goToTab('messages');
           await openConversation(conversationId, convo ? convo.other_name : 'Homeowner', checkInBtn.dataset.userId);
-          // Drafted, not sent — a template is a starting point, not something that should go out un-reviewed.
-          document.getElementById('messageBody').value = `Hi! Just checking in on my proposal for ${checkInBtn.dataset.title} — happy to answer any questions.`;
-          document.getElementById('messageBody').focus();
-        } catch (err) { toast(err.message); }
+          // Drafted, not sent — a template is a starting point, not something that should go out un-reviewed. Not
+          // drafted when the homeowner is in Quiet mode (the composer is off then, with a note saying why).
+          const body = document.getElementById('messageBody');
+          if (!body.disabled) {
+            body.value = `Hi! Just checking in on my proposal for ${checkInBtn.dataset.title} — happy to answer any questions.`;
+            body.focus();
+          }
+        } catch (err) { toast(contactErrorMessage(err), { durationMs: 7000 }); }
       }
     });
   }
@@ -5020,6 +5519,22 @@ document.addEventListener('DOMContentLoaded', async () => {
       } catch (err) { toast(err.message); pickBtn.disabled = false; }
       return;
     }
+    const shareBtn = e.target.closest('[data-action="share-contact"]');
+    if (shareBtn && kind === 'pre_listing') { await shareContactWith(shareBtn); return; }
+    const unshareBtn = e.target.closest('[data-action="unshare-contact"]');
+    if (unshareBtn && kind === 'pre_listing') { await stopSharingWith(unshareBtn); return; }
+    const pauseBtn = e.target.closest('[data-action="pause-proposals"], [data-action="resume-proposals"]');
+    if (pauseBtn && kind === 'pre_listing') {
+      // Nothing is lost either way (resume anytime), so no confirm: the note under the buttons says what it does.
+      const pausing = pauseBtn.dataset.action === 'pause-proposals';
+      pauseBtn.disabled = true;
+      try {
+        const { proposalsPaused } = await apiPut(basePath, { action: pausing ? 'pause' : 'resume' });
+        toast(proposalsPaused ? 'New proposals are paused.' : 'Proposals are open again. Agents nearby can send theirs.');
+        openPreListingDetail(id);
+      } catch (err) { toast(err.message); pauseBtn.disabled = false; }
+      return;
+    }
     const copyInviteBtn = e.target.closest('[data-action="copy-agent-invite"]');
     if (copyInviteBtn) {
       // Shared with someone new, so it carries its own source tag (it's their first visit, not an internal click).
@@ -5059,7 +5574,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (requestShowingBtn) {
         const proposedAt = document.getElementById('showingProposedAt').value;
         if (!proposedAt) { toast('Pick a date and time first.'); return; }
-        await apiPost(`${basePath}/showings`, { proposedAt: new Date(proposedAt).toISOString(), note: document.getElementById('showingNote').value.trim() });
+        try {
+          await apiPost(`${basePath}/showings`, { proposedAt: new Date(proposedAt).toISOString(), note: document.getElementById('showingNote').value.trim() });
+        } catch (err) { toast(contactErrorMessage(err, 'showing'), { durationMs: 7000 }); return; }
         document.getElementById('showingNote').value = '';
         toast('Showing requested!');
         loadShowingsInto(id, false);
@@ -5101,12 +5618,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         toast('Proposal accepted!');
         refreshDetail(kind, id);
       } else if (submitBidBtn) {
-        await apiPost(`${basePath}/bids`, {
-          message: document.getElementById('bidMessage').value.trim(),
-          commissionPct: document.getElementById('bidCommissionPct').value || null,
-          flatFee: document.getElementById('bidFlatFee').value || null,
-          services: collectServicesFromEditor('bidServicesEditor'),
-        });
+        try {
+          await apiPost(`${basePath}/bids`, {
+            message: document.getElementById('bidMessage').value.trim(),
+            commissionPct: document.getElementById('bidCommissionPct').value || null,
+            flatFee: document.getElementById('bidFlatFee').value || null,
+            services: collectServicesFromEditor('bidServicesEditor'),
+          });
+        } catch (err) {
+          toast(contactErrorMessage(err), { durationMs: 7000 });
+          // Paused while the form was open: redraw, so the form gives way to the paused note.
+          if (apiErrorCode(err) === 'proposals_paused') refreshDetail(kind, id);
+          return;
+        }
         toast('Proposal submitted!');
         refreshDetail(kind, id);
       } else if (withdrawBtn) {
@@ -5125,13 +5649,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
       } else if (saveOpinionBtn) {
         const panel = document.getElementById('priceOpinionPanel');
-        if (!panel.dataset.vote) { toast('Pick too high, just right or too low first.'); return; }
+        // No asking price yet: nothing to vote on, and the suggested list price is what the homeowner is waiting for.
+        const priceOpen = panel.dataset.priceOpen === '1';
         const val = idName => document.getElementById(idName).value.trim();
+        if (priceOpen && val('opinionPrice') === '') { toast("This homeowner hasn't set a price yet. Share your suggested list price."); document.getElementById('opinionPrice').focus(); return; }
+        if (!priceOpen && !panel.dataset.vote) { toast('Pick too high, just right or too low first.'); return; }
         const comps = [0, 1, 2].map(i => ({ address: val(`compAddress${i}`), soldPrice: val(`compPrice${i}`), soldDate: val(`compDate${i}`), sqft: val(`compSqft${i}`) }))
           .filter(c => c.address || c.soldPrice || c.soldDate || c.sqft)
           .map(c => ({ ...c, soldPrice: c.soldPrice === '' ? '' : Number(c.soldPrice), sqft: c.sqft === '' ? '' : Number(c.sqft) }));
         await apiPost(`${basePath}/votes`, {
-          vote: panel.dataset.vote,
+          ...(priceOpen ? {} : { vote: panel.dataset.vote }),
           note: val('opinionNote'),
           priceOpinion: val('opinionPrice') === '' ? '' : Number(val('opinionPrice')),
           comps,

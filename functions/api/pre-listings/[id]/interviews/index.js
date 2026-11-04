@@ -10,7 +10,8 @@ import { notifyInterviewRequested } from '../../../../_lib/marketplaceNotify.js'
 // own request (times, format, status).
 function interviewJson(r, { forOwner }) {
   return {
-    agentUserId: r.agent_user_id, agentName: r.agent_name, format: r.format, slots: parseJsonArray(r.slots_json),
+    // The agent's DRE number and brokerage go with their name (California DRE rule at a point of contact).
+    agentUserId: r.agent_user_id, agentName: r.agent_name, licenseNumber: r.license_number || '', brokerageName: r.brokerage_name || '', format: r.format, slots: parseJsonArray(r.slots_json),
     chosenSlot: r.chosen_slot, status: r.status, createdAt: r.created_at,
     scores: forOwner ? parseJsonObject(r.scores_json) : undefined,
     ownerNotes: forOwner ? r.owner_notes : undefined,
@@ -25,7 +26,8 @@ export async function onRequestGet(context) {
   if (!preListing) return notFound('Pre-listing not found.');
   const isOwner = preListing.user_id === user.id;
   const rows = await db.prepare(
-    `SELECT i.*, users.display_name AS agent_name FROM pre_listing_interviews i JOIN users ON users.id = i.agent_user_id
+    `SELECT i.*, users.display_name AS agent_name, ap.license_number, ap.brokerage_name
+     FROM pre_listing_interviews i JOIN users ON users.id = i.agent_user_id LEFT JOIN agent_profiles ap ON ap.user_id = i.agent_user_id
      WHERE i.pre_listing_id = ? ${isOwner ? '' : 'AND i.agent_user_id = ?'} ORDER BY i.created_at ASC`
   ).bind(...(isOwner ? [context.params.id] : [context.params.id, user.id])).all();
   return json({ interviews: rows.results.map(r => interviewJson(r, { forOwner: isOwner })) });

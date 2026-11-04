@@ -1,4 +1,20 @@
-/* Amico Haus — public user profile page. */
+/* Amico Haus — public user profile page (the older /profile.html?id=N; /profile/{id} is the server-rendered one). */
+
+const PHONE_PRIVATE_NOTE = "Private unless you turn on 'Show my phone number' in You're in Control.";
+const PHONE_PUBLIC_NOTE = "Shown on your public profile and listings. You can turn this off in You're in Control.";
+// The settings live in the app (main.js opens them for /app#control).
+const CONTROL_LINK = '<a href="/app#control">Change this setting</a>';
+
+// The phone is private: the server sends someone else's number only when they chose to show it. Otherwise people
+// reach them through Amico Haus messages.
+function profileContactHtml(user, isMine, signedIn) {
+  if (isMine) {
+    if (!user.phone) return '<p><span class="tiny">No phone on file.</span></p>';
+    return `<p>${escapeHtml(user.phone)}</p><p class="tiny">${escapeHtml(user.phonePublic ? PHONE_PUBLIC_NOTE : PHONE_PRIVATE_NOTE)} ${CONTROL_LINK}</p>`;
+  }
+  if (user.phone) return `<p><a href="tel:${escapeHtml(user.phone.replace(/[^0-9+]/g, ''))}">${escapeHtml(user.phone)}</a></p>`;
+  return `<p class="tiny">${signedIn ? 'Message' : 'Sign up to message'} ${escapeHtml(user.displayName)} directly through Amico Haus.</p>`;
+}
 
 function profileListingCard(l) {
   const loc = `${l.neighborhood ? escapeHtml(l.neighborhood) + ', ' : ''}${escapeHtml(l.city)}, ${escapeHtml(l.state)}`;
@@ -56,6 +72,7 @@ async function savePhone(userId, currentPhone) {
   const el = document.getElementById('phoneSection');
   el.innerHTML = `
     <input type="tel" id="phoneInput" maxlength="30" placeholder="e.g. (619) 555-0123" value="${escapeHtml(currentPhone)}">
+    <p class="tiny">${escapeHtml(PHONE_PRIVATE_NOTE)} ${CONTROL_LINK}</p>
     <div class="form-actions">
       <button type="button" class="btn btn-primary btn-sm" id="savePhoneBtn">Save</button>
       <button type="button" class="btn btn-ghost btn-sm" id="cancelPhoneBtn">Cancel</button>
@@ -102,9 +119,7 @@ async function loadProfile(userId) {
           <span class="label">Contact</span>
           ${isMine ? '<button type="button" class="btn btn-ghost btn-sm" id="editPhoneBtn">Edit</button>' : ''}
         </div>
-        <div id="phoneSection">
-          <p>${user.phone ? escapeHtml(user.phone) : '<span class="tiny">No phone on file.</span>'}</p>
-        </div>
+        <div id="phoneSection">${profileContactHtml(user, isMine, !!me)}</div>
       </div>
 
       <h2>Listings</h2>
@@ -143,6 +158,12 @@ async function loadProfile(userId) {
 }
 
 (async function () {
+  // Homeowner and buyer profiles stay out of search engines; this older page is never the one to list anyway.
+  const robots = document.createElement('meta');
+  robots.name = 'robots';
+  robots.content = 'noindex';
+  document.head.appendChild(robots);
+
   const user = await fetchCurrentUser();
   if (user) {
     document.getElementById('authCta').innerHTML =

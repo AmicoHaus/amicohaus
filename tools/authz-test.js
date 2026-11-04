@@ -29,6 +29,8 @@ const MARK = {
   // The owner's counter-offer message to B -- B legitimately reads this back (it's addressed to them), but a
   // stranger (C) or anonymous must never see it, same reasoning as offerMessage above.
   counterMessage: 'COUNTERMSG' + RUN,
+  // A's phone: private by default (phone_public 0), so nobody else should ever be served it.
+  phone: '619-555-' + String(1000 + Math.floor(Math.random() * 9000)),
 };
 
 const results = [];
@@ -85,7 +87,7 @@ class User {
     let json = null; try { json = JSON.parse(text); } catch { /* not json */ }
     const sc = res.headers.getSetCookie ? res.headers.getSetCookie() : [];
     for (const c of sc) { const m = /^ah_session=([^;]*)/.exec(c); if (m) this.cookie = m[1] ? `ah_session=${m[1]}` : ''; }
-    return { status: res.status, json, text };
+    return { status: res.status, json, text, headers: res.headers };
   }
   // Signing up now only creates a pending account and emails a link. The real link's token exists only in the
   // email, so the test plants a known token's hash and follows the real confirm endpoint with it.
@@ -278,6 +280,19 @@ const denied = r => r.status >= 400 && r.status < 500;
   record('listings', 'listing detail hides address, client name and views from B', !('address' in bl) && !('client_name' in bl) && !('views' in bl), JSON.stringify(Object.keys(bl)).slice(0, 150));
   const aOwn = await A.call('GET', `/api/listings/${LA}`);
   record('listings', 'owner still sees address and client name', aOwn.json.listing.address === MARK.address && aOwn.json.listing.client_name === MARK.clientName, '');
+  // "Reveal exact address once matched" never hands the street address to everyone: anonymous and B still get none,
+  // and the per-viewer response is never kept by a shared cache.
+  await A.call('PUT', `/api/listings/${LA}`, { showExactAddress: true });
+  const revealAnon = await anon.call('GET', `/api/listings/${LA}`);
+  const revealB = await B.call('GET', `/api/listings/${LA}`);
+  record('listings', 'with "Reveal exact address" ticked, anonymous and B still get no address', revealAnon.status === 200 && revealB.status === 200 && !('address' in (revealAnon.json.listing || {})) && !('address' in (revealB.json.listing || {})) && !revealAnon.text.includes(MARK.address) && !revealB.text.includes(MARK.address), `anon=${revealAnon.status} b=${revealB.status}`);
+  record('listings', 'listing detail is never cached for others (Cache-Control private, no-store)', /private/.test(revealB.headers.get('cache-control') || '') && /no-store/.test(revealB.headers.get('cache-control') || ''), revealB.headers.get('cache-control') || '(none)');
+  await A.call('PUT', `/api/listings/${LA}`, { status: 'paused' });
+  const pausedAnon = await anon.call('GET', `/api/listings/${LA}`);
+  const pausedB = await B.call('GET', `/api/listings/${LA}`);
+  const pausedOwner = await A.call('GET', `/api/listings/${LA}`);
+  record('listings', 'a paused listing is a 404 for anonymous and B, still there for the owner', pausedAnon.status === 404 && pausedB.status === 404 && pausedOwner.status === 200, `anon=${pausedAnon.status} b=${pausedB.status} owner=${pausedOwner.status}`);
+  await A.call('PUT', `/api/listings/${LA}`, { status: 'active', showExactAddress: false });
 
   await chk('posts', 'cannot delete another user\'s post', 'DELETE', `/api/posts/${P}`);
   await chk('posts', 'cannot delete another user\'s comment', 'DELETE', `/api/comments/${CM}`);
@@ -436,9 +451,9 @@ const denied = r => r.status >= 400 && r.status < 500;
   const xdel = await B.call('DELETE', `/api/listings/${LB}/photos/${LA_PHOTO}`);
   const aPhotos = await A.call('GET', `/api/listings/${LA}/photos`);
   record('listings', 'deleting A\'s photo through B\'s own listing id is refused and the photo survives', denied(xdel) && (aPhotos.json.photos || []).some(p => p.id === LA_PHOTO), `del=${xdel.status} photos=${aPhotos.text.slice(0, 80)}`);
-  const pfull = await B.call('PUT', `/api/pre-listings/${PL}`, { title: 'HACKED', askingPrice: 1, city: 'x', state: 'CA', zip: '92104', propertyType: 'Condo', beds: 1, baths: 1 });
+  const pfull = await B.call('PUT', `/api/pre-listings/${PL}`, { title: 'HACKED', askingPrice: 750000, city: 'x', state: 'CA', zip: '92104', propertyType: 'Condo', beds: 1, baths: 1 });
   const plNow = sql(`SELECT title, status FROM pre_listings WHERE id = ${PL}`)[0];
-  record('pre-listing', 'a full edit of A\'s pre-listing by B is refused and nothing changes', denied(pfull) && plNow.title === 'AUTHZ Pre', `status ${pfull.status} row=${JSON.stringify(plNow)}`);
+  record('pre-listing', 'a full edit of A\'s pre-listing by B is refused (not the owner) and nothing changes', (pfull.status === 403 || pfull.status === 404) && plNow.title === 'AUTHZ Pre', `status ${pfull.status} row=${JSON.stringify(plNow)}`);
   const pf = await B.call('POST', '/api/portfolios', { title: 'steal', memberListingIds: [LA, LB], locations: 'San Diego, CA', desiredType: 'Any', priceMin: 1, priceMax: 2, minBeds: 0, minBaths: 0 });
   const stolen = sql(`SELECT COUNT(*) AS n FROM portfolio_members WHERE member_listing_id = ${LA}`)[0];
   record('listings', 'B cannot bundle A\'s listing into B\'s portfolio', denied(pf) && stolen.n === 0, `status ${pf.status} members=${stolen.n} ${pf.text.slice(0, 80)}`);
@@ -448,9 +463,9 @@ const denied = r => r.status >= 400 && r.status < 500;
   const aSeesC = await A.call('GET', `/api/posts/${P}/comments`);
   const anonSeesC = await anon.call('GET', `/api/posts/${P}/comments`);
   record('blocks', 'a blocked user\'s comments are hidden from the blocker but not from anonymous readers', !aSeesC.text.includes(MARK.comment) && anonSeesC.text.includes(MARK.comment), `blocker sees=${aSeesC.text.includes(MARK.comment)} anon sees=${anonSeesC.text.includes(MARK.comment)}`);
-  const bProp = await B.call('POST', '/api/pre-listings', { title: 'x', askingPrice: 1, city: 'x', state: 'CA', zip: '92104', propertyType: 'Condo', beds: 1, baths: 1, userId: A.id, user_id: A.id });
+  const bProp = await B.call('POST', '/api/pre-listings', { title: 'x', askingPrice: 750000, city: 'x', state: 'CA', zip: '92104', propertyType: 'Condo', beds: 1, baths: 1, userId: A.id, user_id: A.id });
   const owner = bProp.json && bProp.json.id ? sql(`SELECT user_id FROM pre_listings WHERE id = ${bProp.json.id}`)[0] : null;
-  record('privilege', 'creating a pre-listing with someone else\'s user id in the body is ignored', !owner || owner.user_id === B.id, JSON.stringify(owner));
+  record('privilege', 'creating a pre-listing with someone else\'s user id in the body is ignored', bProp.status === 201 && !!owner && owner.user_id === B.id, `status ${bProp.status} ${JSON.stringify(owner)}`);
   const lp = await B.call('GET', `/api/license-photos/${G.id}`);
   record('privilege', 'another agent\'s license photo endpoint is forbidden', lp.status === 403, `status ${lp.status}`);
 
@@ -572,6 +587,70 @@ const denied = r => r.status >= 400 && r.status < 500;
   const publicBrowse = (await H.call('GET', '/api/pre-listings')).json.preListings.find(p => p.id === plOpen);
   record('attention', "those counts are never computed for anyone browsing the public open list, only the owner's own mine=1 view",
     publicBrowse && publicBrowse.pendingBidCount === null && publicBrowse.pendingShowingCount === null, JSON.stringify(publicBrowse && { pendingBidCount: publicBrowse.pendingBidCount, pendingShowingCount: publicBrowse.pendingShowingCount }));
+
+  // ---------- You're in Control: phone privacy, contact sharing, pause (batch R3-1a) ----------
+  // Uses plOpen (open, H has a pending proposal on it). Everything here hangs off the test users (A's phone is on
+  // A's row; contact_shares and address_views cascade with A's pre-listing), so authz-cleanup.js removes it all.
+  console.log('\n== you\'re in control ==');
+  const phoneSave = await A.call('PUT', '/api/me', { phone: MARK.phone });
+  const aPhoneRow = sql(`SELECT phone, phone_public FROM users WHERE id = ${A.id}`)[0];
+  record('control', 'A saved a phone number, and it stays private (phone_public 0)', phoneSave.status === 200 && aPhoneRow.phone === MARK.phone && aPhoneRow.phone_public === 0, `status ${phoneSave.status} ${JSON.stringify(aPhoneRow)}`);
+  // In any format: 619-555-1234, (619) 555-1234, 619.555.1234, +16195551234, a tel: link...
+  const phoneRe = new RegExp(`619\\D{0,3}555\\D{0,2}${MARK.phone.slice(-4)}`);
+  const hasPhone = (r) => phoneRe.test(r.text);
+  for (const [who, label] of [[anon, 'anonymous'], [B, 'another user'], [H, 'an approved agent']]) {
+    const apiUser = await who.call('GET', `/api/users/${A.id}`);
+    record('control', `${label} never gets A's phone from /api/users/:A`, !hasPhone(apiUser), `status ${apiUser.status}`);
+    const page = await who.call('GET', `/profile/${A.id}`);
+    record('control', `${label} never gets A's phone from /profile/:A`, !hasPhone(page), `status ${page.status}`);
+  }
+  const shareUrl = `/api/pre-listings/${plOpen}/contact-shares`;
+  const hBefore = await H.call('GET', `/api/pre-listings/${plOpen}`);
+  const hpBefore = (hBefore.json && hBefore.json.preListing) || {};
+  record('control', 'an agent with a proposal gets no address and no sharedContact before A shares', hBefore.status === 200 && !('address' in hpBefore) && !hBefore.text.includes('"sharedContact"') && !hBefore.text.includes(MARK.preAddress), `keys=${Object.keys(hpBefore).join(',').slice(0, 160)}`);
+  for (const [who, label] of [[B, 'B (not an agent)'], [C, 'C (a stranger)'], [H, 'the agent themself']]) {
+    const r = await who.call('POST', shareUrl, { agentId: H.id });
+    record('control', `${label} can't share A's contact info`, denied(r), `status ${r.status} ${r.text.slice(0, 90)}`);
+  }
+  record('control', 'anonymous can\'t share A\'s contact info', (await anon.call('POST', shareUrl, { agentId: H.id })).status === 401, '');
+  record('control', 'no share exists after those attempts', sql(`SELECT COUNT(*) AS n FROM contact_shares WHERE pre_listing_id = ${plOpen}`)[0].n === 0, '');
+  const aShare = await A.call('POST', shareUrl, { agentId: H.id });
+  record('control', 'A can share with the agent who sent a proposal', aShare.status === 200 && aShare.json && aShare.json.share && aShare.json.share.agentId === H.id, `status ${aShare.status} ${aShare.text.slice(0, 120)}`);
+  for (const [who, label] of [[B, 'B'], [C, 'C']]) {
+    const r = await who.call('DELETE', `${shareUrl}/${H.id}`);
+    record('control', `${label} can't stop A's share`, denied(r), `status ${r.status}`);
+  }
+  record('control', 'the share is still there after those attempts', sql(`SELECT COUNT(*) AS n FROM contact_shares WHERE pre_listing_id = ${plOpen} AND agent_id = ${H.id}`)[0].n === 1, '');
+  const hShared = await H.call('GET', `/api/pre-listings/${plOpen}`);
+  const hsc = hShared.json && hShared.json.preListing && hShared.json.preListing.sharedContact;
+  record('control', 'after A shares, the agent sees A\'s real address (and phone) in sharedContact', !!hsc && hsc.address === MARK.preAddress && hsc.phone === MARK.phone, JSON.stringify(hsc).slice(0, 160));
+  for (const [who, label] of [[B, 'B'], [C, 'C']]) {
+    const r = await who.call('GET', `/api/pre-listings/${plOpen}`);
+    record('control', `${label} still gets no address, no sharedContact and no owner-only lists`, !r.text.includes('"sharedContact"') && !r.text.includes('"contactShares"') && !r.text.includes('"addressViews"') && !r.text.includes(MARK.preAddress) && !hasPhone(r), `status ${r.status}`);
+  }
+  record('control', 'the agent never sees the owner-only share list or "who saw my address"', !hShared.text.includes('"contactShares"') && !hShared.text.includes('"addressViews"'), '');
+  const aView = ((await A.call('GET', `/api/pre-listings/${plOpen}`)).json || {}).preListing || {};
+  record('control', 'A sees the share and that the agent saw the address', (aView.contactShares || []).some(s => s.agentId === H.id) && (aView.addressViews || []).some(v => v.agentId === H.id && v.via === 'share'), JSON.stringify({ s: aView.contactShares, v: aView.addressViews }).slice(0, 200));
+  const aUnshare = await A.call('DELETE', `${shareUrl}/${H.id}`);
+  const hAfter = await H.call('GET', `/api/pre-listings/${plOpen}`);
+  record('control', 'after A stops sharing, the agent gets no address again', aUnshare.status === 200 && !hAfter.text.includes('"sharedContact"') && !hAfter.text.includes(MARK.preAddress), `status ${aUnshare.status}`);
+  const paused = () => sql(`SELECT proposals_paused AS p FROM pre_listings WHERE id = ${plOpen}`)[0].p;
+  for (const [who, label] of [[B, 'B'], [C, 'C'], [H, 'the agent']]) {
+    const r = await who.call('PUT', `/api/pre-listings/${plOpen}`, { action: 'pause' });
+    record('control', `${label} can't pause A's pre-listing`, denied(r) && paused() === 0, `status ${r.status}`);
+  }
+  const aPause = await A.call('PUT', `/api/pre-listings/${plOpen}`, { action: 'pause' });
+  record('control', 'A can pause new proposals', aPause.status === 200 && aPause.json.proposalsPaused === true && paused() === 1, `status ${aPause.status}`);
+  for (const [who, label] of [[B, 'B'], [C, 'C'], [H, 'the agent']]) {
+    const r = await who.call('PUT', `/api/pre-listings/${plOpen}`, { action: 'resume' });
+    record('control', `${label} can't resume A's pre-listing`, denied(r) && paused() === 1, `status ${r.status}`);
+  }
+  const aResume = await A.call('PUT', `/api/pre-listings/${plOpen}`, { action: 'resume' });
+  record('control', 'A can resume proposals', aResume.status === 200 && aResume.json.proposalsPaused === false && paused() === 0, `status ${aResume.status}`);
+  for (const method of ['GET', 'PUT']) {
+    const r = await anon.call(method, '/api/contact-settings', method === 'PUT' ? { contactMode: 'quiet' } : undefined);
+    record('control', `anonymous ${method} /api/contact-settings is refused`, r.status === 401, `status ${r.status}`);
+  }
 
   const e1 = await A.call('PUT', `/api/pre-listings/${PL2}`, { ...PL2_BODY, title: 'AUTHZ Pre 2 edited', beds: 4 });
   const row1 = sql(`SELECT title, beds, asking_price FROM pre_listings WHERE id = ${PL2}`)[0];
@@ -1301,9 +1380,11 @@ const denied = r => r.status >= 400 && r.status < 500;
         if (name === 'lockbox note (non-agent)' && who === H) continue;
         if (r.text.includes(needle)) record('leak', `${who.role} response to GET ${url} contains ${name}`, false, needle);
       }
+      // A's private phone in any format (text, tel: link), e.g. on /listing/:LA, /augmented-home/:AUG2, /green-home/:GREEN2.
+      if (phoneRe.test(r.text)) record('leak', `${who.role} response to GET ${url} contains A phone`, false, 'A phone');
     }
   }
-  record('leak', `scanned ${urls.length} endpoints as attacker and anonymous for ${secrets.length} kinds of secret`, !findings.some(f => f.startsWith('[leak]')), '');
+  record('leak', `scanned ${urls.length} endpoints as attacker and anonymous for ${secrets.length + 1} kinds of secret (incl. A's phone)`, !findings.some(f => f.startsWith('[leak]')), '');
 
   // ---------- collect ids for cleanup ----------
   writeCleanupFile();

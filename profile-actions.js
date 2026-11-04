@@ -66,6 +66,7 @@
       const currentPhone = section.dataset.phone || '';
       section.innerHTML = `
         <input type="tel" id="phoneInput" maxlength="30" placeholder="e.g. (619) 555-0123" value="${escapeHtml(currentPhone)}">
+        <p class="tiny">Private unless you turn on 'Show my phone number' in You're in Control. <a href="/app#control">Change this setting</a></p>
         <div class="form-actions">
           <button type="button" class="btn btn-primary btn-sm" id="savePhoneBtn">Save</button>
           <button type="button" class="btn btn-ghost btn-sm" id="cancelPhoneBtn">Cancel</button>

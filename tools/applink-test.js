@@ -1,8 +1,10 @@
-// Loads the real parseAppLink/openAppLink/openNotification out of main.js into a stubbed sandbox and checks where each kind of notification/deep link leads. Usage: node tools/applink-test.js main.js
+// Loads the real parseAppLink/openAppLink/openNotification out of main.js into a stubbed sandbox and checks where each kind of notification/deep link leads. Usage: node tools/applink-test.js main.js (or the project root)
 // and checks where each kind of notification link leads.
 const fs = require('fs');
 const vm = require('vm');
-const src = fs.readFileSync(process.argv[2], 'utf8');
+// Takes main.js itself or the project root (then its main.js).
+const arg = process.argv[2] || '.';
+const src = fs.readFileSync(fs.statSync(arg).isDirectory() ? require('path').join(arg, 'main.js') : arg, 'utf8');
 
 function grab(name) {
   const start = src.indexOf(`function ${name}(`);
@@ -67,6 +69,8 @@ function expect(label, actual, expected) {
   expect('#post-home lands on the Agents tab and opens the post-your-home form', await run('marketplace', '/app#post-home'), [closePanel, ['goToTab', 'marketplace'], ['open', 'postHomeWrap', true], ['scrollIntoView', 'postHomeWrap']]);
   expect('#become-agent opens the agent application', await run('marketplace', '/app#become-agent'), [closePanel, ['goToTab', 'marketplace'], ['open', 'becomeAgentWrap', true], ['scrollIntoView', 'becomeAgentWrap']]);
   expect('#find-agent opens the agent directory', await run('marketplace', '/app#find-agent'), [closePanel, ['goToTab', 'marketplace'], ['open', 'agentDirectoryWrap', true], ['scrollIntoView', 'agentDirectoryWrap']]);
+  expect("#control scrolls to the You're in Control settings on the Agents tab", await run('marketplace', '/app#control'), [closePanel, ['goToTab', 'marketplace'], ['scrollIntoView', 'youreInControl']]);
+  expect('#messages (the weekly delivery notice) opens the Messages tab', await run('marketplace', '/app#messages'), [closePanel, ['goToTab', 'messages']]);
   expect('no link at all', await run('marketplace', ''), [closePanel]);
 
   console.log(failed ? `\n${failed} FAILED` : '\nall passed');

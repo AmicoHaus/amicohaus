@@ -1,5 +1,6 @@
 import { sendEmail } from './email.js';
-import { sendOrHoldEmail, dutyFromRow } from './agentDuty.js';
+import { sendOrHoldEmail, dutyFromRow, isOnDuty, AGENT_HOLD_KINDS } from './agentDuty.js';
+import { quietHoursWindow, fetchAgentIdentity, identityLine, identityParens, weeklyMessagesBody } from './contactPolicy.js';
 
 // In-app (and, for new-request pings only, email) notifications for the
 // Pre-Listings Marketplace. Kept separate from matchNotify.js since this has
@@ -9,34 +10,91 @@ async function notify(db, userId, body, link) {
   await db.prepare("INSERT INTO notifications (user_id, type, body, link) VALUES (?, 'marketplace', ?, ?)").bind(userId, body, link).run();
 }
 
+// Who an alert to a homeowner is from: "Name · DRE #01234567 · Brokerage" for an approved agent (California DRE
+// rule at a point of contact), just the name for anyone else, or the fallback when there's no such account.
+async function senderLabel(db, userId, fallback = 'An agent') {
+  const who = await fetchAgentIdentity(db, userId);
+  return who && who.name ? identityLine(who) : fallback;
+}
+
 // Events time-sensitive or encouraging enough to be worth an email, not just the in-app bell: a new request an
 // agent could lose to someone faster, and a new vote/proposal on a homeowner's own pre-listing (the thing most
 // likely to pull someone back into the app who posted once and never came back to check). A homeowner reacting
 // to something already has the app open when it happens, so acceptances/declines/invites stay in-app only.
-// Capped at a generous number per day — these are real activity, not a nurture digest — but this project has no
-// cron-triggered worker for a real batched digest, so "stop after N" is the spam guard, the same workaround
-// matchNotify.js uses for match emails.
+// Capped at a generous number per day per PERSON (every email that went out or is waiting counts, whatever it was
+// about) — these are real activity, not a nurture digest — but this project has no cron-triggered worker for a
+// real batched digest, so "stop after N" is the spam guard, the same workaround matchNotify.js uses for match emails.
 const CAPPED_MARKETPLACE_EMAILS_PER_DAY = 8;
 
-// recipient: { userId, email, emailFrequency, duty? }. duty: an agent's on-duty hours (agentDuty.js); the in-app
-// notification always lands right away, and the email waits until they're on duty. cta is the call-to-action clause, e.g. "see the details and
-// send a proposal" vs. "see what they said" — kept as a parameter since the right next action differs by event.
+// Times in alerts are Pacific (the site serves San Diego County); Workers themselves run on UTC.
+const PACIFIC = 'America/Los_Angeles';
+
+const isDemoEmail = (email) => String(email || '').toLowerCase().endsWith('@demo.amicohaus.local');
+
+// What every alert path reads about the person it goes to.
+const RECIPIENT_FIELDS = `users.id, users.email, users.email_frequency, users.status, users.quiet_start, users.quiet_end,
+  agent_profiles.duty_days_json, agent_profiles.duty_start, agent_profiles.duty_end`;
+
+// recipient: { userId, email, emailFrequency, status, duty, holdKind, holdRef }. email is '' for demo and suspended
+// accounts (they never get one; the in-app alert still lands). duty: when it's OK to email them — an agent's
+// on-duty hours for agent alerts when they've set some (and then nothing else waits), otherwise their quiet hours.
+export function recipientFromRow(row, { holdKind = 'owner_alert', holdRef = null } = {}) {
+  const agentDuty = dutyFromRow(row);
+  const duty = agentDuty ? (AGENT_HOLD_KINDS.includes(holdKind) ? agentDuty : null) : quietHoursWindow(row);
+  const emailable = !!row.email && row.status === 'active' && !isDemoEmail(row.email);
+  return { userId: row.id, email: emailable ? row.email : '', emailFrequency: row.email_frequency, status: row.status, duty, holdKind, holdRef };
+}
+
+export async function fetchRecipient(db, userId, opts = {}) {
+  const row = await db.prepare(`SELECT ${RECIPIENT_FIELDS} FROM users LEFT JOIN agent_profiles ON agent_profiles.user_id = users.id WHERE users.id = ?`)
+    .bind(userId).first();
+  return row ? recipientFromRow(row, opts) : null;
+}
+
+async function fetchRecipients(db, userIds, opts = {}) {
+  const ids = [...new Set((userIds || []).map(Number).filter(Boolean))];
+  if (!ids.length) return [];
+  const rows = await db.prepare(
+    `SELECT ${RECIPIENT_FIELDS} FROM users LEFT JOIN agent_profiles ON agent_profiles.user_id = users.id
+     WHERE users.id IN (SELECT value FROM json_each(?))`
+  ).bind(JSON.stringify(ids)).all();
+  return rows.results.map(r => recipientFromRow(r, opts));
+}
+
+// The in-app notification always lands right away; the email goes now, or waits for the duty/quiet window (held
+// emails go out combined from runDueHeldEmails). cta is the call-to-action clause, e.g. "see the details and send a
+// proposal" vs. "see what they said" — kept as a parameter since the right next action differs by event.
+// Returns 'sent' | 'held' | 'failed', or null when no email was due.
 async function notifyAndMaybeEmail(context, recipient, body, link, subject, cta) {
   const db = context.env.DB;
-  // Checked before inserting this event's own row, not after — counting it against its own cap would make the
-  // Nth email of the day look like the (N+1)th and get skipped one send too early.
-  let underCap = true;
-  if (recipient.emailFrequency === 'capped') {
-    const sent = await db.prepare(
-      `SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND type = 'marketplace' AND body = ? AND created_at >= datetime('now', '-1 day')`
-    ).bind(recipient.userId, body).first();
-    underCap = sent.n < CAPPED_MARKETPLACE_EMAILS_PER_DAY;
-  }
-  await notify(db, recipient.userId, body, link);
-  if (!recipient.email || !underCap) return; // demo accounts and any row missing an email never get one
+  const email = String(recipient.email || '');
+  const eligible = !!email && !isDemoEmail(email) && (!recipient.status || recipient.status === 'active');
+  // The cap check and the claim on it are one statement (D1 runs each statement on its own, one at a time), so two
+  // alerts landing at the same moment can't both read "7 sent" and both go out. The count runs before this event's
+  // own row exists, so the Nth email of the day isn't counted against itself.
+  const inserted = await db.prepare(
+    `INSERT INTO notifications (user_id, type, body, link, emailed_at)
+     SELECT ?1, 'marketplace', ?2, ?3,
+            CASE WHEN ?4 = 1 AND (?5 = 0 OR (SELECT COUNT(*) FROM notifications WHERE user_id = ?1 AND emailed_at >= datetime('now', '-1 day')) < ?6)
+                 THEN datetime('now') END
+     RETURNING id, emailed_at`
+  ).bind(recipient.userId, body, link, eligible ? 1 : 0, recipient.emailFrequency === 'capped' ? 1 : 0, CAPPED_MARKETPLACE_EMAILS_PER_DAY).first();
+  const willEmail = !!(inserted && inserted.emailed_at);
+  if (!willEmail) return null;
   const text = `${body} Log in to ${cta}: ${new URL(context.request.url).origin}${link}`;
-  if (recipient.duty) return sendOrHoldEmail(context, { userId: recipient.userId, to: recipient.email, subject, text, duty: recipient.duty, kind: recipient.holdKind, ref: recipient.holdRef });
-  return sendEmail(context, { to: recipient.email, subject, text });
+  const held = !!recipient.duty && !isOnDuty(recipient.duty);
+  let ok = false;
+  try {
+    ok = recipient.duty
+      ? await sendOrHoldEmail(context, { userId: recipient.userId, to: email, subject, text, duty: recipient.duty, kind: recipient.holdKind || 'owner_alert', ref: recipient.holdRef || null })
+      : await sendEmail(context, { to: email, subject, text });
+  } catch { ok = false; }
+  if (!ok) {
+    // Nothing went out, so it doesn't count against the cap.
+    await db.prepare('UPDATE notifications SET emailed_at = NULL WHERE id = ?').bind(inserted.id).run();
+    return 'failed';
+  }
+  return held ? 'held' : 'sent';
 }
 
 function requestLink(requestType, requestId) {
@@ -47,19 +105,14 @@ function requestLink(requestType, requestId) {
 // updated: an edit of a live proposal rather than a new one.
 export async function notifyNewBid(context, requestType, requestId, ownerUserIds, agentUserId, { sealed = false, updated = false } = {}) {
   const db = context.env.DB;
-  const agent = sealed ? null : await db.prepare('SELECT display_name FROM users WHERE id = ?').bind(agentUserId).first();
   const owners = Array.isArray(ownerUserIds) ? ownerUserIds : [ownerUserIds];
   const link = requestLink(requestType, requestId);
   const body = sealed
     ? 'A new proposal came in. Every proposal opens to you together on your Decision Night.'
-    : `${agent ? agent.display_name : 'An agent'} ${updated ? 'updated their proposal' : 'submitted a proposal'}.`;
-  const ownerRows = await db.batch(owners.map(id => db.prepare('SELECT id, email, email_frequency FROM users WHERE id = ?').bind(id)));
-  await Promise.allSettled(ownerRows.map(r => {
-    const owner = r.results[0];
-    if (!owner) return Promise.resolve();
-    return notifyAndMaybeEmail(context, { userId: owner.id, email: owner.email, emailFrequency: owner.email_frequency }, body, link,
-      'New proposal on Amico Haus', 'see the details and compare it with any others');
-  }));
+    : `${await senderLabel(db, agentUserId)} ${updated ? 'updated their proposal' : 'submitted a proposal'}.`;
+  const recipients = await fetchRecipients(db, owners);
+  await Promise.allSettled(recipients.map(owner => notifyAndMaybeEmail(context, owner, body, link,
+    'New proposal on Amico Haus', 'see the details and compare it with any others')));
 }
 
 const VOTE_LABELS = { too_high: 'too high', too_low: 'too low', just_right: 'about right' };
@@ -70,12 +123,20 @@ const VOTE_LABELS = { too_high: 'too high', too_low: 'too low', just_right: 'abo
 // capped-per-day email guard as everything else here.
 export async function notifyNewVote(context, preListingId, ownerUserId, agentUserId, vote) {
   const db = context.env.DB;
-  const agent = await db.prepare('SELECT display_name FROM users WHERE id = ?').bind(agentUserId).first();
-  const owner = await db.prepare('SELECT id, email, email_frequency FROM users WHERE id = ?').bind(ownerUserId).first();
+  const owner = await fetchRecipient(db, ownerUserId);
   if (!owner) return;
-  const body = `${agent ? agent.display_name : 'An agent'} says your asking price looks ${VOTE_LABELS[vote] || vote}.`;
-  await notifyAndMaybeEmail(context, { userId: owner.id, email: owner.email, emailFrequency: owner.email_frequency }, body,
-    `/app#pre-listing-${preListingId}`, 'New price feedback on Amico Haus', 'see what they said');
+  const body = `${await senderLabel(db, agentUserId)} says your asking price looks ${VOTE_LABELS[vote] || vote}.`;
+  await notifyAndMaybeEmail(context, owner, body, `/app#pre-listing-${preListingId}`, 'New price feedback on Amico Haus', 'see what they said');
+}
+
+// A new price opinion (the agent's suggested list price), e.g. on a home posted without a price. The body carries
+// the agent's DRE identity line: it's often the first time the homeowner hears of them.
+export async function notifyNewPriceOpinion(context, ownerId, agentUserId, preListingId) {
+  const db = context.env.DB;
+  const owner = await fetchRecipient(db, ownerId);
+  if (!owner) return;
+  await notifyAndMaybeEmail(context, owner, `${await senderLabel(db, agentUserId)} shared a price opinion on your home.`, `/app#pre-listing-${preListingId}`,
+    'New price opinion on Amico Haus', 'see what they said');
 }
 
 // A new showing request is the same kind of "homeowner should come back and look" event a vote or proposal is,
@@ -83,30 +144,46 @@ export async function notifyNewVote(context, preListingId, ownerUserId, agentUse
 // notifyBidDecision below — the agent who asked is already watching for an answer, same reasoning as there.
 export async function notifyNewShowingRequest(context, preListingId, ownerUserId, agentUserId, proposedAt) {
   const db = context.env.DB;
-  const agent = await db.prepare('SELECT display_name FROM users WHERE id = ?').bind(agentUserId).first();
-  const owner = await db.prepare('SELECT id, email, email_frequency FROM users WHERE id = ?').bind(ownerUserId).first();
+  const owner = await fetchRecipient(db, ownerUserId);
   if (!owner) return;
-  const when = new Date(proposedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
-  const body = `${agent ? agent.display_name : 'An agent'} requested a showing for ${when}.`;
-  await notifyAndMaybeEmail(context, { userId: owner.id, email: owner.email, emailFrequency: owner.email_frequency }, body,
-    `/app#pre-listing-${preListingId}`, 'Showing request on Amico Haus', 'accept or decline the request');
+  const when = new Date(proposedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: PACIFIC });
+  const body = `${await senderLabel(db, agentUserId)} requested a showing for ${when}.`;
+  await notifyAndMaybeEmail(context, owner, body, `/app#pre-listing-${preListingId}`, 'Showing request on Amico Haus', 'accept or decline the request');
 }
 
 export async function notifyShowingDecision(context, preListingId, agentUserId, accepted, proposedAt) {
   const db = context.env.DB;
-  const when = new Date(proposedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+  const when = new Date(proposedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: PACIFIC });
   await notify(db, agentUserId, accepted ? `Your showing request for ${when} was accepted!` : `Your showing request for ${when} wasn't accepted.`, `/app#pre-listing-${preListingId}`);
 }
 
 // A message is the clearest "someone is waiting on you" event on the whole site, so it gets the same email
-// treatment as a new vote/proposal/showing — same capped-per-day guard, keyed off this exact body text, so a
-// burst of messages from the same person in one conversation doesn't turn into a burst of emails either.
-export async function notifyNewMessage(context, recipientId, senderName, conversationId) {
+// treatment as a new vote/proposal/showing, under the same per-person daily cap. senderId (when given) adds an
+// agent's DRE number and brokerage: "New message from Ana (DRE #01234567, Pacific Realty)".
+export async function notifyNewMessage(context, recipientId, senderName, conversationId, senderId = null) {
   const db = context.env.DB;
-  const recipient = await db.prepare('SELECT id, email, email_frequency FROM users WHERE id = ?').bind(recipientId).first();
+  const recipient = await fetchRecipient(db, recipientId);
   if (!recipient) return;
-  await notifyAndMaybeEmail(context, { userId: recipient.id, email: recipient.email, emailFrequency: recipient.email_frequency },
-    `New message from ${senderName}`, `/app#messages-${conversationId}`, 'New message on Amico Haus', 'read and reply');
+  const agent = senderId ? await fetchAgentIdentity(db, senderId) : null;
+  const who = agent && agent.isAgent ? identityParens({ ...agent, name: senderName || agent.name }) : senderName;
+  await notifyAndMaybeEmail(context, recipient, `New message from ${who}`, `/app#messages-${conversationId}`, 'New message on Amico Haus', 'read and reply');
+}
+
+// The weekly delivery (contactPolicy.js runDueWeeklyMessages): one alert and one email for everything that waited.
+// Returns what happened to the email ('sent' | 'held' | 'failed' | null).
+export async function notifyWeeklyMessages(context, recipientId, messageCount, agentCount) {
+  const recipient = await fetchRecipient(context.env.DB, recipientId, { holdKind: 'weekly_messages' });
+  if (!recipient) return null;
+  return notifyAndMaybeEmail(context, recipient, weeklyMessagesBody(messageCount, agentCount), '/app#messages',
+    'Your weekly agent messages on Amico Haus', 'read and reply');
+}
+
+// The homeowner chose to share their exact address, phone and email with this agent for one home.
+export async function notifyContactShared(context, agentId, ownerName, preListingId, title) {
+  const recipient = await fetchRecipient(context.env.DB, agentId);
+  if (!recipient) return;
+  await notifyAndMaybeEmail(context, recipient, `${ownerName || 'A homeowner'} shared their contact info with you for ${title || 'their home'}.`,
+    `/app#pre-listing-${preListingId}`, 'A homeowner shared their contact info on Amico Haus', 'see how to reach them');
 }
 
 export async function notifyTeamInvite(context, targetUserId) {
@@ -118,11 +195,10 @@ export async function notifyTeamInvite(context, targetUserId) {
 export async function notifyNewProjectInterest(context, projectId, ownerUserId, investorUserId) {
   const db = context.env.DB;
   const investor = await db.prepare('SELECT display_name FROM users WHERE id = ?').bind(investorUserId).first();
-  const owner = await db.prepare('SELECT id, email, email_frequency FROM users WHERE id = ?').bind(ownerUserId).first();
+  const owner = await fetchRecipient(db, ownerUserId);
   if (!owner) return;
   const body = `${investor ? investor.display_name : 'An investor'} is interested in your FinderMine project.`;
-  await notifyAndMaybeEmail(context, { userId: owner.id, email: owner.email, emailFrequency: owner.email_frequency }, body,
-    `/app#dev-project-${projectId}`, 'New interest on your FinderMine project', 'see who it is and follow up');
+  await notifyAndMaybeEmail(context, owner, body, `/app#dev-project-${projectId}`, 'New interest on your FinderMine project', 'see who it is and follow up');
 }
 
 export async function notifyAgentInvited(context, requestType, requestId, agentUserId, invitedByUserId) {
@@ -143,6 +219,7 @@ export async function notifyPastClientReview(context, agentUserId) {
 }
 
 // Decision Night arrived: the homeowner's proposals are all open now (see decisionNight.js runDueDecisionNights).
+// owner: a recipient from fetchRecipient.
 export async function notifyProposalsOpen(context, owner, preListingId, count) {
   const body = count > 0
     ? `It's Decision Night: your ${count} proposal${count === 1 ? ' is' : 's are'} open. Compare them side by side.`
@@ -171,15 +248,19 @@ export async function notifyTransactionOpened(context, requestId, notifyUserId, 
 // listings with no zip on file, so it pings every opted-in approved agent
 // instead of trying to guess a location match.
 // excludeUserIds: the people who opened the request (a homeowner who is also an agent isn't pinged about their own).
+// A pre-listing whose owner paused new proposals pings nobody.
 export async function notifyAgentsNewRequest(context, requestType, requestId, zip, excludeUserIds = []) {
   const db = context.env.DB;
+  if (requestType === 'pre_listing') {
+    const pl = await db.prepare('SELECT proposals_paused FROM pre_listings WHERE id = ?').bind(requestId).first();
+    if (pl && pl.proposals_paused) return;
+  }
   const link = requestLink(requestType, requestId);
   const bodyText = requestType === 'pre_listing' ? 'A new pre-listing opened for proposals near you.' : 'A new trade transaction request opened for proposals.';
   const subject = requestType === 'pre_listing' ? 'New pre-listing near you on Amico Haus' : 'New trade request open for proposals on Amico Haus';
 
   const agentsRow = await db.prepare(
-    `SELECT agent_profiles.user_id, agent_profiles.service_zips_json, agent_profiles.duty_days_json, agent_profiles.duty_start, agent_profiles.duty_end,
-            users.email, users.email_frequency
+    `SELECT ${RECIPIENT_FIELDS}, agent_profiles.user_id, agent_profiles.service_zips_json
      FROM agent_profiles JOIN users ON users.id = agent_profiles.user_id
      WHERE agent_profiles.status = 'approved' AND agent_profiles.notify_new_requests = 1
        AND users.status = 'active' AND users.email NOT LIKE '%@demo.amicohaus.local'`
@@ -188,7 +269,7 @@ export async function notifyAgentsNewRequest(context, requestType, requestId, zi
   agentsRow.results = agentsRow.results.filter(a => !excluded.has(Number(a.user_id)));
   if (agentsRow.results.length === 0) return;
 
-  const asRecipient = a => ({ userId: a.user_id, email: a.email, emailFrequency: a.email_frequency, duty: dutyFromRow(a), holdKind: 'new_request', holdRef: `${requestType}:${requestId}` });
+  const asRecipient = a => recipientFromRow(a, { holdKind: 'new_request', holdRef: `${requestType}:${requestId}` });
   const cta = 'see the details and send a proposal';
   const sends = [];
   if (requestType !== 'pre_listing' || !zip) {
@@ -221,11 +302,10 @@ export async function notifyAgentsNewRequest(context, requestType, requestId, zi
 export async function notifyNewOffer(context, link, ownerUserId, buyerUserId) {
   const db = context.env.DB;
   const buyer = await db.prepare('SELECT display_name FROM users WHERE id = ?').bind(buyerUserId).first();
-  const owner = await db.prepare('SELECT id, email, email_frequency FROM users WHERE id = ?').bind(ownerUserId).first();
+  const owner = await fetchRecipient(db, ownerUserId);
   if (!owner) return;
   const body = `${buyer ? buyer.display_name : 'Someone'} made an offer on your listing.`;
-  await notifyAndMaybeEmail(context, { userId: owner.id, email: owner.email, emailFrequency: owner.email_frequency }, body,
-    link, 'New offer on Amico Haus', 'see the details');
+  await notifyAndMaybeEmail(context, owner, body, link, 'New offer on Amico Haus', 'see the details');
 }
 
 export async function notifyOfferDecision(context, buyerUserId, link, accepted) {
@@ -237,12 +317,10 @@ export async function notifyOfferDecision(context, buyerUserId, link, accepted) 
 // who countered their counter. Supports any number of back-and-forth rounds, not just the seller's first one.
 export async function notifyOfferCounter(context, link, notifyUserId, counterPrice, proposedBy) {
   const price = '$' + Number(counterPrice).toLocaleString('en-US');
-  const db = context.env.DB;
-  const recipient = await db.prepare('SELECT id, email, email_frequency FROM users WHERE id = ?').bind(notifyUserId).first();
+  const recipient = await fetchRecipient(context.env.DB, notifyUserId);
   if (!recipient) return;
   const body = proposedBy === 'owner' ? `The seller countered your offer at ${price}.` : `The buyer countered back at ${price}.`;
-  await notifyAndMaybeEmail(context, { userId: recipient.id, email: recipient.email, emailFrequency: recipient.email_frequency },
-    body, link, 'Counter-offer on Amico Haus', 'see the details and respond');
+  await notifyAndMaybeEmail(context, recipient, body, link, 'Counter-offer on Amico Haus', 'see the details and respond');
 }
 
 export async function notifyCounterDecision(context, link, notifyUserId, accepted) {
@@ -252,34 +330,22 @@ export async function notifyCounterDecision(context, link, notifyUserId, accepte
 // A listing someone favorited just got a new open house scheduled -- the one event worth proactively telling
 // a prospective buyer about, since they have no other way to find out short of re-checking the page.
 export async function notifyOpenHouseScheduled(context, link, favoriterUserIds, startsAt) {
-  const db = context.env.DB;
   if (!favoriterUserIds.length) return;
-  const when = new Date(startsAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
-  const rows = await db.batch(favoriterUserIds.map(id => db.prepare('SELECT id, email, email_frequency FROM users WHERE id = ?').bind(id)));
-  const sends = rows.map(r => {
-    const u = r.results[0];
-    if (!u) return Promise.resolve();
-    return notifyAndMaybeEmail(context, { userId: u.id, email: u.email, emailFrequency: u.email_frequency },
-      `A new open house was scheduled for ${when} on a listing you saved.`, link, 'New open house on a saved listing', 'see the details');
-  });
-  await Promise.allSettled(sends);
+  const when = new Date(startsAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: PACIFIC });
+  const recipients = await fetchRecipients(context.env.DB, favoriterUserIds);
+  await Promise.allSettled(recipients.map(u => notifyAndMaybeEmail(context, u,
+    `A new open house was scheduled for ${when} on a listing you saved.`, link, 'New open house on a saved listing', 'see the details')));
 }
 
 // A listing someone favorited just dropped in price -- the other event worth proactively surfacing to a
 // saver, same reasoning as the open-house notify above. Used by AugmentedHomes/GreenHomes, the two verticals
 // with both price history and a favorites list; a raise isn't notified, only a drop (the news a saver wants).
 export async function notifyPriceDrop(context, link, favoriterUserIds, oldPrice, newPrice) {
-  const db = context.env.DB;
   if (!favoriterUserIds.length || newPrice >= oldPrice) return;
   const price = '$' + Number(newPrice).toLocaleString('en-US');
-  const rows = await db.batch(favoriterUserIds.map(id => db.prepare('SELECT id, email, email_frequency FROM users WHERE id = ?').bind(id)));
-  const sends = rows.map(r => {
-    const u = r.results[0];
-    if (!u) return Promise.resolve();
-    return notifyAndMaybeEmail(context, { userId: u.id, email: u.email, emailFrequency: u.email_frequency },
-      `A listing you saved dropped in price to ${price}.`, link, 'Price drop on a saved listing', 'see the details');
-  });
-  await Promise.allSettled(sends);
+  const recipients = await fetchRecipients(context.env.DB, favoriterUserIds);
+  await Promise.allSettled(recipients.map(u => notifyAndMaybeEmail(context, u,
+    `A listing you saved dropped in price to ${price}.`, link, 'Price drop on a saved listing', 'see the details')));
 }
 
 // ---- Seller prep: broker previews and interviews ----
@@ -288,13 +354,14 @@ function pacificTime(iso) {
   return new Date(iso).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
-// Agents who already engaged with this pre-listing (voted, sent a proposal, or were invited) hear about a new
-// preview window in-app; it's an invitation, not a request waiting on them, so no email.
+// Agents who already engaged with this pre-listing (voted or shared a suggested price, sent a proposal, or were
+// invited) hear about a new preview window in-app; it's an invitation, not a request waiting on them, so no email.
 export async function notifyPreviewScheduled(context, preListingId, startsAt) {
   const db = context.env.DB;
   const rows = await db.prepare(
     `SELECT engaged.id FROM (
        SELECT agent_user_id AS id FROM pre_listing_price_votes WHERE pre_listing_id = ?1
+       UNION SELECT agent_user_id FROM pre_listing_price_opinions WHERE pre_listing_id = ?1 AND price_opinion IS NOT NULL
        UNION SELECT agent_user_id FROM service_bids WHERE request_type = 'pre_listing' AND request_id = ?1 AND status IN ('pending','accepted')
        UNION SELECT agent_user_id FROM agent_invites WHERE request_type = 'pre_listing' AND request_id = ?1 AND status != 'declined'
      ) engaged
@@ -313,23 +380,19 @@ export async function notifyPreviewCanceled(context, preListingId, agentUserIds,
 
 // Being asked to interview is the kind of thing an agent could lose by missing it, so it gets the email too.
 export async function notifyInterviewRequested(context, preListingId, agentUserId) {
-  const db = context.env.DB;
-  const agent = await db.prepare(
-    'SELECT users.id, users.email, users.email_frequency, agent_profiles.duty_days_json, agent_profiles.duty_start, agent_profiles.duty_end FROM users LEFT JOIN agent_profiles ON agent_profiles.user_id = users.id WHERE users.id = ?'
-  ).bind(agentUserId).first();
+  const agent = await fetchRecipient(context.env.DB, agentUserId, { holdKind: 'interview', holdRef: `pre_listing:${preListingId}` });
   if (!agent) return;
-  await notifyAndMaybeEmail(context, { userId: agent.id, email: agent.email, emailFrequency: agent.email_frequency, duty: dutyFromRow(agent), holdKind: 'interview', holdRef: `pre_listing:${preListingId}` },
+  await notifyAndMaybeEmail(context, agent,
     'A homeowner would like to interview you about their pre-listing. Pick one of the times they offered.',
     `/app#pre-listing-${preListingId}`, 'Interview request on Amico Haus', 'pick a time');
 }
 
 export async function notifyInterviewScheduled(context, preListingId, ownerUserId, agentUserId, slot) {
   const db = context.env.DB;
-  const agent = await db.prepare('SELECT display_name FROM users WHERE id = ?').bind(agentUserId).first();
-  const owner = await db.prepare('SELECT id, email, email_frequency FROM users WHERE id = ?').bind(ownerUserId).first();
+  const owner = await fetchRecipient(db, ownerUserId);
   if (!owner) return;
-  await notifyAndMaybeEmail(context, { userId: owner.id, email: owner.email, emailFrequency: owner.email_frequency },
-    `${agent ? agent.display_name : 'An agent'} picked ${pacificTime(slot)} for your interview.`,
+  await notifyAndMaybeEmail(context, owner,
+    `${await senderLabel(db, agentUserId)} picked ${pacificTime(slot)} for your interview.`,
     `/app#pre-listing-${preListingId}`, 'Interview scheduled on Amico Haus', 'see the details');
 }
 
@@ -340,6 +403,5 @@ export async function notifyInterviewCanceled(context, preListingId, agentUserId
 // The owner hears about every RSVP (in-app), so they always know which agents received their street address.
 export async function notifyPreviewRsvp(context, preListingId, ownerUserId, agentUserId, startsAt) {
   const db = context.env.DB;
-  const agent = await db.prepare('SELECT display_name FROM users WHERE id = ?').bind(agentUserId).first();
-  await notify(db, ownerUserId, `${agent ? agent.display_name : 'An agent'} RSVP'd to your broker preview on ${pacificTime(startsAt)} and can now see your address.`, `/app#pre-listing-${preListingId}`);
+  await notify(db, ownerUserId, `${await senderLabel(db, agentUserId)} RSVP'd to your broker preview on ${pacificTime(startsAt)} and can now see your address.`, `/app#pre-listing-${preListingId}`);
 }

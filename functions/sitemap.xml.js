@@ -1,7 +1,8 @@
 // Dynamic sitemap — replaces the old static sitemap.xml so real active
 // listings get included automatically. Demo listings are deliberately
 // excluded (@demo.amicohaus.local) since indexing fake "for sale" homes
-// would be actively misleading, not just unhelpful.
+// would be actively misleading, not just unhelpful. A suspended account's pages
+// return 404, so they're left out too.
 import { withSecurityHeaders } from './_lib/withSecurityHeaders.js';
 
 const STATIC_URLS = [
@@ -27,7 +28,7 @@ async function renderSitemap(context) {
 
   const listings = await db.prepare(
     `SELECT listings.id FROM listings JOIN users ON users.id = listings.user_id
-     WHERE listings.status = 'active' AND users.email NOT LIKE '%@demo.amicohaus.local'
+     WHERE listings.status = 'active' AND users.email NOT LIKE '%@demo.amicohaus.local' AND users.status = 'active'
      ORDER BY listings.created_at DESC LIMIT 5000`
   ).all();
 
@@ -37,7 +38,7 @@ async function renderSitemap(context) {
 
   const augmentedHomes = await db.prepare(
     `SELECT augmented_homes.id FROM augmented_homes JOIN users ON users.id = augmented_homes.user_id
-     WHERE augmented_homes.status = 'active' AND users.email NOT LIKE '%@demo.amicohaus.local'
+     WHERE augmented_homes.status = 'active' AND users.email NOT LIKE '%@demo.amicohaus.local' AND users.status = 'active'
      ORDER BY augmented_homes.created_at DESC LIMIT 5000`
   ).all();
   const augmentedHomeUrls = augmentedHomes.results.map(h => ({
@@ -46,7 +47,7 @@ async function renderSitemap(context) {
 
   const greenHomes = await db.prepare(
     `SELECT green_homes.id FROM green_homes JOIN users ON users.id = green_homes.user_id
-     WHERE green_homes.status = 'active' AND users.email NOT LIKE '%@demo.amicohaus.local'
+     WHERE green_homes.status = 'active' AND users.email NOT LIKE '%@demo.amicohaus.local' AND users.status = 'active'
      ORDER BY green_homes.created_at DESC LIMIT 5000`
   ).all();
   const greenHomeUrls = greenHomes.results.map(h => ({
@@ -55,7 +56,7 @@ async function renderSitemap(context) {
 
   const projects = await db.prepare(
     `SELECT dev_projects.id FROM dev_projects JOIN users ON users.id = dev_projects.user_id
-     WHERE dev_projects.status = 'open' AND users.email NOT LIKE '%@demo.amicohaus.local'
+     WHERE dev_projects.status = 'open' AND users.email NOT LIKE '%@demo.amicohaus.local' AND users.status = 'active'
      ORDER BY dev_projects.created_at DESC LIMIT 5000`
   ).all();
   const projectUrls = projects.results.map(p => ({
@@ -67,7 +68,7 @@ async function renderSitemap(context) {
   // actively promoted the same way, even though it stays crawlable if linked to from somewhere.
   const agents = await db.prepare(
     `SELECT agent_profiles.user_id FROM agent_profiles JOIN users ON users.id = agent_profiles.user_id
-     WHERE agent_profiles.status = 'approved' AND users.email NOT LIKE '%@demo.amicohaus.local'`
+     WHERE agent_profiles.status = 'approved' AND users.email NOT LIKE '%@demo.amicohaus.local' AND users.status = 'active'`
   ).all();
   const agentUrls = agents.results.map(a => ({
     loc: `https://amicohaus.com/profile/${a.user_id}`, freq: 'monthly', priority: '0.5',

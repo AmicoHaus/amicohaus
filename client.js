@@ -350,6 +350,103 @@ function money(n) {
   return '$' + n.toLocaleString('en-US');
 }
 
+/* ---------------- You're in Control: shared copy and small pure helpers ---------------- */
+// A homeowner may leave the asking price blank ("Open to price opinions"). The API sends askingPrice 0 then, plus
+// priceOpen; older responses (and snake_case rows) only have the number, and anything under $1,000 counts as open.
+const PRICE_OPEN_LABEL = 'Open to price opinions';
+function isPriceOpen(p) {
+  if (!p) return false;
+  if (typeof p.priceOpen === 'boolean') return p.priceOpen;
+  return !(Number(p.askingPrice ?? p.asking_price) >= 1000);
+}
+// "$750,000 asking" or "Open to price opinions" -- the one place a pre-listing's price turns into words.
+function askingPriceLabel(p, { suffix = '' } = {}) {
+  return isPriceOpen(p) ? PRICE_OPEN_LABEL : `${money(p.askingPrice ?? p.asking_price)}${suffix}`;
+}
+// One price on its own (a price-history entry): 0 means the owner had no price set then.
+function priceAmountLabel(n) {
+  return Number(n) >= 1000 ? money(n) : PRICE_OPEN_LABEL;
+}
+// What the owner typed in the asking price box: blank is fine (open to price opinions); "$750,000" works too.
+function parseAskingPriceInput(raw) {
+  const s = String(raw ?? '').replace(/[$,\s]/g, '');
+  if (s === '') return { value: null };
+  const n = /^\d+(\.0+)?$/.test(s) ? Number(s) : NaN;
+  if (!Number.isInteger(n) || n < 1000 || n > 500000000) return { error: 'Enter an asking price as a whole-dollar amount, or leave it blank.' };
+  return { value: n };
+}
+// The middle of a list of numbers (blanks and non-numbers skipped), rounded to whole dollars; null when empty.
+function medianOf(values) {
+  const nums = (values || []).map(Number).filter(n => Number.isFinite(n) && n > 0).sort((a, b) => a - b);
+  if (!nums.length) return null;
+  const mid = Math.floor(nums.length / 2);
+  return nums.length % 2 ? nums[mid] : Math.round((nums[mid - 1] + nums[mid]) / 2);
+}
+
+// Every agent shown to a homeowner at a point of contact carries this (California DRE rule):
+// "Name · DRE #01234567 · Brokerage", leaving out any missing part. Plain text: escape it where it's used.
+function agentCredentialsLine(licenseNumber, brokerageName) {
+  const lic = String(licenseNumber ?? '').trim();
+  return [lic ? `DRE #${lic}` : '', String(brokerageName ?? '').trim()].filter(Boolean).join(' · ');
+}
+function agentIdentityLine({ name, licenseNumber, brokerageName } = {}) {
+  return [String(name ?? '').trim(), agentCredentialsLine(licenseNumber, brokerageName)].filter(Boolean).join(' · ');
+}
+
+// The server's UTC "YYYY-MM-DD HH:MM:SS" text (same as SQLite datetime('now')) as a Date, or null.
+function sqlUtcToDate(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/.exec(String(s || ''));
+  if (!m) return null;
+  return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)));
+}
+// "Oct 31" for a server timestamp, read in Pacific time like everything else on the platform.
+function shortDateLabel(s) {
+  const d = sqlUtcToDate(s);
+  return d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Los_Angeles' }) : '';
+}
+// The sender's own held (weekly) message: "Delivers Sun, Nov 8" (always a Sunday morning, Pacific). If the person
+// has since switched to Quiet, it waits until they switch back (stored as the year 9999).
+function heldDeliveryLabel(deliverAfter) {
+  if (String(deliverAfter || '').startsWith('9999')) return 'Waiting: this homeowner turned on Quiet mode';
+  const d = sqlUtcToDate(deliverAfter);
+  if (!d) return 'Delivers Sunday morning';
+  return `Delivers ${d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'America/Los_Angeles' })}`;
+}
+// "21:00" -> "9:00 PM"; a quiet-hours window reads "9:00 PM to 8:00 AM".
+function clockLabel(hhmm) {
+  const m = /^(\d{2}):(\d{2})$/.exec(String(hhmm || ''));
+  if (!m) return '';
+  const h = Number(m[1]);
+  return `${h % 12 || 12}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`;
+}
+function quietHoursLabel(start, end) {
+  return clockLabel(start) && clockLabel(end) ? `${clockLabel(start)} to ${clockLabel(end)}` : '';
+}
+
+// The contact dial's choices, word for word everywhere they show.
+const CONTACT_MODE_LABELS = {
+  open: 'Open — agents can message me anytime',
+  weekly: 'Weekly — one message per agent, delivered together Sunday morning',
+  quiet: "Quiet — no agent messages; I'll get price opinions and proposals only",
+};
+// Friendly words for the server's "you can't do that right now" codes. `where` = 'showing' picks the showing-request
+// wording for Quiet mode. Anything else falls back to the server's own message.
+const CONTACT_ERROR_COPY = {
+  contact_quiet: "This homeowner has chosen Quiet mode, so they hear from agents through price opinions and proposals. Send one of those and they'll see it right away.",
+  contact_quiet_showing: "This homeowner has chosen Quiet mode, so showing requests are off for now. A price opinion or a proposal reaches them right away.",
+  weekly_limit: "Your message for this week is already on its way. It will be delivered Sunday morning, together with other agents' messages.",
+  proposals_paused: "This homeowner has paused new proposals for now. Check back soon: you'll be able to send one when they reopen.",
+  showing_pending: 'You already have a showing request waiting for this home. You can change it or cancel it first.',
+};
+function apiErrorCode(err) {
+  return (err && err.data && err.data.code) || '';
+}
+function contactErrorMessage(err, where = '') {
+  const code = apiErrorCode(err);
+  if (code === 'contact_quiet' && where === 'showing') return CONTACT_ERROR_COPY.contact_quiet_showing;
+  return CONTACT_ERROR_COPY[code] || (err && err.message) || 'Something went wrong. Please try again.';
+}
+
 function timeAgo(isoString) {
   const seconds = Math.floor((Date.now() - new Date(isoString + 'Z').getTime()) / 1000);
   const units = [['year', 31536000], ['month', 2592000], ['day', 86400], ['hour', 3600], ['minute', 60]];

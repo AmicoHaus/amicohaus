@@ -25,11 +25,12 @@ export function haversineMiles(lat1, lng1, lat2, lng2) {
 }
 
 export async function lookupZipCoords(db, zips) {
-  const clean = [...new Set((zips || []).filter(z => /^\d{5}$/.test(z)))];
+  const clean = [...new Set((zips || []).map(String).filter(z => /^\d{5}$/.test(z)))];
   const map = new Map();
   if (clean.length === 0) return map;
-  const placeholders = clean.map(() => '?').join(',');
-  const rows = await db.prepare(`SELECT zip, lat, lng FROM zip_codes WHERE zip IN (${placeholders})`).bind(...clean).all();
+  // One JSON array, not one ? per ZIP: D1 allows at most 100 bound parameters, and every opted-in agent's service
+  // ZIPs together can add up to far more than that.
+  const rows = await db.prepare('SELECT zip, lat, lng FROM zip_codes WHERE zip IN (SELECT value FROM json_each(?))').bind(JSON.stringify(clean)).all();
   for (const r of rows.results) map.set(r.zip, { lat: r.lat, lng: r.lng });
   return map;
 }

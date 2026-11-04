@@ -83,7 +83,8 @@ export async function buildScorecard(db, agentUserId, nowMs = Date.now()) {
   if (nearIds.length) {
     const rows = await db.prepare(
       `SELECT request_id AS id FROM service_bids WHERE agent_user_id = ?1 AND request_type = 'pre_listing' AND request_id IN (SELECT value FROM json_each(?2))
-       UNION SELECT pre_listing_id FROM pre_listing_price_votes WHERE agent_user_id = ?1 AND pre_listing_id IN (SELECT value FROM json_each(?2))`
+       UNION SELECT pre_listing_id FROM pre_listing_price_votes WHERE agent_user_id = ?1 AND pre_listing_id IN (SELECT value FROM json_each(?2))
+       UNION SELECT pre_listing_id FROM pre_listing_price_opinions WHERE agent_user_id = ?1 AND price_opinion IS NOT NULL AND pre_listing_id IN (SELECT value FROM json_each(?2))`
     ).bind(agentUserId, JSON.stringify(nearIds)).all();
     for (const r of rows.results) answeredIds.add(r.id);
   }

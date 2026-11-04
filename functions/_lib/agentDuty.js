@@ -49,11 +49,16 @@ export function dutyFromRow(row) {
 const minutesOf = (hhmm) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
 
 // No duty hours set counts as always on duty (emails go out right away, as before Farm Radar).
+// A window whose start is after its end crosses midnight (e.g. 08:00 to 01:00, the "OK to email" side of a
+// homeowner's 01:00-08:00 quiet hours); the part after midnight belongs to the day it started on.
 export function isOnDuty(duty, ms = Date.now()) {
   if (!duty) return true;
   const p = pacificParts(ms);
   const now = p.hour * 60 + p.minute;
-  return duty.days.includes(p.weekday) && now >= minutesOf(duty.start) && now < minutesOf(duty.end);
+  const start = minutesOf(duty.start);
+  const end = minutesOf(duty.end);
+  if (start <= end) return duty.days.includes(p.weekday) && now >= start && now < end;
+  return (duty.days.includes(p.weekday) && now >= start) || (duty.days.includes((p.weekday + 6) % 7) && now < end);
 }
 
 // The next moment the agent comes on duty (now, if they already are).
@@ -85,18 +90,28 @@ export async function sendOrHoldEmail(context, { userId, to, subject, text, duty
   return true;
 }
 
-// Is a held email still worth sending? The agent must still be an active real account (approved, for agent emails,
+// What a held email is about. Agent kinds wait for on-duty hours (or quiet hours, for an agent with no duty hours
+// set) and are re-timed when the agent changes their duty hours; the person kinds wait for quiet hours (a homeowner's
+// alerts, the weekly agent-message delivery) and are re-timed when quiet hours change.
+export const AGENT_HOLD_KINDS = ['new_request', 'interview', 'scorecard'];
+export const PERSON_HOLD_KINDS = ['owner_alert', 'weekly_messages'];
+
+// Is a held email still worth sending? The person must still be an active real account (approved, for agent emails,
 // and still wanting new-request alerts or the scorecard), and what it's about must still be open.
 async function stillWanted(db, row) {
   if (row.status !== 'active' || !row.email || String(row.email).toLowerCase().endsWith('@demo.amicohaus.local')) return false;
-  if (['new_request', 'interview', 'scorecard'].includes(row.kind) && row.agent_status !== 'approved') return false;
+  // A homeowner's alerts and the weekly message delivery are about the person, not one open request.
+  if (PERSON_HOLD_KINDS.includes(row.kind)) return true;
+  if (AGENT_HOLD_KINDS.includes(row.kind) && row.agent_status !== 'approved') return false;
   if (row.kind === 'new_request' && !row.notify_new_requests) return false;
   if (row.kind === 'scorecard' && row.scorecard_opt_out) return false;
   const m = /^(pre_listing|transaction):(\d+)$/.exec(row.ref || '');
   if (m) {
     const table = m[1] === 'pre_listing' ? 'pre_listings' : 'transaction_requests';
-    const req = await db.prepare(`SELECT status FROM ${table} WHERE id = ?`).bind(Number(m[2])).first();
+    const req = await db.prepare(`SELECT status${m[1] === 'pre_listing' ? ', proposals_paused' : ''} FROM ${table} WHERE id = ?`).bind(Number(m[2])).first();
     if (!req || req.status !== 'open') return false;
+    // The owner paused new proposals since: a "new pre-listing near you" alert would only lead to a closed door.
+    if (row.kind === 'new_request' && req.proposals_paused) return false;
     // An interview request the homeowner has since canceled (or the agent already answered) needs no email.
     if (row.kind === 'interview') {
       const iv = await db.prepare('SELECT status FROM pre_listing_interviews WHERE pre_listing_id = ? AND agent_user_id = ?').bind(Number(m[2]), row.user_id).first();
@@ -107,12 +122,12 @@ async function stillWanted(db, row) {
 }
 
 const MAX_SEND_ATTEMPTS = 3;
-const SEND_GAP_MS = 600; // the email provider allows about 2 a second
+export const SEND_GAP_MS = 600; // the email provider allows about 2 a second
 
-// Delivers held emails whose time has come, re-checking each one first (and to the agent's current address). Each
+// Delivers held emails whose time has come, re-checking each one first (and to the person's current address). Each
 // row is claimed with a conditional UPDATE, so two runs at once can't both send it. Several waiting for the same
-// agent go out as ONE email ("while you were off duty"), not a burst. A failed send is retried on a later run, up
-// to 3 tries.
+// person go out as ONE email ("while you were off duty" for an agent's duty hours, "during your quiet hours"
+// otherwise), not a burst. A failed send is retried on a later run, up to 3 tries.
 // budgetMs: stop starting new sends after this long (the background work has about 30 seconds); anything not
 // reached stays unclaimed for the next run.
 export async function runDueHeldEmails(context, { limit = 40, budgetMs = 15000 } = {}) {
@@ -120,11 +135,12 @@ export async function runDueHeldEmails(context, { limit = 40, budgetMs = 15000 }
   const db = context.env.DB;
   const due = await db.prepare(
     `SELECT h.id, h.user_id, h.kind, h.ref, h.subject, h.text_body, users.email, users.status, users.display_name,
-            agent_profiles.status AS agent_status, agent_profiles.notify_new_requests, agent_profiles.scorecard_opt_out
+            agent_profiles.status AS agent_status, agent_profiles.notify_new_requests, agent_profiles.scorecard_opt_out,
+            agent_profiles.duty_days_json, agent_profiles.duty_start, agent_profiles.duty_end
      FROM held_emails h JOIN users ON users.id = h.user_id LEFT JOIN agent_profiles ON agent_profiles.user_id = h.user_id
      WHERE h.sent_at IS NULL AND h.deliver_after <= ? ORDER BY h.user_id, h.deliver_after LIMIT ?`
   ).bind(new Date().toISOString(), limit).all();
-  // Alerts for the same agent are combined; a scorecard is its own email. Nothing is claimed yet.
+  // Alerts for the same person are combined; a scorecard is its own email. Nothing is claimed yet.
   const groups = new Map();
   for (const row of due.results) {
     const key = row.kind === 'scorecard' ? `scorecard:${row.id}` : `alerts:${row.user_id}`;
@@ -155,9 +171,14 @@ export async function runDueHeldEmails(context, { limit = 40, budgetMs = 15000 }
     if (!first) await new Promise(res => setTimeout(res, SEND_GAP_MS));
     first = false;
     const lead = rows[0];
-    const subject = rows.length === 1 ? lead.subject : `${rows.length} updates from Amico Haus while you were off duty`;
+    // Only an agent's duty hours hold agent kinds while duty hours are set; anything else waited for quiet hours.
+    const offDuty = !!dutyFromRow(lead) && !rows.some(r => PERSON_HOLD_KINDS.includes(r.kind));
+    const lines = rows.slice(0, 10).map(r => `- ${r.text_body.split('\n').filter(Boolean)[0]}`);
+    const subject = rows.length === 1 ? lead.subject
+      : offDuty ? `${rows.length} updates from Amico Haus while you were off duty` : `${rows.length} updates from Amico Haus`;
     const text = rows.length === 1 ? lead.text_body
-      : [`Hi ${lead.display_name || 'there'}, here's what came in while you were off duty:`, '', ...rows.slice(0, 10).map(r => `- ${r.text_body.split('\n').filter(Boolean)[0]}`)].join('\n');
+      : offDuty ? [`Hi ${lead.display_name || 'there'}, here's what came in while you were off duty:`, '', ...lines].join('\n')
+        : ["Here's what came in during your quiet hours:", '', ...lines].join('\n');
     const ok = await sendEmail(context, { to: lead.email, subject, text }).catch(() => false);
     if (!ok) {
       // Put them back for another try (until they've had 3).

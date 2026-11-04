@@ -11,6 +11,7 @@ import { markInviteResponded } from './agentInvites.js';
 import { fetchFoundingZips } from './zipBoard.js';
 import { countFinalistHomes, DEBRIEF_REASONS } from './decisionNight.js';
 import { fetchPastClientSummary } from './pastClientReviews.js';
+import { priceIsOpen, shownAskingPrice } from './preListings.js';
 
 // A pending proposal that's sat untouched this long gets flagged so the
 // homeowner sees a nudge — same idea as matches.js's "gone quiet" flag for
@@ -50,7 +51,8 @@ function validateBidInput(body) {
 // One active proposal per agent per request — re-submitting (including
 // after withdrawing or being declined) just overwrites it and puts it back
 // to pending, rather than piling up duplicate rows. isNew: a first proposal, or one sent again after it was
-// withdrawn or declined (an edit of a live proposal isn't new).
+// withdrawn or declined (an edit of a live proposal isn't new). previousStatus: the row's status before this call
+// (null on a true first proposal).
 export async function upsertBid(db, requestType, requestId, agentUserId, body) {
   const validated = validateBidInput(body);
   if (validated.error) return validated;
@@ -67,7 +69,7 @@ export async function upsertBid(db, requestType, requestId, agentUserId, body) {
   ).bind(requestType, requestId, agentUserId, d.message, d.commissionPct, d.flatFee, JSON.stringify(d.services)).run();
 
   await markInviteResponded(db, requestType, requestId, agentUserId);
-  return { ok: true, isNew: !before || before.status === 'withdrawn' || before.status === 'declined' };
+  return { ok: true, isNew: !before || before.status === 'withdrawn' || before.status === 'declined', previousStatus: before ? before.status : null };
 }
 
 export async function withdrawBid(db, bidId, agentUserId) {
@@ -155,7 +157,7 @@ export async function fetchAgentOwnBids(db, agentUserId) {
   const preListingsById = new Map();
   const debriefById = new Map();
   if (preListingIds.length > 0) {
-    const pl = await db.prepare('SELECT id, user_id, title, city, state, asking_price, status, proposals_due_at FROM pre_listings WHERE id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(preListingIds)).all();
+    const pl = await db.prepare('SELECT id, user_id, title, city, state, asking_price, status, proposals_due_at, proposals_paused FROM pre_listings WHERE id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(preListingIds)).all();
     for (const r of pl.results) preListingsById.set(r.id, r);
     const debriefs = await db.prepare('SELECT pre_listing_id, reasons_json FROM finalist_debriefs WHERE agent_user_id = ? AND pre_listing_id IN (SELECT value FROM json_each(?))').bind(agentUserId, JSON.stringify(preListingIds)).all();
     for (const d of debriefs.results) debriefById.set(d.pre_listing_id, JSON.parse(d.reasons_json || '[]').map(k => DEBRIEF_REASONS[k]).filter(Boolean));
@@ -176,7 +178,12 @@ export async function fetchAgentOwnBids(db, agentUserId) {
       // Camelcased here (the raw rows above are snake_case straight from SQL) — askingPrice in particular used to
       // come through as undefined, which money() silently turns into "$0" rather than erroring, so this was
       // showing every agent a wrong price on their own proposal list rather than visibly failing.
-      preListing: pl ? { id: pl.id, userId: pl.user_id, title: pl.title, city: pl.city, state: pl.state, askingPrice: pl.asking_price, status: pl.status } : undefined,
+      // priceOpen: the homeowner left the price blank (askingPrice is then 0).
+      preListing: pl ? {
+        id: pl.id, userId: pl.user_id, title: pl.title, city: pl.city, state: pl.state,
+        askingPrice: shownAskingPrice(pl.asking_price), priceOpen: priceIsOpen(pl.asking_price), status: pl.status,
+        proposalsPaused: !!pl.proposals_paused,
+      } : undefined,
       transaction: tx ? { id: tx.id, listingAId: tx.listing_a_id, listingBId: tx.listing_b_id, status: tx.status } : undefined,
       // Not "pending a while" (with its check-in nudge) while the homeowner's Decision Night still has proposals sealed.
       isStale: isStaleProposal(r.status, r.created_at, pl ? pl.proposals_due_at : null),

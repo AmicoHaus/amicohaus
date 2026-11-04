@@ -328,10 +328,10 @@
 
         <details class="panel bulk-upload" id="postHomeWrap">
           <summary>Post a pre-listing showcase</summary>
-          <p class="section-sub">Basic details, a few photos, and your asking price — agents will propose their fee and included prep services, and can weigh in on whether your price is on target.</p>
+          <p class="section-sub">Basic details, a few photos, and your asking price if you have one in mind — agents will propose their fee and included prep services, and weigh in on what your home is worth.</p>
           <div class="form-row two-col">
-            <div class="field"><label>Title (optional)</label><input type="text" id="plTitle" maxlength="120" placeholder="e.g. Charming 3bd near downtown"></div>
-            <div class="field"><label>Asking price ($) <span class="required-mark">*</span></label><input type="number" id="plAskingPrice" min="1" max="500000000" step="1000"></div>
+            <div class="field"><label for="plTitle">Title (optional)</label><input type="text" id="plTitle" maxlength="120" placeholder="e.g. Charming 3bd near downtown"></div>
+            <div class="field"><label for="plAskingPrice">Asking price (optional)</label><input type="text" id="plAskingPrice" maxlength="15" inputmode="numeric" autocomplete="off" placeholder="e.g. 750,000" aria-describedby="plAskingPriceHint"><p class="tiny field-hint" id="plAskingPriceHint">Not sure yet? Leave it blank and local agents will tell you what they think it's worth.</p></div>
           </div>
           <div class="form-row three-col">
             <div class="field"><label>City <span class="required-mark">*</span></label><input type="text" id="plCity" maxlength="80"></div>
@@ -339,11 +339,11 @@
             <div class="field"><label>Zip <span class="required-mark">*</span></label><input type="text" id="plZip" maxlength="10" placeholder="5-digit zip" inputmode="numeric"></div>
           </div>
           <div class="field"><label>Neighborhood (public)</label><input type="text" id="plNeighborhood" maxlength="80"></div>
-          <div class="field"><label>Street address (private — only you can see it)</label><input type="text" id="plAddress" maxlength="150"></div>
+          <div class="field"><label for="plAddress">Street address (private — only agents you share it with, or who RSVP to a broker preview you open, see it)</label><input type="text" id="plAddress" maxlength="150"></div>
           <div class="form-row three-col">
             <div class="field"><label>Property type <span class="required-mark">*</span></label><select id="plPropertyType"></select></div>
-            <div class="field"><label>Beds <span class="required-mark">*</span></label><input type="number" id="plBeds" min="0" max="50"></div>
-            <div class="field"><label>Baths <span class="required-mark">*</span></label><input type="number" id="plBaths" min="0" max="50" step="0.5"></div>
+            <div class="field"><label for="plBeds">Beds <span class="required-mark">*</span></label><input type="number" id="plBeds" min="0" max="50" required></div>
+            <div class="field"><label for="plBaths">Baths <span class="required-mark">*</span></label><input type="number" id="plBaths" min="0" max="50" step="0.5" required></div>
           </div>
           <div class="field"><label>Sq ft</label><input type="number" id="plSqft" min="0" max="200000" step="50"></div>
           <div class="field"><label>Description</label><textarea id="plDescription" maxlength="2000" placeholder="Anything agents should know before proposing"></textarea></div>
@@ -369,6 +369,7 @@
 
           <div id="plCostsFields"></div>
           <div class="field"><label>Photos (up to 8, added after posting)</label><input type="file" id="plPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple></div>
+          <div id="plContactDial"></div>
           <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="createPreListingBtn">Post for Proposals</button></div>
         </details>
 
@@ -381,6 +382,10 @@
 
         <h2>My Pre-Listings</h2>
         <div class="stack" id="myPreListingsList"><div class="empty-state">Loading…</div></div>
+
+        <h2 id="youreInControl">You're in Control</h2>
+        <p class="section-sub">How agents reach you, when emails and phone alerts arrive, and whether your phone number shows. Change any of it anytime.</p>
+        <div id="controlPanel"><div class="empty-state">Loading…</div></div>
 
         <h2>My Trade Transaction Requests</h2>
         <p class="section-sub">Opened from an existing mutual trade match to bring in agent help finalizing a swap — start one from a match card on the Matches tab.</p>
@@ -650,8 +655,10 @@
       <div id="messageThread" class="hidden">
         <button class="link-btn" id="backToConversations">← All conversations</button>
         <h2 id="threadTitle"></h2>
+        <p id="threadIdentity" class="tiny agent-id-line hidden"></p>
         <div id="threadOpenToBidsWrap" class="hidden"><button type="button" class="btn btn-ghost btn-sm" id="threadOpenToBidsBtn">Open Trade to Agent Bids</button></div>
         <div class="stack" id="messageList"></div>
+        <p id="threadComposerNote" class="inline-note hidden" role="status"></p>
         <form id="messageForm" class="post-form">
           <input type="text" id="messageBody" maxlength="2000" placeholder="Write a message…" required>
           <button type="submit" class="btn btn-primary btn-sm">Send</button>

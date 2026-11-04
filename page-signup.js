@@ -107,6 +107,15 @@ const wantedSide = new URLSearchParams(window.location.search).get('as');
 const wantedRadio = document.querySelector(`input[name="intent"][value="${wantedSide === 'agent' ? 'agent' : 'homeowner'}"]`);
 if (wantedRadio) wantedRadio.checked = true;
 
+// Someone already signed in who taps "Post a Pre-Listing" or "I'm an Agent" (top menu, home page) goes straight to
+// that part of the app instead of a sign-up form (with no side picked: back to the page that sent them, else the app).
+fetchCurrentUser().then((user) => {
+  if (!user) return;
+  if (wantedSide === 'agent') window.location.replace('/app#become-agent');
+  else if (wantedSide === 'homeowner') window.location.replace('/app#post-home');
+  else window.location.replace(peekReturnTo() || '/app');
+}).catch(() => { /* signed out or offline: the form stays */ });
+
 document.getElementById('signupForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const btn = document.getElementById('submitBtn');

@@ -8,13 +8,18 @@ export async function onRequestGet(context) {
   if (!user) return unauthorized();
 
   const db = context.env.DB;
-  const [listings, posts, comments, messages, savedSearches, notifications] = await Promise.all([
+  const [listings, posts, comments, messages, savedSearches, notifications, sharesGiven, sharesReceived, addressViews] = await Promise.all([
     db.prepare('SELECT * FROM listings WHERE user_id = ?').bind(user.id).all(),
     db.prepare('SELECT * FROM posts WHERE user_id = ?').bind(user.id).all(),
     db.prepare('SELECT * FROM comments WHERE user_id = ?').bind(user.id).all(),
     db.prepare('SELECT * FROM messages WHERE sender_id = ?').bind(user.id).all(),
     db.prepare('SELECT * FROM saved_searches WHERE user_id = ?').bind(user.id).all(),
     db.prepare('SELECT * FROM notifications WHERE user_id = ?').bind(user.id).all(),
+    // You're in Control: the record of each agent you shared your contact info with (and when), shares other
+    // homeowners made with you, and "Who saw my address" on your own pre-listings.
+    db.prepare('SELECT pre_listing_id, agent_id, shared_at FROM contact_shares WHERE owner_id = ?').bind(user.id).all(),
+    db.prepare('SELECT pre_listing_id, owner_id, shared_at FROM contact_shares WHERE agent_id = ?').bind(user.id).all(),
+    db.prepare('SELECT v.* FROM address_views v JOIN pre_listings p ON p.id = v.pre_listing_id WHERE p.user_id = ?').bind(user.id).all(),
   ]);
 
   const exportData = {
@@ -25,6 +30,10 @@ export async function onRequestGet(context) {
     messagesSent: messages.results,
     savedSearches: savedSearches.results,
     notifications: notifications.results,
+    contactSettings: { contactMode: user.contact_mode, quietStart: user.quiet_start, quietEnd: user.quiet_end, phonePublic: !!user.phone_public },
+    contactSharesGiven: sharesGiven.results,
+    contactSharesReceived: sharesReceived.results,
+    addressViewsOfMyHomes: addressViews.results,
     exportedAt: new Date().toISOString(),
   };
 

@@ -5,7 +5,11 @@ import { notFound } from '../../_lib/util.js';
 // matters a lot more for a few-minutes-long video than it does for a photo.
 export async function onRequestGet(context) {
   const db = context.env.DB;
-  const agent = await db.prepare('SELECT video_r2_key, video_content_type FROM agent_profiles WHERE user_id = ?').bind(context.params.id).first();
+  // A suspended account's video isn't served (its profile pages are gone too).
+  const agent = await db.prepare(
+    `SELECT ap.video_r2_key, ap.video_content_type FROM agent_profiles ap JOIN users u ON u.id = ap.user_id
+     WHERE ap.user_id = ? AND u.status = 'active'`
+  ).bind(context.params.id).first();
   if (!agent || !agent.video_r2_key) return notFound('No video for this agent.');
 
   const bucket = context.env.PHOTOS;

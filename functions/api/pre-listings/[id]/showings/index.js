@@ -3,6 +3,7 @@ import { json, badRequest, unauthorized, forbidden, notFound } from '../../../..
 import { isApprovedAgent } from '../../../../_lib/agents.js';
 import { proposeShowing, fetchShowings } from '../../../../_lib/showings.js';
 import { notifyNewShowingRequest } from '../../../../_lib/marketplaceNotify.js';
+import { contactDecision, SHOWING_QUIET_ERROR } from '../../../../_lib/contactPolicy.js';
 
 export async function onRequestGet(context) {
   const id = context.params.id;
@@ -35,8 +36,15 @@ export async function onRequestPost(context) {
   let body;
   try { body = await context.request.json(); } catch { return badRequest('Invalid request body.'); }
 
+  // The homeowner's contact dial: Quiet turns showing requests off (unless they already work with this agent).
+  // Weekly doesn't hold showings, only messages.
+  const dial = await contactDecision(db, user.id, preListing.user_id);
+  if (dial.appliesToSender && !dial.exempt && dial.mode === 'quiet') {
+    return json({ error: SHOWING_QUIET_ERROR, code: 'contact_quiet' }, { status: 403 });
+  }
+
   const result = await proposeShowing(db, id, user.id, body);
-  if (result.error) return badRequest(result.error);
+  if (result.error) return result.code ? json({ error: result.error, code: result.code }, { status: 400 }) : badRequest(result.error);
   context.waitUntil(notifyNewShowingRequest(context, id, preListing.user_id, user.id, body.proposedAt));
   return json({ id: result.id }, { status: 201 });
 }

@@ -1,10 +1,12 @@
 import { json, notFound, parseJsonSafe, DEMO_EMAIL_PATTERN } from '../../_lib/util.js';
 import { fetchPortfolioMembers } from '../../_lib/portfolios.js';
+import { getSessionUser, phoneVisibleTo } from '../../_lib/auth.js';
 
 // Public profile view — deliberately no auth required (like /api/directory),
 // since this is the "click a name, see their profile" social-media pattern.
 // Never exposes street address, matching the same privacy rule as the
-// directory and listing detail endpoints.
+// directory and listing detail endpoints. The phone number is private too
+// (shown only as phoneVisibleTo allows), and a suspended account isn't served.
 export async function onRequestGet(context) {
   const id = Number(context.params.id);
   if (!Number.isFinite(id)) return notFound('User not found.');
@@ -14,9 +16,12 @@ export async function onRequestGet(context) {
   // from direct-by-id lookup — real users can no longer discover one through
   // the directory or matches, but this closes the loop for a stale link.
   const user = await db.prepare(
-    `SELECT id, display_name, bio, phone, is_verified, created_at FROM users WHERE id = ? AND email NOT LIKE ?`
+    `SELECT id, display_name, bio, phone, phone_public, is_verified, created_at FROM users WHERE id = ? AND email NOT LIKE ? AND status = 'active'`
   ).bind(id, DEMO_EMAIL_PATTERN).first();
   if (!user) return notFound('User not found.');
+  const viewer = await getSessionUser(context);
+  const isMine = !!viewer && viewer.id === user.id;
+  const phone = await phoneVisibleTo(db, viewer, user);
 
   // A bundled member listing is only tradeable through its portfolio now —
   // excluded here the same way as the public directory, so it doesn't show
@@ -48,7 +53,8 @@ export async function onRequestGet(context) {
   return json({
     user: {
       id: user.id, displayName: user.display_name, bio: user.bio || '', createdAt: user.created_at,
-      phone: user.phone || '', isVerified: !!user.is_verified,
+      phone, isVerified: !!user.is_verified,
+      ...(isMine ? { phonePublic: !!user.phone_public } : {}),
     },
     listings: listings.results.map(l => ({
       ...l, external_links: parseJsonSafe(l.external_links, []),

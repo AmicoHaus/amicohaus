@@ -2,11 +2,13 @@ import { getSessionUser } from '../../../_lib/auth.js';
 import { json, badRequest, unauthorized, forbidden, notFound } from '../../../_lib/util.js';
 import { isApprovedAgent } from '../../../_lib/agents.js';
 import { proposalsSealed } from '../../../_lib/decisionNight.js';
+import { scrubVideoUpload } from '../../../_lib/videoMetadata.js';
 
 // Pitch Reels: a 15-60 second video an agent records for one specific home, attached to their proposal. Only the
 // homeowner (once their proposals are open) and the agent who made it can watch it. Streamed straight to R2 like
-// the pre-listing video tour (video.js); the length is checked in the browser, since a Worker can't read a video's
-// duration. Cloudflare refuses request bodies over 100MB on this plan, so the limit sits just under that.
+// the pre-listing video tour (video.js), with the phone's recorded location removed on the way (videoMetadata.js);
+// the length is checked in the browser, since a Worker can't read a video's duration. Cloudflare refuses request
+// bodies over 100MB on this plan, so the limit sits just under that.
 const MAX_VIDEO_BYTES = 95 * 1024 * 1024;
 const ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/quicktime'];
 
@@ -38,7 +40,7 @@ export async function onRequestPut(context) {
   if (contentLength > MAX_VIDEO_BYTES) return badRequest('The video must be under 95MB. Recording at 1080p usually keeps a 60-second clip under.');
 
   const key = `pre-listing-pitch/${context.params.id}/${user.id}/${crypto.randomUUID()}`;
-  await bucket.put(key, context.request.body, { httpMetadata: { contentType } });
+  await bucket.put(key, scrubVideoUpload(context.request.body, contentLength), { httpMetadata: { contentType } });
   await db.prepare('UPDATE service_bids SET pitch_video_r2_key = ?, pitch_video_content_type = ? WHERE id = ?').bind(key, contentType, row.bid_id).run();
   if (row.pitch_video_r2_key) {
     try { await bucket.delete(row.pitch_video_r2_key); } catch (err) { console.log(`[old pitch delete failed] ${err.message}`); }

@@ -30,6 +30,12 @@ CREATE TABLE IF NOT EXISTS users (
   verify_code_hash TEXT,
   verify_code_attempts INTEGER NOT NULL DEFAULT 0,
   verify_sent_at TEXT,
+  -- You're in Control (migration_v42): how agents can message this person, email/push quiet hours (Pacific HH:MM),
+  -- and whether the phone number is shown publicly (private by default).
+  contact_mode TEXT NOT NULL DEFAULT 'open' CHECK(contact_mode IN ('open','weekly','quiet')),
+  quiet_start TEXT,
+  quiet_end TEXT,
+  phone_public INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code);
@@ -208,9 +214,14 @@ CREATE TABLE IF NOT EXISTS messages (
   sender_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   body TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  read_at TEXT
+  read_at TEXT,
+  -- Weekly contact mode (migration_v42): held until deliver_after (UTC, datetime('now') format); released_at = when
+  -- the weekly delivery announced it.
+  deliver_after TEXT,
+  released_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_messages_held ON messages(deliver_after) WHERE deliver_after IS NOT NULL AND released_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS notifications (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -219,9 +230,11 @@ CREATE TABLE IF NOT EXISTS notifications (
   body TEXT NOT NULL,
   link TEXT,
   read_at TEXT,
+  emailed_at TEXT, -- set when this notification produced (or queued) an email: the per-person email cap counts these
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, read_at);
+CREATE INDEX IF NOT EXISTS idx_notifications_emailed ON notifications(user_id, emailed_at) WHERE emailed_at IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS listing_photos (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -443,6 +456,8 @@ CREATE TABLE IF NOT EXISTS pre_listings (
   -- Decision Night (migration_v39): proposals stay sealed from the owner until this ISO time.
   proposals_due_at TEXT,
   proposals_open_notified_at TEXT,
+  -- Pause new proposals (migration_v42): agents with a proposal can still update it; no new ones start.
+  proposals_paused INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -1233,3 +1248,29 @@ CREATE TABLE IF NOT EXISTS held_emails (
 );
 CREATE INDEX IF NOT EXISTS idx_held_emails_due ON held_emails(deliver_after) WHERE sent_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_zip_codes_lat ON zip_codes(lat);
+
+-- You're in Control (migration_v42)
+-- "Share my contact info with this agent": that agent then sees the exact address, phone and email for this home.
+-- shared_at is the record of when the owner chose to share (phone/text consent rules).
+CREATE TABLE IF NOT EXISTS contact_shares (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pre_listing_id INTEGER NOT NULL REFERENCES pre_listings(id) ON DELETE CASCADE,
+  owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  agent_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  shared_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(pre_listing_id, agent_id)
+);
+CREATE INDEX IF NOT EXISTS idx_contact_shares_agent ON contact_shares(agent_id);
+CREATE INDEX IF NOT EXISTS idx_contact_shares_owner ON contact_shares(owner_id);
+
+-- "Who saw my address": each agent the exact address was shown to, how (a contact share or a broker preview RSVP),
+-- and when. Kept while the pre-listing exists; deleted with it.
+CREATE TABLE IF NOT EXISTS address_views (
+  pre_listing_id INTEGER NOT NULL REFERENCES pre_listings(id) ON DELETE CASCADE,
+  agent_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  via TEXT NOT NULL CHECK(via IN ('share','preview')),
+  first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+  view_count INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (pre_listing_id, agent_id, via)
+);

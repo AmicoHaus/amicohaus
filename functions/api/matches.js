@@ -5,6 +5,7 @@ import { fetchPortfolioMembers } from '../_lib/portfolios.js';
 import { fetchRecentActivityBatch } from '../_lib/marketEvents.js';
 import { fetchListingFavoriteCountBatch } from '../_lib/priceSeries.js';
 import { fetchCommentCountBatch } from '../_lib/dealThreads.js';
+import { sqlUtc } from '../_lib/contactPolicy.js';
 
 // The matching algorithm is O(n^2) over the candidate listings (every seeker
 // compared against every owner), which is fine at dozens or hundreds of
@@ -152,14 +153,16 @@ export async function onRequestGet(context) {
   const otherUserIds = [...new Set(myMatches.map(m => (m.a.userId === user.id ? m.b.userId : m.a.userId)))];
   let messagedUserIds = new Set();
   if (otherUserIds.length > 0) {
-    const placeholders = otherUserIds.map(() => '?').join(',');
+    // Only messages the viewer can see count (one still waiting for a weekly delivery to them doesn't), and the ids
+    // go in as one JSON array so a long match list stays under D1's 100-parameter limit.
     const convRows = await db.prepare(
-      `SELECT CASE WHEN conversations.user_a_id = ? THEN conversations.user_b_id ELSE conversations.user_a_id END AS other_user_id,
-              (SELECT COUNT(*) FROM messages WHERE messages.conversation_id = conversations.id) AS message_count
+      `SELECT CASE WHEN conversations.user_a_id = ?1 THEN conversations.user_b_id ELSE conversations.user_a_id END AS other_user_id,
+              (SELECT COUNT(*) FROM messages WHERE messages.conversation_id = conversations.id
+                 AND (messages.deliver_after IS NULL OR messages.deliver_after <= ?3 OR messages.sender_id = ?1)) AS message_count
        FROM conversations
-       WHERE (conversations.user_a_id = ? AND conversations.user_b_id IN (${placeholders}))
-          OR (conversations.user_b_id = ? AND conversations.user_a_id IN (${placeholders}))`
-    ).bind(user.id, user.id, ...otherUserIds, user.id, ...otherUserIds).all();
+       WHERE (conversations.user_a_id = ?1 AND conversations.user_b_id IN (SELECT value FROM json_each(?2)))
+          OR (conversations.user_b_id = ?1 AND conversations.user_a_id IN (SELECT value FROM json_each(?2)))`
+    ).bind(user.id, JSON.stringify(otherUserIds.map(Number)), sqlUtc()).all();
     messagedUserIds = new Set(convRows.results.filter(r => r.message_count > 0).map(r => r.other_user_id));
   }
   const now = Date.now();

@@ -158,7 +158,7 @@ async function loadPreviewsInto(preListingId, isOwner, status) {
       <div class="mini-block preview-row">
         <strong>${escapeHtml(whenLabel(pv.startsAt))}</strong> to ${escapeHtml(new Date(pv.endsAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }))}
         ${pv.note ? `<br><span class="tiny">${escapeHtml(pv.note)}</span>` : ''}
-        <br><span class="tiny">${pv.rsvpCount} agent${pv.rsvpCount === 1 ? '' : 's'} coming${isOwner && pv.agents.length ? `: ${escapeHtml(pv.agents.map(a => a.agentName).join(', '))}` : ''}${!isOwner && pv.imGoing ? ', including you' : ''}</span>
+        <br><span class="tiny">${pv.rsvpCount} agent${pv.rsvpCount === 1 ? '' : 's'} coming${isOwner && pv.agents.length ? `: ${escapeHtml(pv.agents.map(agentIdentityFor).join('; '))}` : ''}${!isOwner && pv.imGoing ? ', including you' : ''}</span>
         ${open ? `<div class="card-actions">
           ${isOwner
             ? `<button type="button" class="btn btn-ghost btn-sm" data-sp-action="cancel-preview" data-id="${pv.id}">Cancel this window</button>`
@@ -173,7 +173,7 @@ async function loadPreviewsInto(preListingId, isOwner, status) {
       <div class="field"><label for="previewNote">Note for agents (optional)</label><input type="text" id="previewNote" maxlength="300" placeholder="e.g. Park on the street; the dog will be out."></div>
       <button type="button" class="btn btn-primary btn-sm" data-sp-action="add-preview">Open a preview window</button>` : '';
     const intro = isOwner
-      ? 'Open a window when agents can walk through, so they can give you their price after seeing it in person. Agents who RSVP get your street address, and you get a notice each time one does.'
+      ? 'Open a window when agents can walk through, so they can give you their price after seeing it in person. Agents who RSVP get your street address, you get a notice each time one does, and each one is listed under "Who saw my address."'
       : going ? (address ? "You're on the list. Here's the address:" : "You're on the list. Message the homeowner for directions.") : 'The homeowner opened these times to walk through. RSVP to get the street address.';
     el.innerHTML = `
       <div class="panel">
@@ -184,6 +184,17 @@ async function loadPreviewsInto(preListingId, isOwner, status) {
         ${form}
       </div>`;
   } catch { /* non-critical */ }
+}
+
+// "Name · DRE #01234567 · Brokerage" for an agent the homeowner sees here (California DRE rule). The row's own DRE
+// number and brokerage when the API sends them, else the ones on that agent's proposal; just the name if neither.
+function agentIdentityFor(row) {
+  const bid = (sellerPrepView.bids || []).find(b => String(b.agentUserId) === String(row.agentUserId));
+  return agentIdentityLine({
+    name: row.agentName,
+    licenseNumber: row.licenseNumber || (bid && bid.licenseNumber),
+    brokerageName: row.brokerageName || (bid && bid.brokerageName),
+  });
 }
 
 // ---- Interviews ----
@@ -217,7 +228,7 @@ function ownerInterviewsHtml(interviews, bids, status) {
     const [tone, label] = badge(i);
     return `
     <div class="card interview-card" data-agent-id="${i.agentUserId}">
-      <div class="card-head"><h4>${escapeHtml(i.agentName)}</h4><span class="badge ${tone}">${label}</span></div>
+      <div class="card-head"><h4>${escapeHtml(agentIdentityFor(i))}</h4><span class="badge ${tone}">${label}</span></div>
       <p class="tiny">${escapeHtml(INTERVIEW_FORMAT_LABELS[i.format] || '')} · ${i.chosenSlot ? `<strong>${escapeHtml(whenLabel(i.chosenSlot))}</strong>` : timesPassed(i) ? (open ? 'The times you offered have passed. Offer new ones below.' : 'The times you offered have passed.') : `Times offered: ${escapeHtml(i.slots.map(s => whenLabel(s)).join(' · '))}`}</p>
       <div class="card-actions">
         <button type="button" class="btn btn-ghost btn-sm" data-action="message-user" data-id="${i.agentUserId}" data-name="${escapeHtml(i.agentName)}">Message ${escapeHtml(i.agentName)}</button>

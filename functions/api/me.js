@@ -25,8 +25,9 @@ export async function onRequestPut(context) {
     if (phone && !/^[0-9()+\-.\s]{7,30}$/.test(phone)) return badRequest('That doesn\'t look like a valid phone number.');
   }
 
-  await context.env.DB.prepare('UPDATE users SET bio = ?, notify_matches = ?, email_frequency = ?, phone = ? WHERE id = ?')
-    .bind(bio, notifyMatches, emailFrequency, phone, user.id).run();
+  // Removing the phone number also turns off "Show my phone number", so a number added later starts private again.
+  await context.env.DB.prepare("UPDATE users SET bio = ?, notify_matches = ?, email_frequency = ?, phone = ?, phone_public = CASE WHEN TRIM(COALESCE(?, '')) = '' THEN 0 ELSE phone_public END WHERE id = ?")
+    .bind(bio, notifyMatches, emailFrequency, phone, phone, user.id).run();
 
   return json({ user: publicUser({ ...user, bio, notify_matches: notifyMatches, email_frequency: emailFrequency, phone }) });
 }

@@ -10,7 +10,7 @@ import { logMarketEventUnlessDemo } from '../../_lib/marketEvents.js';
 
 async function loadListing(db, id) {
   return db.prepare(
-    `SELECT listings.*, users.display_name AS owner_name,
+    `SELECT listings.*, users.display_name AS owner_name, users.status AS owner_status,
             desired_criteria.locations, desired_criteria.property_type AS desired_type,
             desired_criteria.min_beds, desired_criteria.min_baths, desired_criteria.price_min,
             desired_criteria.price_max, desired_criteria.must_haves, desired_criteria.cash_mode, desired_criteria.cash_amount
@@ -32,18 +32,26 @@ export async function onRequestGet(context) {
   }
 
   const viewer = await getSessionUser(context);
-  const isOwnerOrAdmin = viewer && (viewer.id === listing.user_id || viewer.role === 'admin');
+  const isOwnerOrAdmin = !!viewer && (viewer.id === listing.user_id || viewer.role === 'admin');
+  // Same rule as the public /listing/:id page: a paused listing, or one whose owner is suspended, isn't shown to others.
+  if (!isOwnerOrAdmin && (listing.status !== 'active' || listing.owner_status !== 'active')) {
+    return notFound('Listing not found.');
+  }
 
   const safe = { ...listing };
+  delete safe.owner_status;
   if (!isOwnerOrAdmin) {
-    if (!safe.show_exact_address) delete safe.address;
+    // The exact street address stays with the owner (and admins), the same as the /listing/:id page:
+    // "Reveal exact address once matched" never hands it to every visitor.
+    delete safe.address;
     // Owner-side only: the client an agent listed this for, and view counts.
     delete safe.client_name;
     delete safe.views;
   }
   safe.external_links = parseJsonSafe(listing.external_links, []);
   safe.life_event_tags = parseJsonSafe(listing.life_event_tags_json, []);
-  return json({ listing: safe, isOwner: isOwnerOrAdmin });
+  // The body differs per viewer (the owner gets the address), so no shared cache may keep it.
+  return json({ listing: safe, isOwner: isOwnerOrAdmin }, { headers: { 'Cache-Control': 'private, no-store' } });
 }
 
 export async function onRequestPut(context) {

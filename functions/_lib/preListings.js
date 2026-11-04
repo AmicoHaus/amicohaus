@@ -11,14 +11,48 @@ function num(value, { min = 0, max = Infinity } = {}) {
 
 const OCCUPANCY_STATUSES = ['occupied', 'vacant'];
 
+const isBlank = (value) => value === undefined || value === null || String(value).trim() === '';
+
+// A required number: blank stays blank (null) instead of turning into 0, so "Fill in beds" can fire. A typed 0 is
+// still fine (a studio has 0 beds).
+function requiredNum(value, range) {
+  return isBlank(value) ? null : num(value, range);
+}
+
+// "Open to price opinions": the homeowner left the asking price blank. Stored as asking_price = 0 (the column is
+// NOT NULL); a real price is a whole number from $1,000 up. Older rows saved a blank price as $1, so anything under
+// $1,000 counts as open too.
+export const MIN_ASKING_PRICE = 1000;
+export const MAX_ASKING_PRICE = 500000000;
+export function priceIsOpen(askingPrice) {
+  return !(Number(askingPrice) >= MIN_ASKING_PRICE);
+}
+// The price the API shows: 0 when open, otherwise the stored whole-dollar price.
+export function shownAskingPrice(askingPrice) {
+  return priceIsOpen(askingPrice) ? 0 : Number(askingPrice);
+}
+
+// Blank (or 0, the value the API itself returns for an open price) means "no price yet". Otherwise "$750,000",
+// "750000" and "750 000" all work; decimals, words and amounts outside $1,000-$500M don't.
+export function parseAskingPrice(raw) {
+  if (isBlank(raw)) return { value: 0 };
+  const s = String(raw).replace(/[$,\s]/g, '');
+  if (/^0+(\.0+)?$/.test(s)) return { value: 0 };
+  const n = /^\d+(\.0+)?$/.test(s) ? Number(s) : NaN;
+  if (!Number.isInteger(n) || n < MIN_ASKING_PRICE || n > MAX_ASKING_PRICE) {
+    return { error: 'Enter an asking price as a whole-dollar amount, or leave it blank.' };
+  }
+  return { value: n };
+}
+
 export function validatePreListingInput(body) {
   const city = clampString(body.city, 80);
   const state = clampString(body.state, 20);
   const zip = clampString(body.zip, 10);
   const propertyType = PROPERTY_TYPES.includes(body.propertyType) ? body.propertyType : null;
-  const beds = num(body.beds, { min: 0, max: 50 });
-  const baths = num(body.baths, { min: 0, max: 50 });
-  const askingPrice = num(body.askingPrice, { min: 1, max: 500000000 });
+  const beds = requiredNum(body.beds, { min: 0, max: 50 });
+  const baths = requiredNum(body.baths, { min: 0, max: 50 });
+  const price = parseAskingPrice(body.askingPrice);
   const occupancyStatus = OCCUPANCY_STATUSES.includes(body.occupancyStatus) ? body.occupancyStatus : 'occupied';
   const showingNoticeHours = num(body.showingNoticeHours, { min: 0, max: 336 }) || 0;
   // Informational stipulations only — nothing here is enforced or a binding
@@ -34,7 +68,8 @@ export function validatePreListingInput(body) {
     return { error: 'Fill in city, state, property type, beds, and baths.' };
   }
   if (!/^\d{5}$/.test(zip)) return { error: 'Enter a 5-digit zip code.' };
-  if (askingPrice === null) return { error: 'Enter an asking price.' };
+  if (price.error) return { error: price.error };
+  const askingPrice = price.value;
 
   return {
     data: {
@@ -44,7 +79,7 @@ export function validatePreListingInput(body) {
       neighborhood: clampString(body.neighborhood, 80),
       city, state, zip, propertyType, beds, baths,
       sqft: body.sqft ? num(body.sqft, { min: 0, max: 200000 }) : null,
-      askingPrice, occupancyStatus, showingNoticeHours,
+      askingPrice, priceOpen: askingPrice === 0, occupancyStatus, showingNoticeHours,
       specialInstructions: clampString(body.specialInstructions, 500),
       minYearsExperience, preferredLanguage, requireDedicatedContact, prefersExclusive, preferredAgreementMonths,
       prefersLocalSpecialist,
@@ -123,11 +158,14 @@ export function validateComps(raw) {
 // The vote itself, plus (when the form sends them) the agent's suggested list price and comps, which are saved
 // to pre_listing_price_opinions. The presentation file is uploaded separately
 // (functions/api/pre-listings/[id]/votes/deck.js) and is left alone here.
-export async function castPriceVote(db, preListingId, agentUserId, body) {
-  const vote = VOTE_TYPES.includes(body.vote) ? body.vote : null;
-  if (!vote) return { error: 'Pick too high, too low, or just right.' };
+// priceOpen: the homeowner hasn't set a price, so there's nothing to vote on. The suggested list price is required
+// instead, any vote sent along is ignored (never stored), and only the opinion is saved.
+// opinionNew: this agent's first suggested price on this home (for the "shared a price opinion" notice).
+export async function castPriceVote(db, preListingId, agentUserId, body, { priceOpen = false } = {}) {
+  const vote = !priceOpen && VOTE_TYPES.includes(body.vote) ? body.vote : null;
+  if (!priceOpen && !vote) return { error: 'Pick too high, too low, or just right.' };
   const note = clampString(body.note, 300);
-  const withOpinion = 'priceOpinion' in body || 'comps' in body || 'prep' in body;
+  const withOpinion = priceOpen || 'priceOpinion' in body || 'comps' in body || 'prep' in body;
   const prep = validatePrep(body.prep);
   let priceOpinion = null;
   let comps = [];
@@ -135,18 +173,25 @@ export async function castPriceVote(db, preListingId, agentUserId, body) {
     if (body.priceOpinion !== undefined && body.priceOpinion !== null && body.priceOpinion !== '') {
       priceOpinion = Number(body.priceOpinion);
       if (!Number.isInteger(priceOpinion) || priceOpinion < 10000 || priceOpinion > 500000000) return { error: 'Your suggested list price should be a whole-dollar amount.' };
+    } else if (priceOpen) {
+      return { error: "This homeowner hasn't set a price yet. Share your suggested list price." };
     }
     const checked = validateComps(body.comps);
     if (checked.error) return { error: checked.error };
     comps = checked.comps;
   }
 
-  const before = await db.prepare('SELECT vote FROM pre_listing_price_votes WHERE pre_listing_id = ? AND agent_user_id = ?').bind(preListingId, agentUserId).first();
-  await db.prepare(
-    `INSERT INTO pre_listing_price_votes (pre_listing_id, agent_user_id, vote, note)
-     VALUES (?, ?, ?, ?)
-     ON CONFLICT(pre_listing_id, agent_user_id) DO UPDATE SET vote = excluded.vote, note = excluded.note, created_at = datetime('now')`
-  ).bind(preListingId, agentUserId, vote, note).run();
+  const opinionBefore = await db.prepare('SELECT price_opinion FROM pre_listing_price_opinions WHERE pre_listing_id = ? AND agent_user_id = ?').bind(preListingId, agentUserId).first();
+  const opinionNew = priceOpinion !== null && !(opinionBefore && opinionBefore.price_opinion !== null);
+  let before = null;
+  if (!priceOpen) {
+    before = await db.prepare('SELECT vote FROM pre_listing_price_votes WHERE pre_listing_id = ? AND agent_user_id = ?').bind(preListingId, agentUserId).first();
+    await db.prepare(
+      `INSERT INTO pre_listing_price_votes (pre_listing_id, agent_user_id, vote, note)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(pre_listing_id, agent_user_id) DO UPDATE SET vote = excluded.vote, note = excluded.note, created_at = datetime('now')`
+    ).bind(preListingId, agentUserId, vote, note).run();
+  }
   if (withOpinion) {
     // The note explains the suggested price, so it's kept with the opinion (which outlives a price change).
     await db.prepare(
@@ -158,7 +203,7 @@ export async function castPriceVote(db, preListingId, agentUserId, body) {
   }
 
   // Re-saving the same vote (to add a comp or fix a typo) shouldn't notify the homeowner again.
-  return { ok: true, voteChanged: !before || before.vote !== vote };
+  return { ok: true, voteChanged: !priceOpen && (!before || before.vote !== vote), opinionNew };
 }
 
 // Any approved agent may vote, so the tally also says how many of the votes
@@ -166,17 +211,30 @@ export async function castPriceVote(db, preListingId, agentUserId, body) {
 // SERVICE_RADIUS_MILES of it) — that is what makes "local agent experts" true
 // rather than a claim. `nearby` is null when the home's zip isn't a known one,
 // i.e. we can't tell, which is not the same as none.
-export async function getVoteTally(db, preListingId) {
-  const rows = await db.prepare(
-    `SELECT v.vote, ap.service_zips_json
-     FROM pre_listing_price_votes v
-     LEFT JOIN agent_profiles ap ON ap.user_id = v.agent_user_id
-     WHERE v.pre_listing_id = ?`
-  ).bind(preListingId).all();
-  const tally = { too_high: 0, too_low: 0, just_right: 0, total: 0, nearby: 0 };
+// On a home that's open to price opinions there are no votes, so the tally counts the agents who shared a
+// suggested price instead (total = opinionCount, for "{N} agents shared a price opinion").
+// home: the pre-listing row ({ zip, asking_price }) when the caller already has it.
+export async function getVoteTally(db, preListingId, home = null) {
+  if (!home) home = await db.prepare('SELECT zip, asking_price FROM pre_listings WHERE id = ?').bind(preListingId).first();
+  const open = !!home && priceIsOpen(home.asking_price);
+  const rows = open
+    ? await db.prepare(
+        `SELECT NULL AS vote, ap.service_zips_json
+         FROM pre_listing_price_opinions o
+         JOIN users ON users.id = o.agent_user_id
+         LEFT JOIN agent_profiles ap ON ap.user_id = o.agent_user_id
+         WHERE o.pre_listing_id = ? AND o.price_opinion IS NOT NULL AND users.status = 'active'`
+      ).bind(preListingId).all()
+    : await db.prepare(
+        `SELECT v.vote, ap.service_zips_json
+         FROM pre_listing_price_votes v
+         LEFT JOIN agent_profiles ap ON ap.user_id = v.agent_user_id
+         WHERE v.pre_listing_id = ?`
+      ).bind(preListingId).all();
+  const tally = { too_high: 0, too_low: 0, just_right: 0, total: 0, nearby: 0, priceOpen: open };
+  if (open) tally.opinionCount = rows.results.length;
   if (!rows.results.length) return tally;
 
-  const home = await db.prepare('SELECT zip FROM pre_listings WHERE id = ?').bind(preListingId).first();
   const agentZips = rows.results.map(r => { try { return JSON.parse(r.service_zips_json || '[]'); } catch { return []; } });
   const coords = await lookupZipCoords(db, [home && home.zip, ...agentZips.flat()]);
   const homeCoords = home ? coords.get(home.zip) : null;
@@ -217,7 +275,9 @@ function parseComps(json) {
 // voted, so nobody anchors on the crowd. The owner, admins, other homeowners and agents who've already voted see
 // the full tally. Price opinions are never shown to other agents at all.
 export function sealTally(tally) {
-  return { sealed: true, total: tally.total };
+  return tally.priceOpen
+    ? { sealed: true, total: tally.total, priceOpen: true, opinionCount: tally.opinionCount }
+    : { sealed: true, total: tally.total };
 }
 
 // The ids of pre-listings this agent has already voted on (for sealing a browse list in one query).
@@ -231,26 +291,36 @@ export async function fetchVotedIds(db, agentUserId) {
 // opinions are left out, same as their proposals.
 export const OPINION_SUMMARY_MIN = 3;
 export async function fetchPriceOpinions(db, preListingId) {
+  // The agent's DRE number and brokerage ride along: an opinion is a first point of contact, so the homeowner
+  // always sees who it's from (California DRE rule).
   const opinionRows = await db.prepare(
-    `SELECT o.agent_user_id, o.price_opinion, o.comps_json, o.note, o.prep_json, o.deck_name, o.deck_size, o.updated_at, users.display_name AS agent_name, users.role AS agent_role
-     FROM pre_listing_price_opinions o JOIN users ON users.id = o.agent_user_id
+    `SELECT o.agent_user_id, o.price_opinion, o.comps_json, o.note, o.prep_json, o.deck_name, o.deck_size, o.updated_at, users.display_name AS agent_name, users.role AS agent_role,
+            ap.license_number, ap.brokerage_name
+     FROM pre_listing_price_opinions o JOIN users ON users.id = o.agent_user_id LEFT JOIN agent_profiles ap ON ap.user_id = o.agent_user_id
      WHERE o.pre_listing_id = ? AND users.status = 'active'`
   ).bind(preListingId).all();
   const voteRows = await db.prepare(
-    `SELECT v.agent_user_id, v.vote, v.note, users.display_name AS agent_name, users.role AS agent_role
-     FROM pre_listing_price_votes v JOIN users ON users.id = v.agent_user_id
+    `SELECT v.agent_user_id, v.vote, v.note, users.display_name AS agent_name, users.role AS agent_role,
+            ap.license_number, ap.brokerage_name
+     FROM pre_listing_price_votes v JOIN users ON users.id = v.agent_user_id LEFT JOIN agent_profiles ap ON ap.user_id = v.agent_user_id
      WHERE v.pre_listing_id = ? AND users.status = 'active'`
   ).bind(preListingId).all();
   // One entry per agent who either voted or gave an opinion.
   const byAgent = new Map();
   // isPlatformOperator: the admin account that runs Amico Haus, when it weighs in as an agent (always labeled).
-  const entry = (id, name, role) => {
-    if (!byAgent.has(id)) byAgent.set(id, { agentUserId: id, agentName: name, isPlatformOperator: role === 'admin', vote: null, note: '', priceOpinion: null, comps: [], prep: [], deck: null, updatedAt: null });
+  const entry = (r) => {
+    const id = r.agent_user_id;
+    if (!byAgent.has(id)) {
+      byAgent.set(id, {
+        agentUserId: id, agentName: r.agent_name, licenseNumber: r.license_number || '', brokerageName: r.brokerage_name || '',
+        isPlatformOperator: r.agent_role === 'admin', vote: null, note: '', priceOpinion: null, comps: [], prep: [], deck: null, updatedAt: null,
+      });
+    }
     return byAgent.get(id);
   };
-  for (const r of voteRows.results) Object.assign(entry(r.agent_user_id, r.agent_name, r.agent_role), { vote: r.vote, note: r.note });
+  for (const r of voteRows.results) Object.assign(entry(r), { vote: r.vote, note: r.note });
   for (const r of opinionRows.results) {
-    const e = entry(r.agent_user_id, r.agent_name, r.agent_role);
+    const e = entry(r);
     Object.assign(e, {
       note: r.note || e.note, priceOpinion: r.price_opinion, comps: parseComps(r.comps_json), prep: validatePrep(parseComps(r.prep_json)),
       deck: r.deck_name ? { name: r.deck_name, size: r.deck_size } : null, updatedAt: r.updated_at,

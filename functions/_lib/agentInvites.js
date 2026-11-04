@@ -5,6 +5,7 @@
 // browse list) even if it's outside their usual filters, and lets the
 // homeowner skip advertising the request to every agent on the platform.
 import { clampString } from './util.js';
+import { priceIsOpen, shownAskingPrice } from './preListings.js';
 
 export async function isPartyToRequest(db, requestType, requestId, userId) {
   const row = requestType === 'pre_listing'
@@ -55,16 +56,22 @@ export async function fetchMyInvites(db, agentUserId) {
   const preListingIds = rows.results.filter(r => r.request_type === 'pre_listing').map(r => r.request_id);
   const transactionIds = rows.results.filter(r => r.request_type === 'transaction').map(r => r.request_id);
 
+  // One JSON-array parameter each (json_each), so a long invite list never runs past D1's bound-parameter limit.
   const preListingsById = new Map();
   if (preListingIds.length > 0) {
-    const placeholders = preListingIds.map(() => '?').join(',');
-    const pl = await db.prepare(`SELECT id, title, city, state, asking_price FROM pre_listings WHERE id IN (${placeholders})`).bind(...preListingIds).all();
-    for (const r of pl.results) preListingsById.set(r.id, r);
+    const pl = await db.prepare('SELECT id, title, city, state, asking_price, proposals_paused FROM pre_listings WHERE id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(preListingIds)).all();
+    // Camelcased like fetchAgentOwnBids: the raw snake_case asking_price used to reach the client, which read
+    // askingPrice and showed "$0".
+    for (const r of pl.results) {
+      preListingsById.set(r.id, {
+        id: r.id, title: r.title, city: r.city, state: r.state,
+        askingPrice: shownAskingPrice(r.asking_price), priceOpen: priceIsOpen(r.asking_price), proposalsPaused: !!r.proposals_paused,
+      });
+    }
   }
   const transactionsById = new Map();
   if (transactionIds.length > 0) {
-    const placeholders = transactionIds.map(() => '?').join(',');
-    const tx = await db.prepare(`SELECT id FROM transaction_requests WHERE id IN (${placeholders})`).bind(...transactionIds).all();
+    const tx = await db.prepare('SELECT id FROM transaction_requests WHERE id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(transactionIds)).all();
     for (const r of tx.results) transactionsById.set(r.id, r);
   }
 

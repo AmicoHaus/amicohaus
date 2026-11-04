@@ -4,7 +4,11 @@ import { notFound } from '../../_lib/util.js';
 // to be seen by anyone reviewing a proposal.
 export async function onRequestGet(context) {
   const db = context.env.DB;
-  const photo = await db.prepare('SELECT r2_key, content_type FROM agent_portfolio_photos WHERE id = ?').bind(context.params.id).first();
+  // A suspended account's photos aren't served (its profile pages are gone too).
+  const photo = await db.prepare(
+    `SELECT p.r2_key, p.content_type FROM agent_portfolio_photos p JOIN users u ON u.id = p.agent_user_id
+     WHERE p.id = ? AND u.status = 'active'`
+  ).bind(context.params.id).first();
   if (!photo) return notFound('Photo not found.');
 
   const bucket = context.env.PHOTOS;

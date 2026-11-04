@@ -8,7 +8,7 @@
 // Finalist feedback: after hiring, the homeowner can send the finalists they didn't pick (agents they interviewed or
 // shortlisted) up to 3 reasons from a preset list. Never a fee, a rate or a number, and never who was hired.
 import { DEMO_EMAIL_PATTERN } from './util.js';
-import { notifyProposalsOpen, notifyFinalistDebrief } from './marketplaceNotify.js';
+import { notifyProposalsOpen, notifyFinalistDebrief, fetchRecipient } from './marketplaceNotify.js';
 
 export const DECISION_MIN_HOURS = 12;
 export const DECISION_MAX_DAYS = 21;
@@ -119,7 +119,7 @@ export async function countFinalistHomes(db, agentUserId) {
 export async function runDueDecisionNights(context, { limit = 20 } = {}) {
   const db = context.env.DB;
   const due = await db.prepare(
-    `SELECT pre_listings.id, pre_listings.user_id, users.email, users.email_frequency
+    `SELECT pre_listings.id, pre_listings.user_id
      FROM pre_listings JOIN users ON users.id = pre_listings.user_id
      WHERE pre_listings.proposals_open_notified_at IS NULL AND pre_listings.proposals_due_at IS NOT NULL
        AND pre_listings.proposals_due_at <= ? AND pre_listings.status = 'open'
@@ -131,7 +131,10 @@ export async function runDueDecisionNights(context, { limit = 20 } = {}) {
       .bind(p.id, new Date().toISOString()).run();
     if (!claim.meta || !claim.meta.changes) continue;
     const count = await countSealedProposals(db, p.id);
-    await notifyProposalsOpen(context, { userId: p.user_id, email: p.email, emailFrequency: p.email_frequency }, p.id, count);
+    // The same recipient lookup as every other owner alert (quiet hours, the daily cap, no email to a demo or
+    // suspended account).
+    const owner = await fetchRecipient(db, p.user_id);
+    if (owner) await notifyProposalsOpen(context, owner, p.id, count);
     told++;
   }
   return told;

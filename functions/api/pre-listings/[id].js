@@ -1,6 +1,7 @@
 import { getSessionUser } from '../../_lib/auth.js';
 import { json, badRequest, unauthorized, forbidden, notFound, DEMO_EMAIL_PATTERN } from '../../_lib/util.js';
-import { validatePreListingInput, updatePreListing, fetchPreListingPhotos, getVoteTally, fetchMyVote, sealTally, fetchPriceOpinions, deleteOpinionDecks } from '../../_lib/preListings.js';
+import { validatePreListingInput, updatePreListing, fetchPreListingPhotos, getVoteTally, fetchMyVote, sealTally, fetchPriceOpinions, deleteOpinionDecks, priceIsOpen, shownAskingPrice } from '../../_lib/preListings.js';
+import { fetchContactShares, fetchAddressViews, fetchSharedContact } from '../../_lib/addressViews.js';
 import { fetchBids, fetchMyBid, fetchHomeownerRatingSummary } from '../../_lib/marketplace.js';
 import { getAgentProfile } from '../../_lib/agents.js';
 import { lookupZipCoords, nearestServiceDistance, SERVICE_RADIUS_MILES } from '../../_lib/geo.js';
@@ -31,7 +32,8 @@ export async function onRequestGet(context) {
   // admins) — not to every registered account.
   const canSeeInstructions = isOwner || isApprovedAgentViewer || user.role === 'admin';
   const photos = await fetchPreListingPhotos(db, id);
-  const votes = await getVoteTally(db, id);
+  const votes = await getVoteTally(db, id, row);
+  const priceOpen = priceIsOpen(row.asking_price);
   const priceHistoryRows = await db.prepare(
     'SELECT old_price, new_price, changed_at FROM pre_listing_price_history WHERE pre_listing_id = ? ORDER BY changed_at ASC'
   ).bind(id).all();
@@ -49,7 +51,10 @@ export async function onRequestGet(context) {
     listingReady: isOwner ? JSON.parse(row.listing_ready_json || '[]') : undefined,
     targetListDate: isOwner ? row.target_list_date : undefined,
     hasVideo: !!row.video_r2_key, videoVersion: row.video_r2_key ? row.video_r2_key.slice(-8) : null,
-    propertyType: row.property_type, beds: row.beds, baths: row.baths, sqft: row.sqft, askingPrice: row.asking_price,
+    propertyType: row.property_type, beds: row.beds, baths: row.baths, sqft: row.sqft,
+    // priceOpen: the owner left the price blank ("Open to price opinions"); askingPrice is then 0.
+    askingPrice: shownAskingPrice(row.asking_price), priceOpen,
+    proposalsPaused: !!row.proposals_paused,
     status: row.status, awardedBidId: row.awarded_bid_id, createdAt: row.created_at,
     photoIds: photos.map(p => p.id), votes, costs: homeCostsFromRow(row),
     priceHistory: priceHistoryRows.results.map(r => ({ oldPrice: r.old_price, newPrice: r.new_price, changedAt: r.changed_at })),
@@ -82,6 +87,10 @@ export async function onRequestGet(context) {
       }
     }
     priceOpinions = await fetchPriceOpinions(db, id);
+    // You're in Control: who the owner shared their contact info with, and every agent the exact address was shown
+    // to (by a share or a broker preview RSVP). Never sent to anyone but the owner.
+    preListing.contactShares = await fetchContactShares(db, id);
+    preListing.addressViews = await fetchAddressViews(db, id);
     // After hiring: the finalists who could get feedback, and whether it was sent.
     if (row.status === 'awarded') {
       const hired = bids.find(b => b.id === row.awarded_bid_id);
@@ -95,6 +104,17 @@ export async function onRequestGet(context) {
     // Sealed until this agent has voted: they see how many agents weighed in, not how. No exception for staff
     // (Fair Play): an admin account that also competes as an agent plays by the same rule.
     if (!(myVote && myVote.vote)) preListing.votes = sealTally(votes);
+    // The owner shared their contact info with this agent: the exact address, phone and email (each look is
+    // logged for the owner's "Who saw my address" list).
+    const shared = await fetchSharedContact(db, row, user.id);
+    if (shared) preListing.sharedContact = shared;
+    // The owner invited this agent, so they can send a proposal even while new proposals are paused.
+    if (row.proposals_paused) {
+      const invite = await db.prepare(
+        "SELECT 1 AS yes FROM agent_invites WHERE request_type = 'pre_listing' AND request_id = ? AND agent_user_id = ? AND invited_by_user_id = ?"
+      ).bind(id, user.id, row.user_id).first();
+      if (invite) preListing.invitedByOwner = true;
+    }
   }
 
   if (isApprovedAgentViewer && agentProfile.serviceZips.length > 0) {
@@ -108,7 +128,7 @@ export async function onRequestGet(context) {
   if (isOwner || isApprovedAgentViewer) {
     preListing.buyerDemand = await buyerDemandForDisplay(db, {
       userId: row.user_id, city: row.city, state: row.state, neighborhood: row.neighborhood,
-      propertyType: row.property_type, price: row.asking_price, beds: row.beds, baths: row.baths,
+      propertyType: row.property_type, price: row.asking_price, priceOpen, beds: row.beds, baths: row.baths,
     });
   }
 
@@ -132,7 +152,8 @@ export async function onRequestGet(context) {
 
   const homeownerRating = await fetchHomeownerRatingSummary(db, row.user_id);
 
-  return json({ preListing, bids, myBid, myVote, priceOpinions, isOwner: !!isOwner, homeownerRating });
+  // Per-viewer (the owner's address, a shared phone and email): never stored by a browser or the edge.
+  return json({ preListing, bids, myBid, myVote, priceOpinions, isOwner: !!isOwner, homeownerRating }, { headers: { 'Cache-Control': 'private, no-store' } });
 }
 
 export async function onRequestPut(context) {
@@ -156,23 +177,34 @@ export async function onRequestPut(context) {
     return json({ ok: true });
   }
 
+  // "Pause new proposals": agents who already sent one can still update it; nobody new can start one until the
+  // owner resumes. Open pre-listings only.
+  if (body.action === 'pause' || body.action === 'resume') {
+    if (existing.status !== 'open') return badRequest('Only an open pre-listing can pause or resume proposals.');
+    const paused = body.action === 'pause' ? 1 : 0;
+    await db.prepare("UPDATE pre_listings SET proposals_paused = ?, updated_at = datetime('now') WHERE id = ?").bind(paused, id).run();
+    return json({ ok: true, proposalsPaused: !!paused });
+  }
+
   if (existing.status !== 'open') return badRequest('Only an open pre-listing can be edited.');
   const validated = validatePreListingInput(body);
   if (validated.error) return badRequest(validated.error);
   await updatePreListing(db, id, validated.data);
 
   // The price votes were opinions about the old asking price; once it changes they'd be misleading, so agents
-  // start fresh. Proposals stay: they are about strategy and fees, not the price.
+  // start fresh. Proposals stay: they are about strategy and fees, not the price. Going from a price to blank
+  // ("open to price opinions"), or back, is a price change too (the history then shows 0 for "no price").
   let votesCleared = 0;
-  if (Number(validated.data.askingPrice) !== Number(existing.asking_price)) {
+  const oldPrice = shownAskingPrice(existing.asking_price);
+  if (validated.data.askingPrice !== oldPrice) {
     const cleared = await db.prepare('DELETE FROM pre_listing_price_votes WHERE pre_listing_id = ?').bind(id).run();
     votesCleared = (cleared.meta && cleared.meta.changes) || 0;
     // Clearing the votes without a trace would look like nothing happened — logged so anyone viewing (owner or
     // a bidding agent) can see the price actually moved, same transparency a real listing's price history gives.
     await db.prepare('INSERT INTO pre_listing_price_history (pre_listing_id, old_price, new_price) VALUES (?, ?, ?)')
-      .bind(id, existing.asking_price, validated.data.askingPrice).run();
+      .bind(id, oldPrice, validated.data.askingPrice).run();
   }
-  return json({ ok: true, votesCleared });
+  return json({ ok: true, votesCleared, priceOpen: validated.data.priceOpen });
 }
 
 export async function onRequestDelete(context) {

@@ -199,14 +199,15 @@ function openPitchReels(preListingId, trigger) {
   function draw() {
     const focusedControl = document.activeElement && overlay.contains(document.activeElement) ? document.activeElement.dataset.reel : null;
     const b = reels[index];
-    const lic = b.licenseNumber ? `DRE #${escapeHtml(b.licenseNumber)}` : '';
+    // Name, then DRE number and brokerage (the same identity line every agent carries; client.js).
+    const creds = agentCredentialsLine(b.licenseNumber, b.brokerageName);
     overlay.innerHTML = `
       <div class="reel-stage">
         <div class="reel-top"><span class="reel-counter">${index + 1} of ${reels.length}</span><button type="button" class="btn btn-ghost btn-sm" data-reel="close">Close</button></div>
         <video class="reel-video" playsinline controls src="/api/pre-listings/${preListingId}/pitch-video?agent=${b.agentUserId}&v=${escapeHtml(b.pitchVersion || '')}"></video>
         <div class="reel-caption">
           <strong>${escapeHtml(b.agentName)}</strong>${b.isPlatformOperator ? ' · Platform operator' : ''}<br>
-          <span>${[lic, escapeHtml(b.brokerageName || '')].filter(Boolean).join(' · ')}</span>
+          <span>${escapeHtml(creds)}</span>
           ${b.ownerPick ? `<span class="reel-pick reel-pick-${b.ownerPick}">${b.ownerPick === 'shortlist' ? '★ Shortlisted' : 'Passed'}</span>` : ''}
         </div>
         <div class="reel-actions">

@@ -2,6 +2,7 @@ import { rowsToProfiles, matchScore, MATCH_THRESHOLD, findRentalMatches } from '
 import { sendEmail } from './email.js';
 import { sendPushToUser } from './webpush.js';
 import { DEMO_EMAIL_PATTERN } from './util.js';
+import { isQuietNow } from './contactPolicy.js';
 
 const LISTING_FIELDS = `listings.id AS listing_id, listings.user_id, listings.city, listings.state, listings.neighborhood,
             listings.property_type, listings.beds, listings.baths, listings.estimated_value,
@@ -134,6 +135,11 @@ export async function notifyNewMatches(context, newListingId) {
 
   if (perUser.size === 0) return;
 
+  // Account status and quiet hours: no email to a suspended or demo account, and no push during quiet hours.
+  const people = await db.prepare('SELECT id, email, status, quiet_start, quiet_end FROM users WHERE id IN (SELECT value FROM json_each(?))')
+    .bind(JSON.stringify([...perUser.keys()])).all();
+  const personById = new Map(people.results.map(p => [p.id, p]));
+
   const statements = [];
   const emails = [];
   for (const [userId, info] of perUser) {
@@ -156,7 +162,9 @@ export async function notifyNewMatches(context, newListingId) {
       "INSERT INTO notifications (user_id, type, body, link) VALUES (?, 'match', ?, '/app')"
     ).bind(userId, body));
 
-    if (info.notifyMatches) {
+    const person = personById.get(userId);
+    const emailable = !!info.email && !!person && person.status === 'active' && !String(info.email).toLowerCase().endsWith('@demo.amicohaus.local');
+    if (info.notifyMatches && emailable) {
       let underCap = true;
       if (info.emailFrequency === 'capped') {
         const sent = await db.prepare(
@@ -170,18 +178,29 @@ export async function notifyNewMatches(context, newListingId) {
           to: info.email,
           subject: totalCount === 1 ? 'New match on Amico Haus' : `${totalCount} new matches on Amico Haus`,
           text: `${body} Log in to see the details and send a message: ${new URL(context.request.url).origin}/app`,
+          statementIndex: statements.length - 1,
         });
       }
     }
   }
 
-  await db.batch(statements);
+  const inserted = await db.batch(statements);
+  // A sent match email marks its notification row (emailed_at), so it counts toward the person's one daily email
+  // budget in marketplaceNotify.js too.
+  const sendAndMark = async ({ statementIndex, ...mail }) => {
+    const ok = await sendEmail(context, mail);
+    const row = inserted[statementIndex];
+    if (ok && row && row.meta && row.meta.last_row_id) {
+      await db.prepare("UPDATE notifications SET emailed_at = datetime('now') WHERE id = ?").bind(row.meta.last_row_id).run();
+    }
+    return ok;
+  };
   // In parallel (not a sequential await loop) and allSettled (not all) — this
   // already runs in the background via context.waitUntil() in the caller, so
   // nothing is blocking on it, but a slow or failing email/push provider for
   // one user still shouldn't hold up or cancel everyone else's.
   await Promise.allSettled([
-    ...emails.map(e => sendEmail(context, e)),
-    ...[...perUser.keys()].map(userId => sendPushToUser(context, userId)),
+    ...emails.map(sendAndMark),
+    ...[...perUser.keys()].filter(userId => !isQuietNow(personById.get(userId))).map(userId => sendPushToUser(context, userId)),
   ]);
 }

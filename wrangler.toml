@@ -10,3 +10,17 @@ database_id = "ef0209d0-b680-4894-a42e-af26ba85577f"
 [[r2_buckets]]
 binding = "PHOTOS"
 bucket_name = "amicohaus-photos"
+
+# Preview deployments (any branch except main) use a separate test database and photo bucket, so the
+# authorization suite (tools/authz-test.js, see tools/TESTING.md) never touches amicohaus.com. Production keeps
+# the top-level bindings above. An environment block doesn't inherit bindings: list every one here.
+[env.preview]
+
+[[env.preview.d1_databases]]
+binding = "DB"
+database_name = "amicohaus-test"
+database_id = "fba416c3-1699-4791-8e6b-1760c158c756"
+
+[[env.preview.r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "amicohaus-test-photos"

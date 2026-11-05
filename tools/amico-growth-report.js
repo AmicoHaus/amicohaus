@@ -13,7 +13,7 @@
    so the Windows command line stays under its limit (see estimatedCmdLength).
    Exit codes: 0 fine; 1 the report could not be made. Prints WEEK, "- note" lines and FILE at the end. */
 'use strict';
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
@@ -129,16 +129,34 @@ function wranglerBatches(statements) {
   }
   return batches.map((b) => { const sql = b.join('; '); assertReadOnly(sql); return sql; });
 }
+// On Windows the npx .cmd shim goes through cmd.exe (8191-character cap plus caret escaping), which still broke on
+// a real week's SQL. When wrangler's JS entry point can be found (the newest copy in npx's cache, or a local or
+// global install), node runs it directly with an argument list: no shell, no quoting, ~32k characters allowed.
+function findWranglerJs() {
+  const candidates = [];
+  const add = (p) => { try { if (fs.existsSync(p)) candidates.push(p); } catch { /* ignore */ } };
+  try { candidates.push(require.resolve('wrangler/bin/wrangler.js', { paths: [ROOT] })); } catch { /* not local */ }
+  if (process.env.APPDATA) add(path.join(process.env.APPDATA, 'npm', 'node_modules', 'wrangler', 'bin', 'wrangler.js'));
+  const npxCache = path.join(process.env.LOCALAPPDATA || '', 'npm-cache', '_npx');
+  try { for (const d of fs.readdirSync(npxCache)) add(path.join(npxCache, d, 'node_modules', 'wrangler', 'bin', 'wrangler.js')); } catch { /* no cache */ }
+  const version = (p) => { try { return JSON.parse(fs.readFileSync(path.join(path.dirname(p), '..', 'package.json'), 'utf8')).version.split('.').map(Number); } catch { return [0]; } };
+  candidates.sort((a, b) => { const va = version(a), vb = version(b); for (let i = 0; i < 3; i++) if ((vb[i] || 0) !== (va[i] || 0)) return (vb[i] || 0) - (va[i] || 0); return 0; });
+  return candidates[0] || null;
+}
 function wranglerRunner(statements) {
   const out = [];
+  const wranglerJs = findWranglerJs();
   for (const sql of wranglerBatches(statements)) {
     const expected = sql.split(';').filter((s) => s.trim()).length;
+    const args = ['d1', 'execute', 'amicohaus', '--remote', '--json', '--command', sql];
     const cmd = `npx wrangler d1 execute amicohaus --remote --json --command "${sql}"`;
     if (/--file/.test(cmd)) throw new Error('Read-only guard: --file is never allowed.');
     let raw;
     for (let attempt = 1; ; attempt++) {
       try {
-        raw = execSync(cmd, { cwd: ROOT, encoding: 'utf8', shell: true, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 20 * 1024 * 1024 });
+        raw = wranglerJs
+          ? execFileSync(process.execPath, [wranglerJs, ...args], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 20 * 1024 * 1024 })
+          : execSync(cmd, { cwd: ROOT, encoding: 'utf8', shell: true, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 20 * 1024 * 1024 });
         break;
       } catch (e) {
         if (attempt >= 4 || !TRANSIENT.test(`${e.stdout || ''} ${e.stderr || ''} ${e.message || ''}`)) throw new Error(String(e.stderr || e.message).slice(0, 400));

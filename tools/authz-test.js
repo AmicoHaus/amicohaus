@@ -98,7 +98,10 @@ class User {
   // email, so the test plants a known token's hash and follows the real confirm endpoint with it.
   async signup(extra = {}) {
     const r = await this.call('POST', '/api/auth/signup', { email: this.email, displayName: `Authz ${this.role}`, ...extra });
-    if (r.status !== 201 || !r.json.pendingConfirmation) throw new Error(`signup ${this.role} failed: ${r.status} ${r.text.slice(0, 150)}`);
+    // A preview deployment has no email key, so signup answers 202 { emailDelayed: true } (the account is kept);
+    // the test plants its own link token below either way.
+    const ok = r.json && r.json.pendingConfirmation && (r.status === 201 || (r.status === 202 && r.json.emailDelayed));
+    if (!ok) throw new Error(`signup ${this.role} failed: ${r.status} ${r.text.slice(0, 150)}`);
     this.id = sql(`SELECT id FROM users WHERE email = '${this.email}'`)[0].id;
     return r;
   }
@@ -610,7 +613,8 @@ const denied = r => r.status >= 400 && r.status < 500;
   // the raw snake_case row was being returned as-is, so target.askingPrice was always undefined (silently
   // rendered as "$0" by money()) and there was no userId at all to message.
   const myBids = await G.call('GET', '/api/agents/my-bids');
-  const glBid = myBids.json.bids.find(b => b.requestId === Number(PL));
+  // Match the type too: on a fresh test database the pre-listing and the trade can both have id 1.
+  const glBid = myBids.json.bids.find(b => b.requestType === 'pre_listing' && b.requestId === Number(PL));
   record('messaging', "an agent's own proposal list shows the real asking price and the homeowner's user id, not undefined",
     glBid && glBid.preListing && glBid.preListing.askingPrice === 750000 && glBid.preListing.userId === A.id,
     JSON.stringify(glBid && glBid.preListing));

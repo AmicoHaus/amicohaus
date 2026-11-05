@@ -9,6 +9,11 @@ Two kinds of tests:
   over HTTP. It must never run on amicohaus.com: fake agents and listings would be public there until cleanup. It runs
   against a **preview deployment** that uses its own **test database and photo bucket**.
 
+**Status (2026-11-05):** the one-time setup below is DONE (test D1 `amicohaus-test`, bucket `amicohaus-test-photos`,
+`[env.preview]` in wrangler.toml, preview alias https://authz-preview.amicohaus.pages.dev). First full run: 473/473.
+Step 4 (copying secrets to Preview) was skipped: without the email key, signup answers 202 `emailDelayed` and the
+suite plants its own link token, so it doesn't need email.
+
 ## One-time setup (Rudy runs these; the build never creates Cloudflare resources)
 
 1. Create the test database and bucket:

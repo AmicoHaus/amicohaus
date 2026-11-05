@@ -1,4 +1,5 @@
 // Password hashing and session management for the Workers runtime (Web Crypto only — no Node crypto/bcrypt available).
+import { isEitherBlocked } from './blocks.js';
 
 // Cloudflare Workers' real production runtime hard-caps PBKDF2 at 100,000
 // iterations (confirmed live: "iteration counts above 100000 are not
@@ -120,13 +121,14 @@ export function publicUser(user) {
 
 // A person's phone number is private: someone else sees it only when the person turned on "Show my phone number"
 // (users.phone_public), or the viewer is an agent they shared their contact info with on one of their homes that is
-// still open or awarded, while that agent is still approved.
+// still open or awarded, while that agent is still approved. Never across a block (either way), even a public one.
 // owner needs { id, phone, phone_public }; viewer is the signed-in user or null. Returns the number to show, or ''.
 // Admin screens read users.phone directly; public pages and APIs go through this.
 export async function phoneVisibleTo(db, viewer, owner) {
   const phone = owner && owner.phone ? String(owner.phone).trim() : '';
   if (!phone) return '';
   if (viewer && viewer.id === owner.id) return phone;
+  if (viewer && await isEitherBlocked(db, viewer.id, owner.id)) return '';
   if (Number(owner.phone_public) === 1) return phone;
   if (!viewer) return '';
   // A share counts only while its home is still open or awarded and the agent is still approved (the same rules as

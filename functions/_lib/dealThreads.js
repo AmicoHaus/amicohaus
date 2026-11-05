@@ -27,7 +27,7 @@ export async function fetchCommentCountBatch(db, entityKind, ids) {
   if (!column || !ids.length) return map;
   const rows = await db.prepare(
     `SELECT posts.${column} AS entity_id, COUNT(comments.id) AS n
-     FROM posts JOIN comments ON comments.post_id = posts.id
+     FROM posts JOIN comments ON comments.post_id = posts.id AND comments.hidden_at IS NULL
      WHERE posts.${column} IN (${ids.map(() => '?').join(',')})
      GROUP BY posts.${column}`
   ).bind(...ids).all();

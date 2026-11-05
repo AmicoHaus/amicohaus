@@ -1,5 +1,12 @@
 import { clampString } from './util.js';
 import { matchScore, rowsToProfiles, MATCH_THRESHOLD } from './matching.js';
+import { isEitherBlocked, notBlockedSql } from './blocks.js';
+
+// Home trades (Rudy 11.04): the partner who didn't open the request confirms it (partner_confirmed_at) before
+// approved agents are told about it, can see it, send a proposal or get hired. One agent for both homes is dual
+// agency, so this line goes with every trade proposal and in the Terms.
+export const DUAL_AGENCY_LINE = "One agent for both homes is dual agency and needs both owners' written consent. Each of you can choose your own agent.";
+export const PARTNER_CONFIRM_FIRST = 'Your trade partner needs to confirm this trade request first.';
 
 const LISTING_FIELDS = `listings.id, listings.user_id, listings.city, listings.state, listings.neighborhood,
             listings.property_type, listings.beds, listings.baths, listings.estimated_value,
@@ -12,6 +19,8 @@ const LISTING_FIELDS = `listings.id, listings.user_id, listings.city, listings.s
 // two arbitrary listing ids. Matches are never persisted anywhere (matches.js
 // computes them fresh every time), so this is the one place that has to
 // re-derive "are these two actually a mutual match" from scratch.
+// Returns { id, isNew, confirmedNow }: a new request waits for the other partner; the other partner asking for the
+// same trade counts as confirming it (confirmedNow).
 export async function openTransactionRequest(db, openedByUserId, listingId1, listingId2, note) {
   const id1 = Number(listingId1);
   const id2 = Number(listingId2);
@@ -34,6 +43,11 @@ export async function openTransactionRequest(db, openedByUserId, listingId1, lis
   if (rowLow.is_buyer_only || rowHigh.is_buyer_only || rowLow.is_rental || rowHigh.is_rental) {
     return { error: 'Only a genuine reciprocal trade match can be opened to bid — buyer profiles and rentals have nothing reciprocal to close.' };
   }
+  // A block either way means they aren't a match for each other (matches.js leaves them out too), with the same
+  // answer as a non-match, never "blocked".
+  if (await isEitherBlocked(db, rowLow.user_id, rowHigh.user_id)) {
+    return { error: "These two listings aren't actually a mutual match." };
+  }
 
   const [profileLow, profileHigh] = rowsToProfiles([rowLow, rowHigh]);
   const scoreLowWantsHigh = matchScore(profileLow.desired, profileHigh.current);
@@ -42,7 +56,16 @@ export async function openTransactionRequest(db, openedByUserId, listingId1, lis
     return { error: "These two listings aren't actually a mutual match." };
   }
 
-  const existing = await db.prepare('SELECT id FROM transaction_requests WHERE listing_a_id = ? AND listing_b_id = ?').bind(lowId, highId).first();
+  const existing = await db.prepare('SELECT id, opened_by_user_id, partner_confirmed_at FROM transaction_requests WHERE listing_a_id = ? AND listing_b_id = ?').bind(lowId, highId).first();
+  if (existing) {
+    // Asking again updates the note. When the other partner asks for the same trade, both of them want it: that's
+    // the confirmation.
+    const confirmsNow = !existing.partner_confirmed_at && existing.opened_by_user_id !== openedByUserId;
+    await db.prepare(
+      `UPDATE transaction_requests SET note = ?, updated_at = datetime('now')${confirmsNow ? ", partner_confirmed_at = datetime('now')" : ''} WHERE id = ?`
+    ).bind(clampString(note, 1000), existing.id).run();
+    return { id: existing.id, isNew: false, confirmedNow: confirmsNow };
+  }
 
   await db.prepare(
     `INSERT INTO transaction_requests (opened_by_user_id, listing_a_id, listing_b_id, user_a_id, user_b_id, note)
@@ -51,7 +74,46 @@ export async function openTransactionRequest(db, openedByUserId, listingId1, lis
   ).bind(openedByUserId, lowId, highId, rowLow.user_id, rowHigh.user_id, clampString(note, 1000)).run();
 
   const row = await db.prepare('SELECT id FROM transaction_requests WHERE listing_a_id = ? AND listing_b_id = ?').bind(lowId, highId).first();
-  return { id: row.id, isNew: !existing };
+  return { id: row.id, isNew: true, confirmedNow: false };
+}
+
+// The partner who didn't open the request says yes. Returns { notFound } | { error } | { ok, confirmedNow, row }.
+export async function confirmTransactionRequest(db, id, userId) {
+  const row = await db.prepare(
+    'SELECT id, opened_by_user_id, user_a_id, user_b_id, status, partner_confirmed_at FROM transaction_requests WHERE id = ?'
+  ).bind(id).first();
+  if (!row || (row.user_a_id !== userId && row.user_b_id !== userId)) return { notFound: true };
+  if (row.partner_confirmed_at) return { ok: true, confirmedNow: false, row };
+  if (row.opened_by_user_id === userId) return { error: 'Only your trade partner can confirm this request.' };
+  // A block either way since the request was opened: it can't be confirmed (agents would then be told), the same
+  // answer as a request that isn't there.
+  if (await isEitherBlocked(db, row.user_a_id, row.user_b_id)) return { notFound: true };
+  const r = await db.prepare(
+    "UPDATE transaction_requests SET partner_confirmed_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND partner_confirmed_at IS NULL"
+  ).bind(id).run();
+  return { ok: true, confirmedNow: !!(r.meta && r.meta.changes), row };
+}
+
+// In-app note to the partner who has to confirm. Written here (not marketplaceNotify's "opened your trade to agent
+// bids"), because nothing is open to agents until they say yes.
+export async function notifyPartnerToConfirm(db, requestId, partnerUserId, openerName) {
+  await db.prepare("INSERT INTO notifications (user_id, type, body, link) VALUES (?, 'marketplace', ?, ?)")
+    .bind(partnerUserId, `${openerName || 'Your trade partner'} would like to open your trade to agent proposals. Confirm it to share it with approved agents.`, `/app#transaction-${requestId}`).run();
+}
+
+export async function notifyOpenerConfirmed(db, requestId, openerUserId, partnerName) {
+  await db.prepare("INSERT INTO notifications (user_id, type, body, link) VALUES (?, 'marketplace', ?, ?)")
+    .bind(openerUserId, `${partnerName || 'Your trade partner'} confirmed your trade request. Approved agents can now send proposals.`, `/app#transaction-${requestId}`).run();
+}
+
+// True if the agent blocked, or was blocked by, either partner.
+export async function blockedWithPartners(db, requestRow, agentUserId) {
+  return (await isEitherBlocked(db, requestRow.user_a_id, agentUserId)) || (await isEitherBlocked(db, requestRow.user_b_id, agentUserId));
+}
+
+// True only if blockerId blocked blockedId (so the right person is told "Unblock this agent first.").
+export async function didBlock(db, blockerId, blockedId) {
+  return !!(await db.prepare('SELECT 1 FROM user_blocks WHERE blocker_id = ? AND blocked_id = ? LIMIT 1').bind(blockerId, blockedId).first());
 }
 
 export async function fetchTransactionRequest(db, id) {
@@ -71,8 +133,18 @@ export async function fetchTransactionRequest(db, id) {
 
   return {
     id: row.id, status: row.status, note: row.note, createdAt: row.created_at, awardedBidId: row.awarded_bid_id,
+    openedByUserId: row.opened_by_user_id, partnerConfirmed: !!row.partner_confirmed_at, partnerConfirmedAt: row.partner_confirmed_at || null,
     listingA: { id: row.listing_a_id, userId: row.user_a_id, owner: row.user_a_name, title: row.listing_a_title, city: row.listing_a_city, state: row.listing_a_state, estimatedValue: row.listing_a_value, propertyType: row.listing_a_type },
     listingB: { id: row.listing_b_id, userId: row.user_b_id, owner: row.user_b_name, title: row.listing_b_title, city: row.listing_b_city, state: row.listing_b_state, estimatedValue: row.listing_b_value, propertyType: row.listing_b_type },
+  };
+}
+
+// The partner who still has to confirm sees needsMyConfirmation; the one who opened it sees awaitingPartner.
+export function confirmationFlags(transaction, userId) {
+  const waiting = !transaction.partnerConfirmed;
+  return {
+    needsMyConfirmation: waiting && transaction.openedByUserId !== userId,
+    awaitingPartner: waiting && transaction.openedByUserId === userId,
   };
 }
 
@@ -83,16 +155,20 @@ export async function fetchMyTransactionRequests(db, userId) {
   const out = [];
   for (const r of rows.results) {
     const full = await fetchTransactionRequest(db, r.id);
-    if (full) out.push(full);
+    if (full) out.push({ ...full, ...confirmationFlags(full, userId) });
   }
   return out;
 }
 
-// Open requests only, for agents browsing the marketplace.
-export async function fetchOpenTransactionRequests(db, limit = 60) {
+// Open requests only, for approved agents browsing the marketplace: confirmed by both partners, and never one where
+// the viewing agent blocked (or was blocked by) either partner.
+export async function fetchOpenTransactionRequests(db, viewerId, limit = 60) {
   const rows = await db.prepare(
-    `SELECT id FROM transaction_requests WHERE status = 'open' ORDER BY created_at DESC LIMIT ?`
-  ).bind(limit).all();
+    `SELECT id FROM transaction_requests
+     WHERE status = 'open' AND partner_confirmed_at IS NOT NULL
+       AND ${notBlockedSql('transaction_requests.user_a_id', '?1')} AND ${notBlockedSql('transaction_requests.user_b_id', '?1')}
+     ORDER BY created_at DESC LIMIT ?2`
+  ).bind(viewerId, limit).all();
   const out = [];
   for (const r of rows.results) {
     const full = await fetchTransactionRequest(db, r.id);

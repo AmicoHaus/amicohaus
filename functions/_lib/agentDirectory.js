@@ -9,6 +9,7 @@ import { fetchCaseStudies } from './caseStudies.js';
 import { fetchActiveTeamName } from './agentTeams.js';
 import { lookupZipCoords, nearestServiceDistance, serviceAreaSpread, SERVICE_RADIUS_MILES, LOCAL_SPECIALIST_SPREAD_MILES } from './geo.js';
 import { fetchFoundingZips } from './zipBoard.js';
+import { licenseCheckedAt } from './agents.js';
 
 // A commission range across every commission-based offering an agent has
 // (their profile default plus any package) — the reciprocal of
@@ -51,14 +52,17 @@ export async function buildAgentDirectoryEntry(db, agentUserId) {
   const serviceZips = JSON.parse(row.service_zips_json || '[]');
   const ownZipCoords = await lookupZipCoords(db, serviceZips);
   const serviceAreaSpreadMiles = serviceAreaSpread(serviceZips, ownZipCoords);
+  const focused = serviceAreaSpreadMiles !== null && serviceAreaSpreadMiles <= LOCAL_SPECIALIST_SPREAD_MILES;
   const turnaroundValues = packages.map(p => p.turnaroundDays).filter(v => v !== null && v !== undefined);
   const fastestTurnaroundDays = turnaroundValues.length ? Math.min(...turnaroundValues) : null;
 
   return {
     userId: row.user_id, displayName: row.display_name, brokerageName: row.brokerage_name, teamName,
     yearsExperience: row.years_experience, hasVideo: !!row.video_r2_key,
-    isVerified: !!row.is_verified, licenseVerified: !!row.license_verified,
-    rating: rating.avgRating, reviewCount: rating.reviewCount, topRated: stats.topRated,
+    // The DRE number on file (cards say "DRE #01234567 on file", never "verified"), whether an admin's DRE check
+    // stands, and when it was done. No "Verified" badge and no "Top Rated": the site doesn't vouch for or rank agents.
+    licenseNumber: row.license_number, licenseVerified: !!row.license_verified, licenseCheckedAt: licenseCheckedAt(row),
+    rating: rating.avgRating, reviewCount: rating.reviewCount,
     avgResponseHours: stats.avgResponseHours,
     // Times a homeowner on Amico Haus picked this agent's proposal -- measured by the platform, not typed in by the agent.
     hiresOnPlatform: stats.acceptedBids, isNewToAmicoHaus: stats.isNewAgent, finalistCount: stats.finalistCount,
@@ -84,17 +88,19 @@ export async function buildAgentDirectoryEntry(db, agentUserId) {
     acceptingClients: !!row.accepting_clients, carriesEoInsurance: !!row.carries_eo_insurance,
     serviceZips, distanceMiles: null,
     foundingZips: (await fetchFoundingZips(db, [agentUserId])).get(agentUserId) || [],
-    serviceAreaSpreadMiles, isLocalSpecialist: serviceAreaSpreadMiles !== null && serviceAreaSpreadMiles <= LOCAL_SPECIALIST_SPREAD_MILES,
+    // "Focused service area" (was "Local specialist"): a plain fact about how close together the agent's own ZIPs
+    // are, not a claim about their skill. isLocalSpecialist is the old name, kept until the cards switch over.
+    serviceAreaSpreadMiles, focusedServiceArea: focused, isLocalSpecialist: focused,
   };
 }
 
-// filters: { q, service, minRating, minReviewCount, topRatedOnly,
+// filters: { q, service, minRating, minReviewCount,
 //            licenseVerifiedOnly, hasVideoOnly, priceMin, priceMax, zip,
 //            specialtyTag, language, soloAgentOnly, minYearsExperience,
 //            maxAvgDaysOnMarket, minHomesSoldLastYear, minSaleToListRatio,
 //            maxCommissionPct, maxTurnaroundDays, openHouseDay,
 //            hasCaseStudiesOnly (legacy, saved alerts only), showsPastWorkOnly,
-//            acceptingClientsOnly, eoInsuranceOnly, localSpecialistOnly,
+//            acceptingClientsOnly, eoInsuranceOnly, focusedServiceAreaOnly,
 //            minHires, maxProposalHours, feeTypeOffered ('flat' | 'commission') }
 export async function agentMatchesFilters(db, entry, filters) {
   if (filters.q) {
@@ -111,7 +117,6 @@ export async function agentMatchesFilters(db, entry, filters) {
   if (filters.service && !entry.allServiceTypes.has(filters.service)) return false;
   if (filters.minRating != null && (entry.rating === null || entry.rating < filters.minRating)) return false;
   if (filters.minReviewCount != null && entry.reviewCount < filters.minReviewCount) return false;
-  if (filters.topRatedOnly && !entry.topRated) return false;
   if (filters.licenseVerifiedOnly && !entry.licenseVerified) return false;
   if (filters.hasVideoOnly && !entry.hasVideo) return false;
   if (filters.specialtyTag && !entry.specialtyTags.includes(filters.specialtyTag)) return false;
@@ -131,7 +136,7 @@ export async function agentMatchesFilters(db, entry, filters) {
   if (filters.showsPastWorkOnly && !entry.hasPastWork) return false;
   if (filters.acceptingClientsOnly && !entry.acceptingClients) return false;
   if (filters.eoInsuranceOnly && !entry.carriesEoInsurance) return false;
-  if (filters.localSpecialistOnly && !entry.isLocalSpecialist) return false;
+  if ((filters.focusedServiceAreaOnly || filters.localSpecialistOnly) && !entry.focusedServiceArea) return false;
   if (filters.zip) {
     if (entry.serviceZips.length === 0) return false;
     const coords = await lookupZipCoords(db, [filters.zip, ...entry.serviceZips]);
@@ -152,7 +157,6 @@ export function parseDirectoryFilters(url) {
     service: (url.searchParams.get('service') || '').trim() || null,
     minRating: num(url.searchParams.get('minRating')),
     minReviewCount: num(url.searchParams.get('minReviewCount')),
-    topRatedOnly: url.searchParams.get('topRatedOnly') === '1',
     licenseVerifiedOnly: url.searchParams.get('licenseVerifiedOnly') === '1',
     hasVideoOnly: url.searchParams.get('hasVideoOnly') === '1',
     priceMin: num(url.searchParams.get('priceMin')),
@@ -172,7 +176,8 @@ export function parseDirectoryFilters(url) {
     showsPastWorkOnly: url.searchParams.get('showsPastWorkOnly') === '1',
     acceptingClientsOnly: url.searchParams.get('acceptingClientsOnly') === '1',
     eoInsuranceOnly: url.searchParams.get('eoInsuranceOnly') === '1',
-    localSpecialistOnly: url.searchParams.get('localSpecialistOnly') === '1',
+    // localSpecialistOnly is the old name of the same filter (older links and saved alerts).
+    focusedServiceAreaOnly: url.searchParams.get('focusedServiceAreaOnly') === '1' || url.searchParams.get('localSpecialistOnly') === '1',
     minHires: num(url.searchParams.get('minHires')),
     maxProposalHours: num(url.searchParams.get('maxProposalHours')),
     feeTypeOffered: ['flat', 'commission'].includes(url.searchParams.get('feeTypeOffered')) ? url.searchParams.get('feeTypeOffered') : null,

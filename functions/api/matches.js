@@ -1,11 +1,12 @@
 import { getSessionUser } from '../_lib/auth.js';
-import { json, unauthorized, DEMO_EMAIL_PATTERN } from '../_lib/util.js';
+import { json, unauthorized, DEMO_EMAIL_PATTERN, parseJsonSafe } from '../_lib/util.js';
 import { buildEdges, findMutualMatches, findChains, findBuyerMatches, findRentalMatches, rowsToProfiles, matchScoreBreakdown } from '../_lib/matching.js';
 import { fetchPortfolioMembers } from '../_lib/portfolios.js';
 import { fetchRecentActivityBatch } from '../_lib/marketEvents.js';
 import { fetchListingFavoriteCountBatch } from '../_lib/priceSeries.js';
 import { fetchCommentCountBatch } from '../_lib/dealThreads.js';
 import { sqlUtc } from '../_lib/contactPolicy.js';
+import { notBlockedSql } from '../_lib/blocks.js';
 
 // The matching algorithm is O(n^2) over the candidate listings (every seeker
 // compared against every owner), which is fine at dozens or hundreds of
@@ -21,7 +22,7 @@ const LISTING_FIELDS = `listings.id AS listing_id, listings.user_id, listings.ci
             listings.is_buyer_only, listings.is_rental, listings.rent_amount, listings.min_lease_months, listings.is_portfolio,
             desired_criteria.locations, desired_criteria.property_type AS desired_type,
             desired_criteria.min_beds, desired_criteria.min_baths, desired_criteria.price_min, desired_criteria.price_max,
-            users.display_name AS owner_name`;
+            listings.life_event_tags_json, users.display_name AS owner_name`;
 
 // A match can sit around indefinitely with neither side ever reaching out —
 // after this many days with no message between them, flag it so the UI can
@@ -51,12 +52,15 @@ export async function onRequestGet(context) {
 
   if (mine.results.length === 0) return json({ matches: [], archived: [], chains: [] });
 
+  // Other people's listings: real (not demo) and active accounts only, so a suspended owner's homes never show as
+  // matches, and nobody in a block either way with the viewer (blocks.js).
   const [others, feedbackRows] = await Promise.all([
     db.prepare(
       `SELECT ${LISTING_FIELDS}
        FROM listings JOIN users ON users.id = listings.user_id LEFT JOIN desired_criteria ON desired_criteria.listing_id = listings.id
-       WHERE listings.status = 'active' AND listings.user_id != ? AND users.email NOT LIKE ? AND ${NOT_BUNDLED}
-       ORDER BY listings.created_at DESC LIMIT ?`
+       WHERE listings.status = 'active' AND listings.user_id != ?1 AND users.email NOT LIKE ?2 AND users.status = 'active' AND ${NOT_BUNDLED}
+         AND ${notBlockedSql('listings.user_id', '?1')}
+       ORDER BY listings.created_at DESC LIMIT ?3`
     ).bind(user.id, DEMO_EMAIL_PATTERN, MAX_CANDIDATES).all(),
     db.prepare('SELECT listing_a_id, listing_b_id, feedback FROM match_feedback WHERE user_id = ?').bind(user.id).all(),
   ]);
@@ -76,6 +80,8 @@ export async function onRequestGet(context) {
     isBuyerOnly: !!r.is_buyer_only, isRental: !!r.is_rental, rentAmount: r.rent_amount, minLeaseMonths: r.min_lease_months,
     isPortfolio: !!r.is_portfolio, portfolioMembers: r.is_portfolio ? (membersByPortfolio.get(r.listing_id) || []) : undefined,
     createdAtMs: new Date(r.created_at + 'Z').getTime(), createdAt: r.created_at,
+    // Why the owner is moving (optional): shown only to the people they match with, never on public pages.
+    lifeEventTags: parseJsonSafe(r.life_event_tags_json, []),
   }]));
   const profiles = rowsToProfiles(rows.results);
   // A buyer-only profile has no home to offer and a rental has nothing it's

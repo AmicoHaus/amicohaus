@@ -1,4 +1,4 @@
-// An investor's saved "what I'm looking for" profile for FinderMine -- pings them the moment a newly-posted
+// A member's saved "what I'm looking for" profile for FinderMine (builders, partners, co-buyers) -- pings them the moment a newly-posted
 // project matches their type/city/state, instead of them re-checking the browse list every day. Mirrors
 // accessibilityAlerts.js / greenNeedsAlerts.js, but matches on project type and location, not taxonomy keys.
 import { clampString } from './util.js';

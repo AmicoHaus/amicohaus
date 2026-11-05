@@ -25,12 +25,14 @@ export function describeAttribution(json) {
   try { a = JSON.parse(json || 'null'); } catch { a = null; }
   if (!a) return 'Unknown (no tracking info)';
   const parts = [];
+  // GA4's "paid" mediums. Meta adds fbclid to ordinary (unpaid) link clicks too, so it only counts as an ad when the
+  // campaign tags say paid; Google's gclid and TikTok's ttclid only come from ads.
+  const paid = /^(.*cp.*|ppc|retargeting|paid.*|ads?)$/i.test(a.utm_medium || '');
   if (a.utm_source || a.utm_medium) parts.push([a.utm_source, a.utm_medium].filter(Boolean).join(' / '));
   if (a.utm_campaign) parts.push(`campaign: ${a.utm_campaign}`);
-  if (a.utm_content) parts.push(`ad: ${a.utm_content}`);
-  // Meta adds fbclid to ordinary (unpaid) link clicks too, so it only counts as an ad when the campaign
-  // tags say paid; Google's gclid and TikTok's ttclid only come from ads.
-  const paid = /^(.*cp.*|ppc|retargeting|paid.*|ads?)$/i.test(a.utm_medium || ''); // GA4's "paid" mediums
+  // utm_content names the ad only on a paid link; on an organic video or post it's just which one (e.g. "mv4").
+  if (a.utm_content) parts.push(`${paid ? 'ad' : 'content'}: ${a.utm_content}`);
+  if (a.utm_term) parts.push(`term: ${a.utm_term}`);
   const clicks = [a.fbclid && (paid ? 'Facebook/Instagram ad click' : 'Facebook/Instagram link click'), a.gclid && 'Google ad click', a.ttclid && 'TikTok ad click'].filter(Boolean);
   parts.push(...clicks);
   if (a.referrer) parts.push(`from ${a.referrer}`);

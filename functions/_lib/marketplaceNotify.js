@@ -1,6 +1,7 @@
 import { sendEmail } from './email.js';
 import { sendOrHoldEmail, dutyFromRow, isOnDuty, AGENT_HOLD_KINDS } from './agentDuty.js';
 import { quietHoursWindow, fetchAgentIdentity, identityLine, identityParens, weeklyMessagesBody } from './contactPolicy.js';
+import { blockedIdsFor, notBlockedSql } from './blocks.js';
 
 // In-app (and, for new-request pings only, email) notifications for the
 // Pre-Listings Marketplace. Kept separate from matchNotify.js since this has
@@ -190,27 +191,37 @@ export async function notifyTeamInvite(context, targetUserId) {
   await notify(context.env.DB, targetUserId, "You've been invited to join a team.", '/app#become-agent');
 }
 
-// FinderMine: a poster finds out the moment someone expresses interest in
-// their project, same treatment as a new proposal on a pre-listing.
-export async function notifyNewProjectInterest(context, projectId, ownerUserId, investorUserId) {
+// FinderMine: a poster finds out the moment someone is interested in their project (a builder, partner or co-buyer),
+// same treatment as a new proposal on a pre-listing. No investment language (Rudy 11.04).
+export async function notifyNewProjectInterest(context, projectId, ownerUserId, interestedUserId) {
   const db = context.env.DB;
-  const investor = await db.prepare('SELECT display_name FROM users WHERE id = ?').bind(investorUserId).first();
+  const person = await db.prepare('SELECT display_name FROM users WHERE id = ?').bind(interestedUserId).first();
   const owner = await fetchRecipient(db, ownerUserId);
   if (!owner) return;
-  const body = `${investor ? investor.display_name : 'An investor'} is interested in your FinderMine project.`;
+  const body = `${person ? person.display_name : 'Someone'} is interested in your FinderMine project.`;
   await notifyAndMaybeEmail(context, owner, body, `/app#dev-project-${projectId}`, 'New interest on your FinderMine project', 'see who it is and follow up');
 }
 
+// Inviting the same agent again doesn't ping them again within 30 days, and an invite they declined never does.
+// The check and the alert are one statement, so a double tap can't send two.
+const INVITE_RENOTIFY_DAYS = 30;
+const INVITE_SUFFIX = 'invited you to bid directly.';
 export async function notifyAgentInvited(context, requestType, requestId, agentUserId, invitedByUserId) {
   const db = context.env.DB;
   const inviter = await db.prepare('SELECT display_name FROM users WHERE id = ?').bind(invitedByUserId).first();
-  await notify(db, agentUserId, `${inviter ? inviter.display_name : 'A homeowner'} invited you to bid directly.`, requestLink(requestType, requestId));
+  await db.prepare(
+    `INSERT INTO notifications (user_id, type, body, link)
+     SELECT ?1, 'marketplace', ?2, ?3
+     WHERE NOT EXISTS (SELECT 1 FROM notifications WHERE user_id = ?1 AND link = ?3 AND body LIKE ?4 AND created_at > datetime('now', ?5))
+       AND NOT EXISTS (SELECT 1 FROM agent_invites WHERE request_type = ?6 AND request_id = ?7 AND agent_user_id = ?1 AND status = 'declined')`
+  ).bind(agentUserId, `${inviter ? inviter.display_name : 'A homeowner'} ${INVITE_SUFFIX}`, requestLink(requestType, requestId),
+    `%${INVITE_SUFFIX}`, `-${INVITE_RENOTIFY_DAYS} days`, requestType, Number(requestId)).run();
 }
 
 export async function notifyBidDecision(context, agentUserId, requestType, requestId, accepted) {
   const db = context.env.DB;
   const link = requestLink(requestType, requestId);
-  await notify(db, agentUserId, accepted ? 'Your proposal was accepted!' : 'The homeowner chose another agent this time. Thanks for sending a proposal.', link);
+  await notify(db, agentUserId, accepted ? 'The homeowner chose your proposal on Amico Haus. Next step: a written agreement with your brokerage.' : 'The homeowner chose another agent this time. Thanks for sending a proposal.', link);
 }
 
 // Bring Your Reviews: a past client used the agent's review link.
@@ -235,12 +246,6 @@ export async function notifyFinalistDebrief(context, agentUserId, reasonLabels) 
     '/app#become-agent');
 }
 
-export async function notifyTransactionOpened(context, requestId, notifyUserId, openedByUserId) {
-  const db = context.env.DB;
-  const opener = await db.prepare('SELECT display_name FROM users WHERE id = ?').bind(openedByUserId).first();
-  await notify(db, notifyUserId, `${opener ? opener.display_name : 'Your trade partner'} opened your trade to agent bids.`, requestLink('transaction', requestId));
-}
-
 // A homeowner's "saved search" equivalent — pings approved agents the
 // moment a new request opens, rather than making them keep re-checking the
 // browse list. A pre-listing has a zip, so this only pings agents whose
@@ -248,12 +253,18 @@ export async function notifyTransactionOpened(context, requestId, notifyUserId, 
 // listings with no zip on file, so it pings every opted-in approved agent
 // instead of trying to guess a location match.
 // excludeUserIds: the people who opened the request (a homeowner who is also an agent isn't pinged about their own).
-// A pre-listing whose owner paused new proposals pings nobody.
+// A pre-listing whose owner paused new proposals pings nobody. Agents blocked by (or blocking) a homeowner on the
+// request are never pinged about it (looked up here, so callers don't have to).
 export async function notifyAgentsNewRequest(context, requestType, requestId, zip, excludeUserIds = []) {
   const db = context.env.DB;
+  let ownerIds = [];
   if (requestType === 'pre_listing') {
-    const pl = await db.prepare('SELECT proposals_paused FROM pre_listings WHERE id = ?').bind(requestId).first();
+    const pl = await db.prepare('SELECT user_id, proposals_paused FROM pre_listings WHERE id = ?').bind(requestId).first();
     if (pl && pl.proposals_paused) return;
+    if (pl) ownerIds = [pl.user_id];
+  } else {
+    const tx = await db.prepare('SELECT user_a_id, user_b_id FROM transaction_requests WHERE id = ?').bind(requestId).first();
+    if (tx) ownerIds = [tx.user_a_id, tx.user_b_id].filter(Boolean);
   }
   const link = requestLink(requestType, requestId);
   const bodyText = requestType === 'pre_listing' ? 'A new pre-listing opened for proposals near you.' : 'A new trade transaction request opened for proposals.';
@@ -266,6 +277,7 @@ export async function notifyAgentsNewRequest(context, requestType, requestId, zi
        AND users.status = 'active' AND users.email NOT LIKE '%@demo.amicohaus.local'`
   ).all();
   const excluded = new Set(excludeUserIds.map(Number));
+  for (const ownerId of ownerIds) for (const id of await blockedIdsFor(db, ownerId)) excluded.add(Number(id));
   agentsRow.results = agentsRow.results.filter(a => !excluded.has(Number(a.user_id)));
   if (agentsRow.results.length === 0) return;
 
@@ -308,23 +320,37 @@ export async function notifyNewOffer(context, link, ownerUserId, buyerUserId) {
   await notifyAndMaybeEmail(context, owner, body, link, 'New offer on Amico Haus', 'see the details');
 }
 
-export async function notifyOfferDecision(context, buyerUserId, link, accepted) {
-  await notify(context.env.DB, buyerUserId, accepted ? 'Your offer was accepted!' : 'Your offer was not accepted this time.', link);
+// Offers on Amico Haus aren't purchase agreements, so an "accept" is only ever "wants to move forward" (a California
+// home sale needs a written contract signed by both sides). price: the offer amount, when the caller passes it.
+const NOT_A_CONTRACT = '(not a contract yet)';
+const moneyText = (n) => '$' + Number(n).toLocaleString('en-US');
+const hasPrice = (n) => n !== null && n !== undefined && Number.isFinite(Number(n)) && Number(n) > 0;
+
+export async function notifyOfferDecision(context, buyerUserId, link, accepted, price = null) {
+  const body = !accepted ? 'Your offer was not accepted this time.'
+    : hasPrice(price) ? `The owner wants to move forward at ${moneyText(price)} ${NOT_A_CONTRACT}.`
+    : `The owner wants to move forward with your offer ${NOT_A_CONTRACT}.`;
+  await notify(context.env.DB, buyerUserId, body, link);
 }
 
 // proposedBy is who JUST made this counter ('owner' or 'buyer'), so the recipient (the other side) gets the
 // right phrasing -- a buyer hearing from the seller reads differently than a seller hearing back from a buyer
 // who countered their counter. Supports any number of back-and-forth rounds, not just the seller's first one.
 export async function notifyOfferCounter(context, link, notifyUserId, counterPrice, proposedBy) {
-  const price = '$' + Number(counterPrice).toLocaleString('en-US');
+  const price = moneyText(counterPrice);
   const recipient = await fetchRecipient(context.env.DB, notifyUserId);
   if (!recipient) return;
-  const body = proposedBy === 'owner' ? `The seller countered your offer at ${price}.` : `The buyer countered back at ${price}.`;
+  const body = proposedBy === 'owner' ? `The seller countered your offer at ${price} ${NOT_A_CONTRACT}.` : `The buyer countered back at ${price} ${NOT_A_CONTRACT}.`;
   await notifyAndMaybeEmail(context, recipient, body, link, 'Counter-offer on Amico Haus', 'see the details and respond');
 }
 
-export async function notifyCounterDecision(context, link, notifyUserId, accepted) {
-  await notify(context.env.DB, notifyUserId, accepted ? 'Your counter-offer was accepted!' : 'Your counter-offer was declined.', link);
+// acceptedBy: 'owner' or 'buyer' (whoever accepted the counter); price: the counter amount. Both optional.
+export async function notifyCounterDecision(context, link, notifyUserId, accepted, { price = null, acceptedBy = null } = {}) {
+  const who = acceptedBy === 'owner' ? 'The owner' : acceptedBy === 'buyer' ? 'The buyer' : 'The other side';
+  const body = !accepted ? 'Your counter-offer was declined.'
+    : hasPrice(price) ? `${who} wants to move forward at ${moneyText(price)} ${NOT_A_CONTRACT}.`
+    : `${who} wants to move forward with your counter-offer ${NOT_A_CONTRACT}.`;
+  await notify(context.env.DB, notifyUserId, body, link);
 }
 
 // A listing someone favorited just got a new open house scheduled -- the one event worth proactively telling
@@ -356,6 +382,7 @@ function pacificTime(iso) {
 
 // Agents who already engaged with this pre-listing (voted or shared a suggested price, sent a proposal, or were
 // invited) hear about a new preview window in-app; it's an invitation, not a request waiting on them, so no email.
+// Agents blocked either way with the homeowner aren't told.
 export async function notifyPreviewScheduled(context, preListingId, startsAt) {
   const db = context.env.DB;
   const rows = await db.prepare(
@@ -366,7 +393,8 @@ export async function notifyPreviewScheduled(context, preListingId, startsAt) {
        UNION SELECT agent_user_id FROM agent_invites WHERE request_type = 'pre_listing' AND request_id = ?1 AND status != 'declined'
      ) engaged
      JOIN users ON users.id = engaged.id AND users.status = 'active'
-     JOIN agent_profiles ON agent_profiles.user_id = engaged.id AND agent_profiles.status = 'approved'`
+     JOIN agent_profiles ON agent_profiles.user_id = engaged.id AND agent_profiles.status = 'approved'
+     WHERE ${notBlockedSql('engaged.id', '(SELECT user_id FROM pre_listings WHERE id = ?1)')}`
   ).bind(preListingId).all();
   const body = `A homeowner opened a broker preview for ${pacificTime(startsAt)}. RSVP if you'd like to walk through.`;
   await Promise.allSettled(rows.results.map(r => notify(db, r.id, body, `/app#pre-listing-${preListingId}`)));
@@ -400,8 +428,15 @@ export async function notifyInterviewCanceled(context, preListingId, agentUserId
   await notify(context.env.DB, agentUserId, 'A homeowner canceled their interview request with you.', `/app#pre-listing-${preListingId}`);
 }
 
-// The owner hears about every RSVP (in-app), so they always know which agents received their street address.
+// The owner hears about an agent's FIRST RSVP to each preview (in-app), so they always know which agents received
+// their street address, but taking an RSVP back and RSVPing again doesn't ping them again. The check and the alert
+// are one statement (the same alert text for the same agent, preview time and home means it was already sent).
 export async function notifyPreviewRsvp(context, preListingId, ownerUserId, agentUserId, startsAt) {
   const db = context.env.DB;
-  await notify(db, ownerUserId, `${await senderLabel(db, agentUserId)} RSVP'd to your broker preview on ${pacificTime(startsAt)} and can now see your address.`, `/app#pre-listing-${preListingId}`);
+  const body = `${await senderLabel(db, agentUserId)} RSVP'd to your broker preview on ${pacificTime(startsAt)} and can now see your address.`;
+  await db.prepare(
+    `INSERT INTO notifications (user_id, type, body, link)
+     SELECT ?1, 'marketplace', ?2, ?3
+     WHERE NOT EXISTS (SELECT 1 FROM notifications WHERE user_id = ?1 AND link = ?3 AND body = ?2)`
+  ).bind(ownerUserId, body, `/app#pre-listing-${preListingId}`).run();
 }

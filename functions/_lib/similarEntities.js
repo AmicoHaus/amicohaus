@@ -16,10 +16,8 @@ const CONFIG = {
     table: 'green_homes', priceCol: 'asking_price', typeCol: 'property_type', titleCol: 'title',
     statusWhere: "green_homes.status = 'active'", userCol: 'user_id', href: id => `/green-home/${id}`,
   },
-  dev_project: {
-    table: 'dev_projects', priceCol: 'funding_goal', typeCol: 'project_type', titleCol: 'title',
-    statusWhere: "dev_projects.status = 'open'", userCol: 'user_id', href: id => `/project/${id}`,
-  },
+  // No FinderMine entry: a project has no price to show (no funding amounts, Rudy 11.04), and its page lists other
+  // projects itself (functions/project/[id].js).
 };
 
 export async function fetchSimilarEntities(db, kind, { excludeId, city, state, propertyType }, limit = 4) {

@@ -26,14 +26,14 @@
 
     <div id="controls" class="hidden">
       <h2>Moderation Queue</h2>
-      <p class="section-sub">User-submitted reports on posts, comments, and listings.</p>
+      <p class="section-sub">User-submitted reports on posts, comments, listings and people (including "Report a rules problem" and fair housing concerns). Taking something down hides it instead of deleting it, needs a reason, and tells the author why.</p>
       <div class="form-actions">
         <button class="btn btn-ghost" id="refreshReportsBtn">Refresh Reports</button>
       </div>
       <div class="stack" id="reportsList"></div>
 
       <h2>Pending Agent Applications</h2>
-      <p class="section-sub">Vetting review for the Pre-Listings Marketplace — before approving, open the agent's DRE record and check the license is active, the name matches and the responsible broker matches their brokerage. Approving marks the license as checked on the DRE today.</p>
+      <p class="section-sub">Application review for the Pre-Listings Marketplace — before approving, open the agent's DRE record and check the license is active, the name matches and the responsible broker matches their brokerage. Approving marks the license as checked on the DRE today.</p>
       <div class="form-actions">
         <button class="btn btn-ghost" id="refreshAgentAppsBtn">Refresh Applications</button>
       </div>
@@ -42,11 +42,35 @@
       <p class="section-sub">Approved agents, oldest DRE check first. Re-check each license every month or so: open the record, confirm it's still active with the same broker, then mark it checked.</p>
       <div class="stack" id="licenseRecheckList"></div>
       <h3>Past-client reviews</h3>
-      <p class="section-sub">Newest first. Remove one only if it breaks the rules (fake, abusive, or about who lives somewhere rather than the agent's work). Removals are on the activity log; agents can't remove reviews themselves, and an admin can't decide on reviews of their own agent profile.</p>
+      <p class="section-sub">Newest first. Remove one only if it breaks the rules (fake, abusive, or about who lives somewhere rather than the agent's work). Removals are on the activity log; agents can't remove reviews themselves, and an admin can't decide on reviews of their own agent profile. The reviewer's email and street address show only after someone who isn't an admin has reported that review.</p>
       <div class="stack" id="pastClientReviewList"></div>
+      <h3>Reviews of agents hired here</h3>
+      <p class="section-sub">Newest first, then removed ones. Remove or restore a review only with a reason: it goes on the activity log and the reviewer is told. Amico Haus is run by Rudy Flores, a Coldwell Banker West agent who may compete for the same homes, so on a home where an admin account sent a proposal the review shows "Recused" instead of the buttons.</p>
+      <div class="stack" id="agentReviewList"></div>
 
-      <h2>Open Disputes</h2>
-      <p class="section-sub">Homeowner/agent disputes raised on an awarded Pre-Listings Marketplace engagement — record-keeping only, there's no payment held on the platform to refund.</p>
+      <h2>Suspend or Reinstate an Account</h2>
+      <p class="section-sub">A suspended account is signed out everywhere, can't log in and drops out of every list. A suspended agent gives up their founding spots; when reinstated they get one back only if one is open. Admin accounts can't be suspended here.</p>
+      <div class="field">
+        <label for="suspendUserId">Account ID</label>
+        <input type="number" id="suspendUserId" min="1" step="1">
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-danger" id="suspendUserBtn">Suspend</button>
+        <button class="btn btn-ghost" id="unsuspendUserBtn">Reinstate</button>
+      </div>
+
+      <h2>Reactivate a Paused Listing</h2>
+      <p class="section-sub">A listing taken down from the Moderation Queue stays paused, and its owner can't reactivate it. Once the problem is fixed, reactivate it here by its listing ID (it goes on the activity log).</p>
+      <div class="field">
+        <label for="reactivateListingId">Listing ID</label>
+        <input type="number" id="reactivateListingId" min="1" step="1">
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-ghost" id="reactivateListingBtn">Reactivate</button>
+      </div>
+
+      <h2>Dispute History (read-only)</h2>
+      <p class="section-sub">Disputes filed before they were replaced by "Report a rules problem." Read-only history: Amico Haus doesn't decide disputes between homeowners and agents, so there are no verdicts or new notes. Fee or service problems go to the agent's managing broker, the California DRE or small claims court.</p>
       <div class="form-actions">
         <button class="btn btn-ghost" id="refreshDisputesBtn">Refresh Disputes</button>
       </div>
@@ -101,6 +125,9 @@
       <div class="stack" id="overviewFeed"></div>
     </div>
   </main>
+  <footer class="site-footer">
+    <p class="footer-legal">Equal Housing Opportunity · <a href="/accessibility">Accessibility</a></p>
+  </footer>
 </div>
 <script src="client.js"></script>
 <script src="page-admin-seed.js"></script>

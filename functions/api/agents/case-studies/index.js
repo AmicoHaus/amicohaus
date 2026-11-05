@@ -1,6 +1,6 @@
 import { getSessionUser } from '../../../_lib/auth.js';
 import { scrubImageMetadata } from '../../../_lib/imageMetadata.js';
-import { json, badRequest, unauthorized } from '../../../_lib/util.js';
+import { json, badRequest, unauthorized, forbidden } from '../../../_lib/util.js';
 import { insertCaseStudy } from '../../../_lib/caseStudies.js';
 
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024; // 5MB
@@ -15,8 +15,11 @@ export async function onRequestPost(context) {
   if (!user) return unauthorized();
 
   const db = context.env.DB;
-  const agent = await db.prepare('SELECT 1 FROM agent_profiles WHERE user_id = ?').bind(user.id).first();
+  const agent = await db.prepare('SELECT status FROM agent_profiles WHERE user_id = ?').bind(user.id).first();
   if (!agent) return badRequest('Apply to become an agent before adding case studies.');
+  // Only an approved agent's case studies are ever shown publicly (case-study-photos/), so only an approved agent
+  // can add them.
+  if (agent.status !== 'approved') return forbidden('Your agent profile needs to be approved first.');
 
   const bucket = context.env.PHOTOS;
   if (!bucket) return json({ error: 'Photo storage is not configured yet.' }, { status: 503 });

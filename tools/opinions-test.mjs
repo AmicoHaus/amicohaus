@@ -93,7 +93,9 @@ check('...and so is the browse list', r.json.preListings.find(p => p.id === 10).
 r = await call(votes.onRequestGet, 'GET', '/api/pre-listings/10/votes', 2, P);
 check('the agent who voted sees the full tally', r.json.votes.too_high === 1 && !r.json.votes.sealed, JSON.stringify(r.json));
 r = await call(votes.onRequestGet, 'GET', '/api/pre-listings/10/votes', 6, P);
-check('a homeowner browsing sees the full tally', r.json.votes.too_high === 1 && !r.json.votes.sealed);
+// Batch L1 (the Fair Play leak fix): the tally goes unsealed only to the owner/admins and agents who voted; a
+// homeowner who isn't the owner gets 403 agents_only.
+check('a homeowner browsing gets no tally (403 agents_only)', r.status === 403 && r.json.code === 'agents_only' && r.json.votes === undefined, JSON.stringify(r.json));
 r = await call(detail.onRequestGet, 'GET', '/api/pre-listings/10', 2, P);
 check("an agent sees their own opinion and comps, never others'", r.json.myVote.priceOpinion === 850000 && r.json.myVote.comps.length === 1 && r.json.priceOpinions === null, JSON.stringify(r.json.myVote));
 
@@ -172,7 +174,8 @@ search(32, 'Chula Vista', 'Single Family Home', 0, 1200000);
 r = await call(detail.onRequestGet, 'GET', '/api/pre-listings/10', 1, P);
 check('3 real buyers: count shown; demo, owner, "anywhere", whole-state, county and partial-word searches never count', r.json.preListing.buyerDemand === 3, String(r.json.preListing.buyerDemand));
 r = await call(detail.onRequestGet, 'GET', '/api/pre-listings/10', 6, P);
-check('a plain homeowner browsing does not get the count', r.json.preListing.buyerDemand === undefined);
+// Batch L1: a homeowner who isn't the owner can't open the detail at all (403 agents_only), so no count either.
+check('a plain homeowner browsing does not get the count', r.status === 403 && r.json.code === 'agents_only' && !JSON.stringify(r.json).includes('buyerDemand'));
 
 // Area matching on its own (a San Diego home, so county-style and other-state names really get tested).
 const { countBuyerDemand } = await mod('functions/_lib/buyerDemand.js');

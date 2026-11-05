@@ -43,17 +43,20 @@ export async function onRequestGet(context) {
   const portfolioIds = listings.results.filter(l => l.is_portfolio).map(l => l.id);
   const membersByPortfolio = await fetchPortfolioMembers(db, portfolioIds);
 
+  // A hidden post (moderation.js) is left out here for everyone, the same as the server-rendered profile page.
   const posts = await db.prepare(
     `SELECT posts.id, posts.body, posts.created_at,
             (SELECT COUNT(*) FROM post_likes WHERE post_likes.post_id = posts.id) AS like_count,
-            (SELECT COUNT(*) FROM comments WHERE comments.post_id = posts.id) AS comment_count
-     FROM posts WHERE posts.user_id = ? ORDER BY posts.created_at DESC LIMIT 15`
+            (SELECT COUNT(*) FROM comments WHERE comments.post_id = posts.id AND comments.hidden_at IS NULL) AS comment_count
+     FROM posts WHERE posts.user_id = ? AND posts.hidden_at IS NULL ORDER BY posts.created_at DESC LIMIT 15`
   ).bind(id).all();
 
   return json({
     user: {
       id: user.id, displayName: user.display_name, bio: user.bio || '', createdAt: user.created_at,
-      phone, isVerified: !!user.is_verified,
+      phone,
+      // The internal verified flag isn't shown publicly any more (no "Verified" badge); only admins get it, for the toggle.
+      ...(viewer && viewer.role === 'admin' ? { isVerified: !!user.is_verified } : {}),
       ...(isMine ? { phonePublic: !!user.phone_public } : {}),
     },
     listings: listings.results.map(l => ({
@@ -61,5 +64,5 @@ export async function onRequestGet(context) {
       portfolio_members: l.is_portfolio ? (membersByPortfolio.get(l.id) || []) : undefined,
     })),
     posts: posts.results,
-  });
+  }, { headers: { 'Cache-Control': 'private, no-store' } });
 }

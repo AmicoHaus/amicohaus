@@ -65,16 +65,17 @@
     <button type="button" class="btn btn-ghost btn-sm hidden" id="sendTestPushBtn">Send Test Notification</button>
 
     <h2>Invite Friends</h2>
-    <p class="section-sub">Share your link — anyone who signs up through it counts toward your referrals.</p>
-    <div class="field"><label for="referralLink">Your referral link</label><input type="text" id="referralLink" readonly></div>
+    <p class="section-sub">Share Amico Haus. No rewards or payments for invites.</p>
+    <div class="field"><label for="referralLink">Your invite link</label><input type="text" id="referralLink" readonly></div>
     <div class="form-actions"><button type="button" class="btn btn-ghost btn-sm" id="copyReferralBtn">Copy Link</button></div>
     <p class="tiny" id="referralCount"></p>
 
     <h2>Blocked Users</h2>
+    <p class="tiny">Unblocking lets them reach you again. Shared contact info, broker preview RSVPs, showing requests and interviews that ended with the block don't come back.</p>
     <div class="stack" id="blockedList"><span class="tiny">Loading…</span></div>
 
     <h2>Your Data</h2>
-    <p>Download everything Amico Haus has stored for your account — your listings, posts, comments, sent messages, saved searches, and notifications.</p>
+    <p>Download everything Amico Haus has stored for your account — your account details, listings, pre-listings, posts, comments, messages, saved searches, notifications and more.</p>
     <a class="btn btn-ghost" href="/api/account/export" download="amicohaus-data-export.json">Export My Data</a>
 
     <h2>Delete Account</h2>
@@ -85,6 +86,11 @@
     </div>
     <button class="btn btn-danger" id="deleteAccountBtn">Delete My Account</button>
   </main>
+
+  <footer class="site-footer">
+    <a href="/app">Back to the app</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a>
+    <p class="footer-legal">Equal Housing Opportunity · <a href="/accessibility">Accessibility</a></p>
+  </footer>
 </div>
 <script src="client.js"></script>
 <script src="page-account-security.js"></script>

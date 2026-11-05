@@ -36,7 +36,7 @@
     </nav>
     <div class="auth-cta">
       <div class="search-box">
-        <input type="search" id="globalSearchInput" placeholder="Search everything…" autocomplete="off">
+        <input type="search" id="globalSearchInput" placeholder="Search everything…" aria-label="Search everything" autocomplete="off">
         <div id="globalSearchResults" class="hidden"></div>
       </div>
       <button class="btn btn-ghost btn-sm" id="notifBtn">🔔 <span id="notifBadge" class="hidden"></span></button>
@@ -57,23 +57,24 @@
         <button type="button" class="btn btn-primary btn-sm" id="onboardingCreateBtn">Create Your Listing</button>
       </div>
       <form id="postForm" class="post-form">
-        <textarea id="postBody" maxlength="2000" placeholder="Talk about a trade you're looking for…" required></textarea>
+        <textarea id="postBody" maxlength="2000" placeholder="Talk about a trade you're looking for…" aria-label="Write a post" aria-describedby="postBodyNote" required></textarea>
         <button type="submit" class="btn btn-primary btn-sm">Post</button>
       </form>
+      <p class="tiny composer-note" id="postBodyNote">Describe the home, not who should live there or who lives nearby.</p>
       <div class="stack" id="feedList"><div class="empty-state">Loading…</div></div>
     </section>
 
     <!-- MARKET PULSE -->
     <section id="tab-marketpulse" class="tab-panel">
       <h1>Market Pulse</h1>
-      <p class="section-sub">Live activity across every Amico Haus marketplace — new listings, price drops, accepted deals, and open houses, as they actually happen. Nothing here is simulated; every line is a real event.</p>
+      <p class="section-sub">Live activity across every Amico Haus marketplace — new listings, price drops, accepted offers (not closed sales), and open houses, as they actually happen. Nothing here is simulated; every line is a real event.</p>
       <div class="ticker-strip" id="marketTicker">
         <div class="ticker-track" id="marketTickerTrack"><span class="ticker-item ticker-empty">Loading market activity…</span></div>
       </div>
 
       <div class="form-row two-col">
-        <div class="field"><label>City (optional)</label><input type="text" id="marketPulseFilterCity" placeholder="Scope to one neighborhood"></div>
-        <div class="field"><label>State (optional)</label><input type="text" id="marketPulseFilterState"></div>
+        <div class="field"><label for="marketPulseFilterCity">City (optional)</label><input type="text" id="marketPulseFilterCity" placeholder="Scope to one neighborhood"></div>
+        <div class="field"><label for="marketPulseFilterState">State (optional)</label><input type="text" id="marketPulseFilterState"></div>
       </div>
       <div class="form-actions"><button type="button" class="btn btn-ghost btn-sm" id="marketPulseFilterBtn">Filter</button><button type="button" class="btn btn-ghost btn-sm" id="marketPulseFilterClearBtn">Show all activity</button><a class="btn btn-ghost btn-sm" id="marketPulseExportBtn" href="/api/market-events/export.csv" download>Export CSV</a></div>
 
@@ -83,9 +84,9 @@
       <details class="panel bulk-upload" id="marketPulseAlertWrap">
         <summary>Save a watch — get notified</summary>
         <p class="section-sub">Pick what to watch for — any combination of event type, marketplace, city, or state — and you'll get notified in-app the moment a matching real event happens.</p>
-        <div class="field"><label>Name this alert (optional)</label><input type="text" id="marketPulseAlertLabel" maxlength="80" placeholder="e.g. Price drops in Chula Vista"></div>
+        <div class="field"><label for="marketPulseAlertLabel">Name this alert (optional)</label><input type="text" id="marketPulseAlertLabel" maxlength="80" placeholder="e.g. Price drops in Chula Vista"></div>
         <div class="form-row two-col">
-          <div class="field"><label>Event type (optional)</label>
+          <div class="field"><label for="marketPulseAlertEventType">Event type (optional)</label>
             <select id="marketPulseAlertEventType">
               <option value="">Any event</option>
               <option value="new_listing">New listing</option>
@@ -94,7 +95,7 @@
               <option value="open_house_scheduled">Open house scheduled</option>
             </select>
           </div>
-          <div class="field"><label>Marketplace (optional)</label>
+          <div class="field"><label for="marketPulseAlertEntityKind">Marketplace (optional)</label>
             <select id="marketPulseAlertEntityKind">
               <option value="">Any marketplace</option>
               <option value="listing">Agent Strategy listings</option>
@@ -105,8 +106,8 @@
           </div>
         </div>
         <div class="form-row two-col">
-          <div class="field"><label>City (optional)</label><input type="text" id="marketPulseAlertCity" maxlength="80"></div>
-          <div class="field"><label>State (optional)</label><input type="text" id="marketPulseAlertState" maxlength="20"></div>
+          <div class="field"><label for="marketPulseAlertCity">City (optional)</label><input type="text" id="marketPulseAlertCity" maxlength="80"></div>
+          <div class="field"><label for="marketPulseAlertState">State (optional)</label><input type="text" id="marketPulseAlertState" maxlength="20"></div>
         </div>
         <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="saveMarketPulseAlertBtn">Save Alert</button></div>
       </details>
@@ -130,7 +131,7 @@
       <details id="bulkUploadWrap" class="panel bulk-upload">
         <summary>Broker tools: bulk-upload multiple client listings from a spreadsheet</summary>
         <p class="section-sub">Upload a CSV of properties instead of entering them one at a time — trade listings and rentals can be mixed in the same file. <a href="/api/listings/bulk-template" download>Download the CSV template</a> to see the exact columns expected.</p>
-        <div class="field"><label>CSV file</label><input type="file" id="bulkCsvInput" accept=".csv,text/csv"></div>
+        <div class="field"><label for="bulkCsvInput">CSV file</label><input type="file" id="bulkCsvInput" accept=".csv,text/csv"></div>
         <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="bulkUploadBtn">Upload</button></div>
         <div id="bulkUploadResults"></div>
       </details>
@@ -139,33 +140,33 @@
         <summary>Bundle multiple properties into one portfolio trade</summary>
         <p class="section-sub">Own (or list on behalf of one client) more than one property? Bundle 2 or more of your active listings into a single portfolio — trade the whole group for one larger home, or for someone else's portfolio.</p>
         <div class="field" id="portfolioMembersField">
-          <label>Properties to include <span class="required-mark">*</span></label>
+          <label for="portfolioMembers">Properties to include <span class="required-mark">*</span></label>
           <select id="portfolioMembers" multiple size="6"></select>
           <p class="tiny">Hold Ctrl (or Cmd) to select more than one. Only your own active, unbundled trade listings appear here.</p>
         </div>
-        <div class="field"><label>Portfolio title (optional)</label><input type="text" id="portfolioTitle" maxlength="120" placeholder="e.g. Jane Smith's 3-Property Portfolio"></div>
-        <div class="field"><label>Target locations <span class="required-mark">*</span></label><input type="text" id="portfolioLocations" maxlength="200" placeholder="e.g. Aspen, CO; Anywhere"></div>
+        <div class="field"><label for="portfolioTitle">Portfolio title (optional)</label><input type="text" id="portfolioTitle" maxlength="120" placeholder="e.g. Jane Smith's 3-Property Portfolio"></div>
+        <div class="field"><label for="portfolioLocations">Target locations <span class="required-mark">*</span></label><input type="text" id="portfolioLocations" maxlength="200" placeholder="e.g. Aspen, CO; Anywhere"><p class="tiny field-hint composer-note">Describe the home, not who should live there or who lives nearby.</p></div>
         <div class="form-row two-col">
-          <div class="field"><label>Property type wanted</label><select id="portfolioDesiredType"></select></div>
-          <div class="field"><label>Min price ($) <span class="required-mark">*</span></label><input type="number" id="portfolioPriceMin" min="0" max="500000000" step="1000"></div>
+          <div class="field"><label for="portfolioDesiredType">Property type wanted</label><select id="portfolioDesiredType"></select></div>
+          <div class="field"><label for="portfolioPriceMin">Min price ($) <span class="required-mark">*</span></label><input type="number" id="portfolioPriceMin" min="0" max="500000000" step="1000"></div>
         </div>
         <div class="form-row two-col">
-          <div class="field"><label>Max price ($) <span class="required-mark">*</span></label><input type="number" id="portfolioPriceMax" min="0" max="500000000" step="1000"></div>
-          <div class="field"><label>Min beds <span class="required-mark">*</span></label><input type="number" id="portfolioMinBeds" min="0" max="50"></div>
+          <div class="field"><label for="portfolioPriceMax">Max price ($) <span class="required-mark">*</span></label><input type="number" id="portfolioPriceMax" min="0" max="500000000" step="1000"></div>
+          <div class="field"><label for="portfolioMinBeds">Min beds <span class="required-mark">*</span></label><input type="number" id="portfolioMinBeds" min="0" max="50"></div>
         </div>
         <div class="form-row two-col">
-          <div class="field"><label>Min baths <span class="required-mark">*</span></label><input type="number" id="portfolioMinBaths" min="0" max="50" step="0.5"></div>
-          <div class="field"><label>Must-haves</label><input type="text" id="portfolioMustHaves" maxlength="200"></div>
+          <div class="field"><label for="portfolioMinBaths">Min baths <span class="required-mark">*</span></label><input type="number" id="portfolioMinBaths" min="0" max="50" step="0.5"></div>
+          <div class="field"><label for="portfolioMustHaves">Must-haves</label><input type="text" id="portfolioMustHaves" maxlength="200"></div>
         </div>
         <div class="field">
-          <label>Cash flexibility</label>
+          <label for="portfolioCashMode">Cash flexibility</label>
           <select id="portfolioCashMode">
             <option value="none">No cash adjustment expected</option>
             <option value="pay">Willing to add cash to close the gap</option>
             <option value="receive">Wants to walk away with extra cash</option>
           </select>
         </div>
-        <div class="field hidden" id="portfolioCashAmountField"><label>Cash amount ($)</label><input type="number" id="portfolioCashAmount" min="0" max="500000000" step="1000"></div>
+        <div class="field hidden" id="portfolioCashAmountField"><label for="portfolioCashAmount">Cash amount ($)</label><input type="number" id="portfolioCashAmount" min="0" max="500000000" step="1000"></div>
         <p class="form-note">All bundled properties must belong to the same owner (or the same client) — a portfolio trade means exchanging everything in it at once. The combined value shown is just the sum of what you entered for each property; it isn't an appraisal. Once created, a portfolio can be dissolved (releasing every property back to its own independent listing) but not edited — dissolve and re-create it to change what's included.</p>
         <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="createPortfolioBtn">Create Portfolio</button></div>
       </details>
@@ -187,67 +188,67 @@
           <div class="mirror-columns">
             <fieldset class="panel" id="whatYouHaveFieldset">
               <legend>🏠 What you have</legend>
-              <div class="field"><label>Title (optional)</label><input type="text" id="title" maxlength="120" placeholder="e.g. 3bd Condo near the Marina"></div>
-              <div class="field"><label>Client name (optional — leave blank if this is your own home)</label><input type="text" id="clientName" maxlength="100" placeholder="e.g. Jane Smith"></div>
+              <div class="field"><label for="title">Title (optional)</label><input type="text" id="title" maxlength="120" placeholder="e.g. 3bd Condo near the Marina"></div>
+              <div class="field"><label for="clientName">Client name (optional — leave blank if this is your own home)</label><input type="text" id="clientName" maxlength="100" placeholder="e.g. Jane Smith"></div>
               <div class="form-row two-col">
-                <div class="field"><label>City <span class="required-mark">*</span></label><input type="text" id="city" required maxlength="80"></div>
-                <div class="field"><label>State <span class="required-mark">*</span></label><input type="text" id="state" required maxlength="20"></div>
+                <div class="field"><label for="city">City <span class="required-mark">*</span></label><input type="text" id="city" required maxlength="80"></div>
+                <div class="field"><label for="state">State <span class="required-mark">*</span></label><input type="text" id="state" required maxlength="20"></div>
               </div>
-              <div class="field"><label>Neighborhood (public)</label><input type="text" id="neighborhood" maxlength="80"></div>
-              <div class="field"><label>Street address (private)</label><input type="text" id="address" maxlength="150"></div>
+              <div class="field"><label for="neighborhood">Neighborhood (public)</label><input type="text" id="neighborhood" maxlength="80"></div>
+              <div class="field"><label for="address">Street address (private — only you can see it)</label><input type="text" id="address" maxlength="150"></div>
               <div class="form-row two-col">
-                <div class="field"><label>Property type <span class="required-mark">*</span></label><select id="propertyType"></select></div>
-                <div class="field"><label>Estimated value ($) <span class="required-mark">*</span></label><input type="number" id="estimatedValue" required min="0" max="500000000" step="1000"></div>
+                <div class="field"><label for="propertyType">Property type <span class="required-mark">*</span></label><select id="propertyType"></select></div>
+                <div class="field"><label for="estimatedValue">Your estimated value ($, not an appraisal) <span class="required-mark">*</span></label><input type="number" id="estimatedValue" required min="0" max="500000000" step="1000"></div>
               </div>
               <div class="form-row three-col">
-                <div class="field"><label>Beds <span class="required-mark">*</span></label><input type="number" id="beds" required min="0" max="50"></div>
-                <div class="field"><label>Baths <span class="required-mark">*</span></label><input type="number" id="baths" required min="0" max="50" step="0.5"></div>
-                <div class="field"><label>Sq ft</label><input type="number" id="sqft" min="0" max="200000" step="50"></div>
+                <div class="field"><label for="beds">Beds <span class="required-mark">*</span></label><input type="number" id="beds" required min="0" max="50"></div>
+                <div class="field"><label for="baths">Baths <span class="required-mark">*</span></label><input type="number" id="baths" required min="0" max="50" step="0.5"></div>
+                <div class="field"><label for="sqft">Sq ft</label><input type="number" id="sqft" min="0" max="200000" step="50"></div>
               </div>
-              <div class="field"><label>Virtual tour URL (optional)</label><input type="url" id="virtualTourUrl" maxlength="500" placeholder="https://my.matterport.com/show/?m=..."></div>
-              <div class="field"><label>External links (Airbnb, Zillow, etc — one per line)</label><textarea id="externalLinks" maxlength="800" placeholder="https://airbnb.com/rooms/..."></textarea></div>
+              <div class="field"><label for="virtualTourUrl">Virtual tour URL (optional)</label><input type="url" id="virtualTourUrl" maxlength="500" placeholder="https://my.matterport.com/show/?m=..."></div>
+              <div class="field"><label for="externalLinks">External links (Airbnb, Zillow, etc — one per line)</label><textarea id="externalLinks" maxlength="800" placeholder="https://airbnb.com/rooms/..."></textarea></div>
               <div id="listingCostsFields"></div>
-              <div class="field"><label>Photos (up to 8, added after you create the listing)</label><input type="file" id="listingPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple></div>
-              <label class="checkbox-row"><input type="checkbox" id="showExactAddress"><span>Reveal exact address once matched</span></label>
+              <div class="field"><label for="listingPhotos">Photos (up to 8, added after you create the listing)</label><input type="file" id="listingPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple><p class="tiny field-hint">By adding photos you confirm: I took these photos or have permission to use them.</p></div>
               <div class="field">
-                <label>Why you're moving (optional — purely informational, helps the right match recognize itself)</label>
-                <div id="lifeEventTagsFields"></div>
+                <label id="lifeEventTagsFieldsLabel">Why you're moving (optional, shown only to your matches)</label>
+                <div id="lifeEventTagsFields" role="group" aria-labelledby="lifeEventTagsFieldsLabel"></div>
               </div>
+              <p class="tiny composer-note">Describe the home, not who should live there or who lives nearby.</p>
             </fieldset>
 
             <fieldset class="panel" id="whatYouWantFieldset">
               <legend>🎯 What would make you move</legend>
-              <div class="field"><label>Target locations <span class="required-mark">*</span></label><input type="text" id="locations" required maxlength="200" placeholder="e.g. Boston, MA; Anywhere"></div>
+              <div class="field"><label for="locations">Target locations <span class="required-mark">*</span></label><input type="text" id="locations" required maxlength="200" placeholder="e.g. Chula Vista, CA; Anywhere"><p class="tiny field-hint composer-note">Describe the home, not who should live there or who lives nearby.</p></div>
               <div class="form-row two-col">
-                <div class="field"><label>Property type wanted</label><select id="desiredType"></select></div>
-                <div class="field"><label>Min price ($) <span class="required-mark">*</span></label><input type="number" id="priceMin" required min="0" max="500000000" step="1000"></div>
+                <div class="field"><label for="desiredType">Property type wanted</label><select id="desiredType"></select></div>
+                <div class="field"><label for="priceMin">Min price ($) <span class="required-mark">*</span></label><input type="number" id="priceMin" required min="0" max="500000000" step="1000"></div>
               </div>
               <div class="form-row two-col">
-                <div class="field"><label>Max price ($) <span class="required-mark">*</span></label><input type="number" id="priceMax" required min="0" max="500000000" step="1000"></div>
-                <div class="field"><label>Min beds <span class="required-mark">*</span></label><input type="number" id="minBeds" required min="0" max="50"></div>
+                <div class="field"><label for="priceMax">Max price ($) <span class="required-mark">*</span></label><input type="number" id="priceMax" required min="0" max="500000000" step="1000"></div>
+                <div class="field"><label for="minBeds">Min beds <span class="required-mark">*</span></label><input type="number" id="minBeds" required min="0" max="50"></div>
               </div>
               <div class="form-row two-col">
-                <div class="field"><label>Min baths <span class="required-mark">*</span></label><input type="number" id="minBaths" required min="0" max="50" step="0.5"></div>
-                <div class="field"><label>Must-haves</label><input type="text" id="mustHaves" maxlength="200"></div>
+                <div class="field"><label for="minBaths">Min baths <span class="required-mark">*</span></label><input type="number" id="minBaths" required min="0" max="50" step="0.5"></div>
+                <div class="field"><label for="mustHaves">Must-haves</label><input type="text" id="mustHaves" maxlength="200"></div>
               </div>
               <div class="field">
-                <label>Cash flexibility</label>
+                <label for="cashMode">Cash flexibility</label>
                 <select id="cashMode">
                   <option value="none">No cash adjustment expected</option>
                   <option value="pay">Willing to add cash to close the gap</option>
                   <option value="receive">Wants to walk away with extra cash</option>
                 </select>
               </div>
-              <div class="field hidden" id="cashAmountField"><label>Cash amount ($)</label><input type="number" id="cashAmount" min="0" max="500000000" step="1000"></div>
+              <div class="field hidden" id="cashAmountField"><label for="cashAmount">Cash amount ($)</label><input type="number" id="cashAmount" min="0" max="500000000" step="1000"></div>
             </fieldset>
 
             <fieldset class="panel hidden" id="rentalFieldset">
               <legend>🔑 Rental terms</legend>
               <div class="form-row two-col">
-                <div class="field"><label>Monthly rent ($) <span class="required-mark">*</span></label><input type="number" id="rentAmount" min="1" max="2000000" step="100"></div>
-                <div class="field"><label>Minimum lease term (months)</label><input type="number" id="minLeaseMonths" min="1" max="360" value="12"></div>
+                <div class="field"><label for="rentAmount">Monthly rent ($) <span class="required-mark">*</span></label><input type="number" id="rentAmount" min="1" max="2000000" step="100"></div>
+                <div class="field"><label for="minLeaseMonths">Minimum lease term (months)</label><input type="number" id="minLeaseMonths" min="1" max="360" value="12"></div>
               </div>
-              <p class="form-note">Some tenants may offer to prepay a lump sum covering multiple years of rent instead of paying monthly. Because that removes vacancy and collection risk for you, the platform's calculator suggests a lease-term range up to 15% longer than the exact rent-equivalent for lump-sum offers — the actual term, price, and lease are always negotiated directly between you and the tenant, not set by the platform.</p>
+              <p class="form-note">Some tenants may offer to prepay a lump sum covering multiple years of rent instead of paying monthly. The actual term, price, and lease are always negotiated directly between you and the tenant, not set by the platform.</p>
             </fieldset>
           </div>
           <div class="form-actions">
@@ -269,9 +270,10 @@
         <div class="stack" id="groupMembers"></div>
         <h3>Posts in this group</h3>
         <form id="groupPostForm" class="post-form">
-          <textarea id="groupPostBody" maxlength="2000" placeholder="Post to this group…" required></textarea>
+          <textarea id="groupPostBody" maxlength="2000" placeholder="Post to this group…" aria-label="Post to this group" aria-describedby="groupPostBodyNote" required></textarea>
           <button type="submit" class="btn btn-primary btn-sm">Post</button>
         </form>
+        <p class="tiny composer-note" id="groupPostBodyNote">Describe the home, not who should live there or who lives nearby.</p>
         <div class="stack" id="groupPosts"></div>
       </div>
     </section>
@@ -289,11 +291,16 @@
       <div class="stack" id="archivedMatchesList"></div>
 
       <h2>Saved Searches</h2>
-      <p class="section-sub">Get notified the moment a new listing matches these criteria.</p>
-      <form id="savedSearchForm" class="form-row three-col">
-        <div class="field"><label for="savedLocations">Locations</label><input type="text" id="savedLocations" required maxlength="200" placeholder="e.g. Denver, CO"></div>
-        <div class="field"><label for="savedType">Type</label><select id="savedType"><option value="Any">Any type</option></select></div>
-        <div class="field"><label for="savedPriceMax">Max price ($)</label><input type="number" id="savedPriceMax" min="0" max="500000000" step="1000"></div>
+      <p class="section-sub">Get notified the moment a new listing matches these criteria. Name a city or a neighborhood. You can keep up to 10.</p>
+      <form id="savedSearchForm">
+        <div class="form-row two-col">
+          <div class="field"><label for="savedLocations">Locations</label><input type="text" id="savedLocations" required maxlength="200" placeholder="e.g. Chula Vista, CA or EastLake"></div>
+          <div class="field"><label for="savedType">Type</label><select id="savedType"><option value="Any">Any type</option></select></div>
+        </div>
+        <div class="form-row two-col">
+          <div class="field"><label for="savedPriceMin">Min price ($)</label><input type="number" id="savedPriceMin" min="0" max="500000000" step="1000"></div>
+          <div class="field"><label for="savedPriceMax">Max price ($)</label><input type="number" id="savedPriceMax" min="0" max="500000000" step="1000"></div>
+        </div>
       </form>
       <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="addSavedSearchBtn">Add Saved Search</button></div>
       <div class="stack" id="savedSearchList"></div>
@@ -302,7 +309,7 @@
     <!-- MARKETPLACE -->
     <section id="tab-marketplace" class="tab-panel active">
       <h1>Agent Strategy</h1>
-      <p class="section-sub">A pre-listing showcase for a mutual evaluation of your home's price. Post your home before you list it and local agent experts weigh in on the asking price — too high, about right, or too low — and share their strategy for selling it: fee, included services and timeline. You compare their strategies, portfolios and reviews; they assess your home; and you review each other afterward. Already have an agent you trust? Skip all this — it's entirely optional.</p>
+      <p class="section-sub">A pre-listing showcase for a mutual evaluation of your home's price. Post your home before you list it and local agent experts weigh in on the asking price — too high, about right, or too low — and share their strategy for selling it: fee, included services and timeline. You compare their strategies, portfolios and reviews; they assess your home; and afterward you can review the agent you hired. Already have an agent you trust? Skip all this — it's entirely optional.</p>
       <p class="form-note">Before approving an agent, Amico Haus looks up their license on the California DRE's public license lookup. It's still worth confirming a license yourself before engaging anyone. Nothing here is a guarantee of a sale, a fee quote, or legal/financial advice, and Amico Haus is not a party to any resulting engagement.</p>
 
       <div id="marketplaceListView">
@@ -318,7 +325,7 @@
           </div>
           <div class="card audience-card">
             <h2>I'm an agent</h2>
-            <p class="tiny">Get vetted, build your profile, weigh in on homes' prices and share your strategy.</p>
+            <p class="tiny">Apply to be approved, build your profile, weigh in on homes' prices and share your strategy.</p>
             <div class="card-actions">
               <button type="button" class="btn btn-primary btn-sm" data-action="goto-become-agent">Agent profile &amp; application</button>
               <button type="button" class="btn btn-ghost btn-sm" data-action="goto-open-requests">Browse open requests</button>
@@ -334,32 +341,32 @@
             <div class="field"><label for="plAskingPrice">Asking price (optional)</label><input type="text" id="plAskingPrice" maxlength="15" inputmode="numeric" autocomplete="off" placeholder="e.g. 750,000" aria-describedby="plAskingPriceHint"><p class="tiny field-hint" id="plAskingPriceHint">Not sure yet? Leave it blank and local agents will tell you what they think it's worth.</p></div>
           </div>
           <div class="form-row three-col">
-            <div class="field"><label>City <span class="required-mark">*</span></label><input type="text" id="plCity" maxlength="80"></div>
-            <div class="field"><label>State <span class="required-mark">*</span></label><input type="text" id="plState" maxlength="20"></div>
-            <div class="field"><label>Zip <span class="required-mark">*</span></label><input type="text" id="plZip" maxlength="10" placeholder="5-digit zip" inputmode="numeric"></div>
+            <div class="field"><label for="plCity">City <span class="required-mark">*</span></label><input type="text" id="plCity" maxlength="80"></div>
+            <div class="field"><label for="plState">State <span class="required-mark">*</span></label><input type="text" id="plState" maxlength="20"></div>
+            <div class="field"><label for="plZip">Zip <span class="required-mark">*</span></label><input type="text" id="plZip" maxlength="10" placeholder="5-digit zip" inputmode="numeric"></div>
           </div>
-          <div class="field"><label>Neighborhood (public)</label><input type="text" id="plNeighborhood" maxlength="80"></div>
+          <div class="field"><label for="plNeighborhood">Neighborhood (public)</label><input type="text" id="plNeighborhood" maxlength="80"></div>
           <div class="field"><label for="plAddress">Street address (private — only agents you share it with, or who RSVP to a broker preview you open, see it)</label><input type="text" id="plAddress" maxlength="150"></div>
           <div class="form-row three-col">
-            <div class="field"><label>Property type <span class="required-mark">*</span></label><select id="plPropertyType"></select></div>
+            <div class="field"><label for="plPropertyType">Property type <span class="required-mark">*</span></label><select id="plPropertyType"></select></div>
             <div class="field"><label for="plBeds">Beds <span class="required-mark">*</span></label><input type="number" id="plBeds" min="0" max="50" required></div>
             <div class="field"><label for="plBaths">Baths <span class="required-mark">*</span></label><input type="number" id="plBaths" min="0" max="50" step="0.5" required></div>
           </div>
-          <div class="field"><label>Sq ft</label><input type="number" id="plSqft" min="0" max="200000" step="50"></div>
-          <div class="field"><label>Description</label><textarea id="plDescription" maxlength="2000" placeholder="Anything agents should know before proposing"></textarea></div>
+          <div class="field"><label for="plSqft">Sq ft</label><input type="number" id="plSqft" min="0" max="200000" step="50"></div>
+          <div class="field"><label for="plDescription">Description</label><textarea id="plDescription" maxlength="2000" placeholder="Anything agents should know before proposing"></textarea><p class="tiny field-hint composer-note">Describe the home, not who should live there or who lives nearby.</p></div>
           <div class="form-row two-col">
-            <div class="field"><label>Will the home be occupied or vacant during the sale?</label>
+            <div class="field"><label for="plOccupancyStatus">Will the home be occupied or vacant during the sale?</label>
               <select id="plOccupancyStatus"><option value="occupied">Occupied</option><option value="vacant">Vacant</option></select>
             </div>
-            <div class="field"><label>Showing notice required (hours)</label><input type="number" id="plShowingNoticeHours" min="0" max="336" placeholder="0 = no notice needed"></div>
+            <div class="field"><label for="plShowingNoticeHours">Showing notice required (hours)</label><input type="number" id="plShowingNoticeHours" min="0" max="336" placeholder="0 = no notice needed"></div>
           </div>
-          <div class="field"><label>Special instructions for agents (lockbox, sign preference, pets, etc.)</label><textarea id="plSpecialInstructions" maxlength="500"></textarea></div>
+          <div class="field"><label for="plSpecialInstructions">Notes for agents (pets, sign preference, best showing times). Don't put lockbox, gate or alarm codes here.</label><textarea id="plSpecialInstructions" maxlength="500"></textarea><p class="tiny field-hint">Only you, the agent you hire, agents you share your contact info with, and Amico Haus admins see these notes.</p></div>
 
           <p class="tiny"><strong>Optional preferences for agents (informational only — not a contract term or a hard requirement):</strong></p>
           <div class="form-row three-col">
-            <div class="field"><label>Min. years of experience</label><input type="number" id="plMinYearsExperience" min="0" max="80"></div>
-            <div class="field"><label>Preferred language</label><input type="text" id="plPreferredLanguage" maxlength="40" placeholder="e.g. Spanish"></div>
-            <div class="field"><label>Preferred agreement length (months)</label><input type="number" id="plPreferredAgreementMonths" min="1" max="60"></div>
+            <div class="field"><label for="plMinYearsExperience">Min. years of experience</label><input type="number" id="plMinYearsExperience" min="0" max="80"></div>
+            <div class="field"><label for="plPreferredLanguage">Preferred language</label><input type="text" id="plPreferredLanguage" maxlength="40" placeholder="e.g. Spanish"></div>
+            <div class="field"><label for="plPreferredAgreementMonths">Preferred agreement length (months)</label><input type="number" id="plPreferredAgreementMonths" min="1" max="60"></div>
           </div>
           <div class="form-row two-col">
             <label class="checkbox-row"><input type="checkbox" id="plRequireDedicatedContact"><span>I want a single dedicated point of contact, no team hand-offs</span></label>
@@ -368,14 +375,14 @@
           <label class="checkbox-row"><input type="checkbox" id="plPrefersLocalSpecialist"><span>I'd prefer an agent who specializes in my specific area, not one covering a huge territory</span></label>
 
           <div id="plCostsFields"></div>
-          <div class="field"><label>Photos (up to 8, added after posting)</label><input type="file" id="plPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple></div>
+          <div class="field"><label for="plPhotos">Photos (up to 8, added after posting)</label><input type="file" id="plPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple><p class="tiny field-hint">By adding photos you confirm: I took these photos or have permission to use them.</p></div>
           <div id="plContactDial"></div>
           <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="createPreListingBtn">Post for Proposals</button></div>
         </details>
 
         <details class="panel bulk-upload" id="costEstimatorWrap">
           <summary>Ballpark Cost Estimator</summary>
-          <p class="section-sub">Check off what you think you'll need — this shows the typical fee range agents on Amico Haus are currently listing for each, so you know roughly what to expect before proposals come in. Not a quote; actual proposals may differ.</p>
+          <p class="section-sub">Check off what you think you'll need. For each service at least 3 agents on Amico Haus list, this shows the range of fees they list for it. Not a quote: each agent sets their own fees, commissions are negotiable and not set by law or by Amico Haus, and actual proposals may differ.</p>
           <div id="costEstimatorServices"></div>
           <div class="mini-block" id="costEstimatorTotal"><span class="label">Estimated total</span>Check a service above to see a range.</div>
         </details>
@@ -392,62 +399,63 @@
         <div class="stack" id="myTransactionsList"><div class="empty-state">Loading…</div></div>
 
         <details class="panel bulk-upload" id="becomeAgentWrap">
-          <summary id="becomeAgentSummary">Become a vetted agent</summary>
-          <p class="section-sub">Takes about 3 minutes: your DRE license number, brokerage and service area. Everything else is optional and can be added later. <strong>How we approve agents:</strong> an active California real estate license (we look it up on the DRE's public lookup), a service area in San Diego County, and following the Amico Haus agent rules.</p>
+          <summary id="becomeAgentSummary">Become an approved agent</summary>
+          <p class="section-sub">Takes about 3 minutes: your DRE license number, brokerage and service area. Everything else is optional and can be added later. <strong>How we approve agents:</strong> an active California real estate license (we look it up on the DRE's public lookup), a service area in San Diego County, and agreeing to <a href="/terms">the Amico Haus Terms of Use</a>.</p>
           <div id="agentApplicationStatus"></div>
           <div class="form-row two-col">
-            <div class="field"><label>Brokerage name <span class="required-mark">*</span></label><input type="text" id="agentBrokerage" maxlength="150"></div>
-            <div class="field"><label>California DRE license # <span class="required-mark">*</span></label><input type="text" id="agentLicense" maxlength="20" inputmode="numeric" placeholder="8 digits, e.g. 01234567"></div>
+            <div class="field"><label for="agentBrokerage">Brokerage name <span class="required-mark">*</span></label><input type="text" id="agentBrokerage" maxlength="150"></div>
+            <div class="field"><label for="agentLicense">California DRE license # <span class="required-mark">*</span></label><input type="text" id="agentLicense" maxlength="20" inputmode="numeric" placeholder="8 digits, e.g. 01234567"></div>
           </div>
           <div class="field">
-            <label>Service area — up to 4 zip codes <span class="required-mark">*</span></label>
+            <label id="agentZipsLabel">Service area — up to 4 zip codes <span class="required-mark">*</span></label>
             <div class="form-row two-col">
-              <input type="text" id="agentZip1" maxlength="10" placeholder="Zip 1" inputmode="numeric">
-              <input type="text" id="agentZip2" maxlength="10" placeholder="Zip 2 (optional)" inputmode="numeric">
+              <input type="text" id="agentZip1" aria-label="Service ZIP 1" maxlength="10" placeholder="Zip 1" inputmode="numeric">
+              <input type="text" id="agentZip2" aria-label="Service ZIP 2" maxlength="10" placeholder="Zip 2 (optional)" inputmode="numeric">
             </div>
             <div class="form-row two-col">
-              <input type="text" id="agentZip3" maxlength="10" placeholder="Zip 3 (optional)" inputmode="numeric">
-              <input type="text" id="agentZip4" maxlength="10" placeholder="Zip 4 (optional)" inputmode="numeric">
+              <input type="text" id="agentZip3" aria-label="Service ZIP 3" maxlength="10" placeholder="Zip 3 (optional)" inputmode="numeric">
+              <input type="text" id="agentZip4" aria-label="Service ZIP 4" maxlength="10" placeholder="Zip 4 (optional)" inputmode="numeric">
             </div>
             <p class="tiny">You'll be shown pre-listings within 20 miles of any of these.</p>
           </div>
           <details class="score-breakdown agent-more">
             <summary>Add more now or later (optional): experience, fees, specialties, languages, services</summary>
           <div class="form-row two-col">
-            <div class="field"><label>Years of experience</label><input type="number" id="agentYears" min="0" max="80"></div>
-            <div class="field"><label>Homes sold last 12 months (self-reported)</label><input type="number" id="agentHomesSold" min="0" max="10000"></div>
+            <div class="field"><label for="agentYears">Years of experience</label><input type="number" id="agentYears" min="0" max="80"></div>
+            <div class="field"><label for="agentHomesSold">Homes sold last 12 months (self-reported)</label><input type="number" id="agentHomesSold" min="0" max="10000"></div>
           </div>
           <div class="form-row two-col">
-            <div class="field"><label>Average days on market (self-reported)</label><input type="number" id="agentAvgDom" min="0" max="3650"></div>
-            <div class="field"><label>Sale-to-list price ratio (self-reported, e.g. 0.98 = 98%)</label><input type="number" id="agentSaleToList" min="0" max="2" step="0.01"></div>
+            <div class="field"><label for="agentAvgDom">Average days on market (self-reported)</label><input type="number" id="agentAvgDom" min="0" max="3650"></div>
+            <div class="field"><label for="agentSaleToList">Sale-to-list price ratio (self-reported, e.g. 0.98 = 98%)</label><input type="number" id="agentSaleToList" min="0" max="2" step="0.01"></div>
           </div>
-          <div class="field"><label>Bio / pitch</label><textarea id="agentBio" maxlength="2000" placeholder="Tell homeowners about your track record…"></textarea></div>
-          <div class="field"><label>Certifications (self-reported, e.g. CRS, ABR, Luxury Home Marketing Specialist)</label><input type="text" id="agentCertifications" maxlength="300"></div>
+          <div class="field"><label for="agentBio">Bio / pitch</label><textarea id="agentBio" maxlength="2000" placeholder="Tell homeowners about your track record…"></textarea></div>
+          <div class="field"><label for="agentCertifications">Certifications (self-reported, e.g. CRS, ABR, Luxury Home Marketing Specialist)</label><input type="text" id="agentCertifications" maxlength="300"></div>
           <div class="field">
-            <label>Specialties</label>
-            <div id="agentSpecialtyTags"></div>
+            <label id="agentSpecialtyTagsLabel">Specialties</label>
+            <div id="agentSpecialtyTags" role="group" aria-labelledby="agentSpecialtyTagsLabel"></div>
           </div>
           <div class="field">
-            <label>Languages spoken</label>
-            <div id="agentLanguages"></div>
+            <label id="agentLanguagesLabel">Languages spoken</label>
+            <div id="agentLanguages" role="group" aria-labelledby="agentLanguagesLabel"></div>
           </div>
           <label class="checkbox-row"><input type="checkbox" id="agentSoloAgent" checked><span>I'm the sole point of contact — no team hand-offs</span></label>
           <label class="checkbox-row"><input type="checkbox" id="agentAcceptingClients" checked><span>Currently accepting new clients</span></label>
           <label class="checkbox-row"><input type="checkbox" id="agentEoInsurance"><span>I carry E&amp;O (errors &amp; omissions) insurance (self-reported)</span></label>
           <div class="form-row two-col">
-            <div class="field"><label>Default commission (%)</label><input type="number" id="agentCommissionPct" min="0" max="100" step="0.1"></div>
-            <div class="field"><label>…or default flat fee ($)</label><input type="number" id="agentFlatFee" min="0" max="500000" step="100"></div>
+            <div class="field"><label for="agentCommissionPct">Default commission (%)</label><input type="number" id="agentCommissionPct" min="0" max="100" step="0.1"></div>
+            <div class="field"><label for="agentFlatFee">…or default flat fee ($)</label><input type="number" id="agentFlatFee" min="0" max="500000" step="100"></div>
           </div>
           <div class="field">
-            <label>Which days do you typically hold open houses?</label>
-            <div id="agentOpenHouseDays"></div>
+            <label id="agentOpenHouseDaysLabel">Which days do you typically hold open houses?</label>
+            <div id="agentOpenHouseDays" role="group" aria-labelledby="agentOpenHouseDaysLabel"></div>
           </div>
           <div class="field">
-            <label>Services you typically offer</label>
-            <div id="agentServicesEditor"></div>
+            <label id="agentServicesEditorLabel">Services you typically offer</label>
+            <div id="agentServicesEditor" role="group" aria-labelledby="agentServicesEditorLabel"></div>
           </div>
           </details>
           <label class="checkbox-row"><input type="checkbox" id="agentNotifyNewRequests" checked><span>Notify me when a new pre-listing or transaction request opens near me (in-app and email)</span></label>
+          <label class="checkbox-row"><input type="checkbox" id="agentAcceptRules" required><span>I agree to the <a href="/terms#agent-rules" target="_blank" rel="noopener">agent rules in the Terms of Use</a> <span class="required-mark">*</span></span></label>
           <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="submitAgentApplicationBtn">Submit Application</button></div>
         </details>
 
@@ -471,25 +479,25 @@
           <div id="myTeamPanel"></div>
 
           <h3>Invite Your Clients</h3>
-          <p class="section-sub">Your past and current clients are the fastest way to get your first proposals — invite them to post a pre-listing. Once they do, they can invite you to send a proposal, and every agent who serves their area hears about it at the same moment, you included.</p>
+          <p class="section-sub">Invite your past and current clients to post a pre-listing. Once they do, they can invite you to send a proposal, and every agent who serves their area hears about it at the same moment, you included. No rewards or payments for invites.</p>
           <div class="field"><label for="agentReferralLink">Your invite link</label><input type="text" id="agentReferralLink" readonly></div>
           <div class="form-actions"><button type="button" class="btn btn-ghost btn-sm" id="copyAgentReferralBtn">Copy Link</button></div>
           <p class="tiny" id="agentReferralCount"></p>
 
           <p class="section-sub">Portfolio photos other homeowners see when reviewing your proposals.</p>
           <div class="photo-gallery" id="agentPortfolioGallery"></div>
-          <div class="field"><label>Add a portfolio photo (up to 12)</label><input type="file" id="agentPortfolioPhotoInput" accept="image/jpeg,image/png,image/webp,image/gif"></div>
+          <div class="field"><label for="agentPortfolioPhotoInput">Add a portfolio photo (up to 12)</label><input type="file" id="agentPortfolioPhotoInput" accept="image/jpeg,image/png,image/webp,image/gif"><p class="tiny field-hint">By adding photos you confirm: I took these photos or have permission to use them.</p></div>
 
           <h3>Intro Video</h3>
           <p class="section-sub">Up to 4 minutes — a quick intro or interview homeowners can watch alongside your proposal.</p>
           <div id="agentVideoPreviewWrap"></div>
-          <div class="field"><label>Upload / replace video (MP4, WebM, or MOV — under 95MB)</label><input type="file" id="agentVideoInput" accept="video/mp4,video/webm,video/quicktime"></div>
+          <div class="field"><label for="agentVideoInput">Upload / replace video (MP4, WebM, or MOV — under 95MB)</label><input type="file" id="agentVideoInput" accept="video/mp4,video/webm,video/quicktime"></div>
           <p class="tiny" id="agentVideoStatus"></p>
 
           <h3>License Photo (optional)</h3>
-          <p class="section-sub">Optional. We check every license number on the DRE's public lookup, with or without a photo. If you add one, it's only visible to you and Amico Haus admins, never to homeowners.</p>
+          <p class="section-sub">Optional. We look up every license number on the DRE's public lookup before approval, with or without a photo. If you add one, it's only visible to you and Amico Haus admins, never to homeowners.</p>
           <div id="agentLicensePhotoWrap"></div>
-          <div class="field"><label>Upload / replace license photo (JPEG, PNG, or WEBP — under 5MB)</label><input type="file" id="agentLicensePhotoInput" accept="image/jpeg,image/png,image/webp"></div>
+          <div class="field"><label for="agentLicensePhotoInput">Upload / replace license photo (JPEG, PNG, or WEBP — under 5MB)</label><input type="file" id="agentLicensePhotoInput" accept="image/jpeg,image/png,image/webp"></div>
 
           <h2>My Service Packages</h2>
           <p class="section-sub">Optional fixed bundles homeowners can compare in the agent directory before they've even posted anything — same as a Fiverr gig menu. You can still submit any custom proposal regardless of what's set up here; these are just a quick-fill shortcut. Self-reported pricing for comparison only — no payment runs through Amico Haus.</p>
@@ -499,13 +507,14 @@
           <p class="section-sub">Before/after photo pairs tied to a specific past sale — up to 6, e.g. "Sold in 12 days, 5% over asking."</p>
           <div class="grid" id="agentCaseStudiesGallery"></div>
           <div class="form-row two-col">
-            <div class="field"><label>Title</label><input type="text" id="caseStudyTitle" maxlength="120" placeholder="e.g. 3bd Craftsman in Uptown"></div>
-            <div class="field"><label>Result</label><input type="text" id="caseStudyResultNote" maxlength="200" placeholder="e.g. Sold in 12 days, 5% over asking"></div>
+            <div class="field"><label for="caseStudyTitle">Title</label><input type="text" id="caseStudyTitle" maxlength="120" placeholder="e.g. 3bd Craftsman in Uptown"></div>
+            <div class="field"><label for="caseStudyResultNote">Result</label><input type="text" id="caseStudyResultNote" maxlength="200" placeholder="e.g. Sold in 12 days, 5% over asking"></div>
           </div>
           <div class="form-row two-col">
-            <div class="field"><label>Before photo</label><input type="file" id="caseStudyBeforeInput" accept="image/jpeg,image/png,image/webp,image/gif"></div>
-            <div class="field"><label>After photo</label><input type="file" id="caseStudyAfterInput" accept="image/jpeg,image/png,image/webp,image/gif"></div>
+            <div class="field"><label for="caseStudyBeforeInput">Before photo</label><input type="file" id="caseStudyBeforeInput" accept="image/jpeg,image/png,image/webp,image/gif"></div>
+            <div class="field"><label for="caseStudyAfterInput">After photo</label><input type="file" id="caseStudyAfterInput" accept="image/jpeg,image/png,image/webp,image/gif"></div>
           </div>
+          <p class="tiny field-hint">By adding photos you confirm: I took these photos or have permission to use them.</p>
           <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="addCaseStudyBtn">Add Case Study</button></div>
 
           <h2>Invitations to Bid</h2>
@@ -518,7 +527,8 @@
 
         <details class="panel bulk-upload" id="agentDirectoryWrap">
           <summary>Browse Agents</summary>
-          <p class="section-sub">Search vetted agents to favorite for next time, or to invite directly to one of your open requests.</p>
+          <p class="section-sub">Search approved agents to favorite for next time, or to invite directly to one of your open requests.</p>
+          <p class="tiny operator-note">Amico Haus is run by Rudy Flores, a Coldwell Banker West agent who may compete for the same homes. Each agent sets their own fees; commissions are negotiable and not set by law or by Amico Haus.</p>
           <div class="form-row two-col">
             <div class="field"><label for="agentDirectorySearch">Search by name, brokerage or designation</label><input type="text" id="agentDirectorySearch" placeholder="e.g. a name, ABR, SRES, CRS"></div>
             <div class="field"><label for="agentDirSort">Sort by</label>
@@ -553,12 +563,6 @@
               <div class="field"><label for="agentDirMaxProposalHours">Usually sends a proposal within</label>
                 <select id="agentDirMaxProposalHours"><option value="">Any</option><option value="24">1 day</option><option value="72">3 days</option><option value="168">1 week</option></select>
               </div>
-              <div class="field field-end">
-                <label class="checkbox-row"><input type="checkbox" id="agentDirTopRated"><span>Top Rated only</span></label>
-              </div>
-              <div class="field field-end">
-                <label class="checkbox-row"><input type="checkbox" id="agentDirLicenseVerified"><span>License checked on the DRE by Amico Haus</span></label>
-              </div>
             </div>
           </details>
 
@@ -577,7 +581,7 @@
             <div class="form-row three-col">
               <div class="field"><label for="agentDirOpenHouseDay">Open house available</label><select id="agentDirOpenHouseDay"><option value="">Any day</option></select></div>
               <div class="field field-end">
-                <label class="checkbox-row"><input type="checkbox" id="agentDirLocalSpecialist"><span>Local specialist only</span></label>
+                <label class="checkbox-row"><input type="checkbox" id="agentDirLocalSpecialist"><span>Focused service area only</span></label>
               </div>
               <div class="field field-end">
                 <label class="checkbox-row"><input type="checkbox" id="agentDirSoloAgent"><span>Solo agent only</span></label>
@@ -604,7 +608,7 @@
 
           <p class="tiny">Saved alerts don't include the "hired" or "proposal speed" filters, since those change as agents work on Amico Haus.</p>
           <div class="form-row two-col">
-            <input type="text" id="agentAlertLabel" maxlength="80" placeholder="Name this search (optional)">
+            <input type="text" id="agentAlertLabel" maxlength="80" placeholder="Name this search (optional)" aria-label="Name this search (optional)">
             <button type="button" class="btn btn-ghost btn-sm" id="saveAgentAlertBtn">Save as Alert</button>
           </div>
           <div class="grid" id="agentDirectoryList"><div class="empty-state">Loading…</div></div>
@@ -617,13 +621,17 @@
         <h2>My Favorite Agents</h2>
         <div class="stack" id="favoriteAgentsList"><div class="empty-state">Loading…</div></div>
 
-        <h2>My Disputes</h2>
-        <div class="stack" id="myDisputesList"><div class="empty-state">Loading…</div></div>
+        <div id="myDisputesWrap" class="hidden">
+          <h2>Past Issue Reports</h2>
+          <p class="section-sub">Issue reports you filed before they were replaced by "Report a rules problem". Kept here for your records only.</p>
+          <div class="stack" id="myDisputesList"></div>
+        </div>
 
         <h2 id="browseOpenRequests">Browse Open Requests</h2>
+        <p class="form-note hidden" id="openRequestsTeaserNote">Pre-listings open to approved local agents. Thinking of selling? <a href="/app#post-home" data-action="goto-post-home">Post yours free.</a></p>
         <form id="marketplaceFilters" class="form-row two-col">
-          <div class="field"><label>City</label><input type="text" id="marketCity"></div>
-          <div class="field"><label>State</label><input type="text" id="marketState"></div>
+          <div class="field"><label for="marketCity">City</label><input type="text" id="marketCity"></div>
+          <div class="field"><label for="marketState">State</label><input type="text" id="marketState"></div>
         </form>
         <label class="checkbox-row"><input type="checkbox" id="marketOnlyInArea"><span>Only show pre-listings within 20 miles of my service zips</span></label>
         <div class="grid" id="marketplaceBrowseList"><div class="empty-state">Loading…</div></div>
@@ -656,11 +664,12 @@
         <button class="link-btn" id="backToConversations">← All conversations</button>
         <h2 id="threadTitle"></h2>
         <p id="threadIdentity" class="tiny agent-id-line hidden"></p>
+        <p class="tiny thread-tools"><button type="button" class="link-btn" id="threadBlockBtn">Block</button></p>
         <div id="threadOpenToBidsWrap" class="hidden"><button type="button" class="btn btn-ghost btn-sm" id="threadOpenToBidsBtn">Open Trade to Agent Bids</button></div>
         <div class="stack" id="messageList"></div>
         <p id="threadComposerNote" class="inline-note hidden" role="status"></p>
         <form id="messageForm" class="post-form">
-          <input type="text" id="messageBody" maxlength="2000" placeholder="Write a message…" required>
+          <input type="text" id="messageBody" maxlength="2000" placeholder="Write a message…" aria-label="Write a message" required>
           <button type="submit" class="btn btn-primary btn-sm">Send</button>
         </form>
       </div>
@@ -675,35 +684,35 @@
         <details class="panel bulk-upload" id="postAugmentedWrap">
           <summary>List a home with accessibility adaptations</summary>
           <div class="form-row two-col">
-            <div class="field"><label>Title (optional)</label><input type="text" id="augTitle" maxlength="120" placeholder="e.g. Fully wheelchair-accessible rancher"></div>
-            <div class="field"><label>Asking price ($) <span class="required-mark">*</span></label><input type="number" id="augAskingPrice" min="1" max="500000000" step="1000"></div>
+            <div class="field"><label for="augTitle">Title (optional)</label><input type="text" id="augTitle" maxlength="120" placeholder="e.g. Fully wheelchair-accessible rancher"></div>
+            <div class="field"><label for="augAskingPrice">Asking price ($) <span class="required-mark">*</span></label><input type="number" id="augAskingPrice" min="1" max="500000000" step="1000"></div>
           </div>
           <div class="form-row three-col">
-            <div class="field"><label>City <span class="required-mark">*</span></label><input type="text" id="augCity" maxlength="80"></div>
-            <div class="field"><label>State <span class="required-mark">*</span></label><input type="text" id="augState" maxlength="20"></div>
-            <div class="field"><label>Zip <span class="required-mark">*</span></label><input type="text" id="augZip" maxlength="10" placeholder="5-digit zip" inputmode="numeric"></div>
+            <div class="field"><label for="augCity">City <span class="required-mark">*</span></label><input type="text" id="augCity" maxlength="80"></div>
+            <div class="field"><label for="augState">State <span class="required-mark">*</span></label><input type="text" id="augState" maxlength="20"></div>
+            <div class="field"><label for="augZip">Zip <span class="required-mark">*</span></label><input type="text" id="augZip" maxlength="10" placeholder="5-digit zip" inputmode="numeric"></div>
           </div>
-          <div class="field"><label>Neighborhood (public)</label><input type="text" id="augNeighborhood" maxlength="80"></div>
-          <div class="field"><label>Street address (private — only you can see it)</label><input type="text" id="augAddress" maxlength="150"></div>
+          <div class="field"><label for="augNeighborhood">Neighborhood (public)</label><input type="text" id="augNeighborhood" maxlength="80"></div>
+          <div class="field"><label for="augAddress">Street address (private — only you can see it)</label><input type="text" id="augAddress" maxlength="150"></div>
           <div class="form-row three-col">
-            <div class="field"><label>Property type <span class="required-mark">*</span></label><select id="augPropertyType"></select></div>
-            <div class="field"><label>Beds <span class="required-mark">*</span></label><input type="number" id="augBeds" min="0" max="50"></div>
-            <div class="field"><label>Baths <span class="required-mark">*</span></label><input type="number" id="augBaths" min="0" max="50" step="0.5"></div>
+            <div class="field"><label for="augPropertyType">Property type <span class="required-mark">*</span></label><select id="augPropertyType"></select></div>
+            <div class="field"><label for="augBeds">Beds <span class="required-mark">*</span></label><input type="number" id="augBeds" min="0" max="50"></div>
+            <div class="field"><label for="augBaths">Baths <span class="required-mark">*</span></label><input type="number" id="augBaths" min="0" max="50" step="0.5"></div>
           </div>
-          <div class="field"><label>Sq ft</label><input type="number" id="augSqft" min="0" max="200000" step="50"></div>
-          <div class="field"><label>Description</label><textarea id="augDescription" maxlength="2000" placeholder="Anything a buyer should know"></textarea></div>
+          <div class="field"><label for="augSqft">Sq ft</label><input type="number" id="augSqft" min="0" max="200000" step="50"></div>
+          <div class="field"><label for="augDescription">Description</label><textarea id="augDescription" maxlength="2000" placeholder="Anything a buyer should know"></textarea><p class="tiny field-hint composer-note">Describe the home, not who should live there or who lives nearby.</p></div>
 
           <p class="tiny"><strong>Adaptations this home has <span class="required-mark">*</span> (check at least one):</strong></p>
           <div id="augmentedAdaptationsFields"></div>
-          <div class="field"><label>Notes about the adaptations (optional)</label><textarea id="augAdaptationNotes" maxlength="1000" placeholder="e.g. roll-in shower installed 2022, ADA-compliant grab bars throughout"></textarea></div>
+          <div class="field"><label for="augAdaptationNotes">Notes about the adaptations (optional)</label><textarea id="augAdaptationNotes" maxlength="1000" placeholder="e.g. roll-in shower installed 2022, ADA-compliant grab bars throughout"></textarea></div>
 
           <div class="field">
-            <label>Why you're selling (optional — purely informational)</label>
-            <div id="augLifeEventFields"></div>
+            <label id="augLifeEventFieldsLabel">Why you're selling (optional, shown only to you)</label>
+            <div id="augLifeEventFields" role="group" aria-labelledby="augLifeEventFieldsLabel"></div>
           </div>
 
           <div id="augCostsFields"></div>
-          <div class="field"><label>Photos (up to 8, added after posting)</label><input type="file" id="augPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple></div>
+          <div class="field"><label for="augPhotos">Photos (up to 8, added after posting)</label><input type="file" id="augPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple><p class="tiny field-hint">By adding photos you confirm: I took these photos or have permission to use them.</p></div>
           <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="createAugmentedHomeBtn">Post Listing</button></div>
         </details>
 
@@ -713,11 +722,11 @@
         <details class="panel bulk-upload" id="accessibilityAlertWrap">
           <summary>Save what you need — get notified</summary>
           <p class="section-sub">Pick the adaptations that matter to you and, optionally, a city/state — you'll be notified the moment a newly-listed home matches.</p>
-          <div class="field"><label>Name this alert (optional)</label><input type="text" id="accessibilityAlertLabel" maxlength="80" placeholder="e.g. Roll-in shower in San Diego"></div>
+          <div class="field"><label for="accessibilityAlertLabel">Name this alert (optional)</label><input type="text" id="accessibilityAlertLabel" maxlength="80" placeholder="e.g. Roll-in shower in San Diego"></div>
           <div id="accessibilityAlertAdaptationsFields"></div>
           <div class="form-row two-col">
-            <div class="field"><label>City (optional)</label><input type="text" id="accessibilityAlertCity" maxlength="80"></div>
-            <div class="field"><label>State (optional)</label><input type="text" id="accessibilityAlertState" maxlength="20"></div>
+            <div class="field"><label for="accessibilityAlertCity">City (optional)</label><input type="text" id="accessibilityAlertCity" maxlength="80"></div>
+            <div class="field"><label for="accessibilityAlertState">State (optional)</label><input type="text" id="accessibilityAlertState" maxlength="20"></div>
           </div>
           <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="saveAccessibilityAlertBtn">Save Alert</button></div>
         </details>
@@ -729,8 +738,8 @@
 
         <h2>Browse AugmentedHomes</h2>
         <form id="augmentedFilters" class="form-row two-col">
-          <div class="field"><label>City</label><input type="text" id="augmentedCity"></div>
-          <div class="field"><label>State</label><input type="text" id="augmentedState"></div>
+          <div class="field"><label for="augmentedCity">City</label><input type="text" id="augmentedCity"></div>
+          <div class="field"><label for="augmentedState">State</label><input type="text" id="augmentedState"></div>
         </form>
         <p class="tiny"><strong>Filter by adaptation:</strong></p>
         <div id="augmentedFilterChips"></div>
@@ -754,35 +763,35 @@
         <details class="panel bulk-upload" id="postGreenWrap">
           <summary>List a home with green features</summary>
           <div class="form-row two-col">
-            <div class="field"><label>Title (optional)</label><input type="text" id="greenTitle" maxlength="120" placeholder="e.g. Solar-powered 4bd with EV charging"></div>
-            <div class="field"><label>Asking price ($) <span class="required-mark">*</span></label><input type="number" id="greenAskingPrice" min="1" max="500000000" step="1000"></div>
+            <div class="field"><label for="greenTitle">Title (optional)</label><input type="text" id="greenTitle" maxlength="120" placeholder="e.g. Solar-powered 4bd with EV charging"></div>
+            <div class="field"><label for="greenAskingPrice">Asking price ($) <span class="required-mark">*</span></label><input type="number" id="greenAskingPrice" min="1" max="500000000" step="1000"></div>
           </div>
           <div class="form-row three-col">
-            <div class="field"><label>City <span class="required-mark">*</span></label><input type="text" id="greenCity" maxlength="80"></div>
-            <div class="field"><label>State <span class="required-mark">*</span></label><input type="text" id="greenState" maxlength="20"></div>
-            <div class="field"><label>Zip <span class="required-mark">*</span></label><input type="text" id="greenZip" maxlength="10" placeholder="5-digit zip" inputmode="numeric"></div>
+            <div class="field"><label for="greenCity">City <span class="required-mark">*</span></label><input type="text" id="greenCity" maxlength="80"></div>
+            <div class="field"><label for="greenState">State <span class="required-mark">*</span></label><input type="text" id="greenState" maxlength="20"></div>
+            <div class="field"><label for="greenZip">Zip <span class="required-mark">*</span></label><input type="text" id="greenZip" maxlength="10" placeholder="5-digit zip" inputmode="numeric"></div>
           </div>
-          <div class="field"><label>Neighborhood (public)</label><input type="text" id="greenNeighborhood" maxlength="80"></div>
-          <div class="field"><label>Street address (private — only you can see it)</label><input type="text" id="greenAddress" maxlength="150"></div>
+          <div class="field"><label for="greenNeighborhood">Neighborhood (public)</label><input type="text" id="greenNeighborhood" maxlength="80"></div>
+          <div class="field"><label for="greenAddress">Street address (private — only you can see it)</label><input type="text" id="greenAddress" maxlength="150"></div>
           <div class="form-row three-col">
-            <div class="field"><label>Property type <span class="required-mark">*</span></label><select id="greenPropertyType"></select></div>
-            <div class="field"><label>Beds <span class="required-mark">*</span></label><input type="number" id="greenBeds" min="0" max="50"></div>
-            <div class="field"><label>Baths <span class="required-mark">*</span></label><input type="number" id="greenBaths" min="0" max="50" step="0.5"></div>
+            <div class="field"><label for="greenPropertyType">Property type <span class="required-mark">*</span></label><select id="greenPropertyType"></select></div>
+            <div class="field"><label for="greenBeds">Beds <span class="required-mark">*</span></label><input type="number" id="greenBeds" min="0" max="50"></div>
+            <div class="field"><label for="greenBaths">Baths <span class="required-mark">*</span></label><input type="number" id="greenBaths" min="0" max="50" step="0.5"></div>
           </div>
-          <div class="field"><label>Sq ft</label><input type="number" id="greenSqft" min="0" max="200000" step="50"></div>
-          <div class="field"><label>Description</label><textarea id="greenDescription" maxlength="2000" placeholder="Anything a buyer should know"></textarea></div>
+          <div class="field"><label for="greenSqft">Sq ft</label><input type="number" id="greenSqft" min="0" max="200000" step="50"></div>
+          <div class="field"><label for="greenDescription">Description</label><textarea id="greenDescription" maxlength="2000" placeholder="Anything a buyer should know"></textarea><p class="tiny field-hint composer-note">Describe the home, not who should live there or who lives nearby.</p></div>
 
           <p class="tiny"><strong>Green features this home has <span class="required-mark">*</span> (check at least one):</strong></p>
           <div id="greenFeaturesFields"></div>
-          <div class="field"><label>Notes about the features (optional)</label><textarea id="greenFeatureNotes" maxlength="1000" placeholder="e.g. 6kW solar system installed 2023, fully owned not leased"></textarea></div>
+          <div class="field"><label for="greenFeatureNotes">Notes about the features (optional)</label><textarea id="greenFeatureNotes" maxlength="1000" placeholder="e.g. 6kW solar system installed 2023, fully owned not leased"></textarea></div>
 
           <div class="field">
-            <label>Why you're selling (optional — purely informational)</label>
-            <div id="greenLifeEventFields"></div>
+            <label id="greenLifeEventFieldsLabel">Why you're selling (optional, shown only to you)</label>
+            <div id="greenLifeEventFields" role="group" aria-labelledby="greenLifeEventFieldsLabel"></div>
           </div>
 
           <div id="greenCostsFields"></div>
-          <div class="field"><label>Photos (up to 8, added after posting)</label><input type="file" id="greenPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple></div>
+          <div class="field"><label for="greenPhotos">Photos (up to 8, added after posting)</label><input type="file" id="greenPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple><p class="tiny field-hint">By adding photos you confirm: I took these photos or have permission to use them.</p></div>
           <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="createGreenHomeBtn">Post Listing</button></div>
         </details>
 
@@ -792,11 +801,11 @@
         <details class="panel bulk-upload" id="greenAlertWrap">
           <summary>Save what you need — get notified</summary>
           <p class="section-sub">Pick the green features that matter to you and, optionally, a city/state — you'll be notified the moment a newly-listed home matches.</p>
-          <div class="field"><label>Name this alert (optional)</label><input type="text" id="greenAlertLabel" maxlength="80" placeholder="e.g. Solar + EV charging in San Diego"></div>
+          <div class="field"><label for="greenAlertLabel">Name this alert (optional)</label><input type="text" id="greenAlertLabel" maxlength="80" placeholder="e.g. Solar + EV charging in San Diego"></div>
           <div id="greenAlertFeaturesFields"></div>
           <div class="form-row two-col">
-            <div class="field"><label>City (optional)</label><input type="text" id="greenAlertCity" maxlength="80"></div>
-            <div class="field"><label>State (optional)</label><input type="text" id="greenAlertState" maxlength="20"></div>
+            <div class="field"><label for="greenAlertCity">City (optional)</label><input type="text" id="greenAlertCity" maxlength="80"></div>
+            <div class="field"><label for="greenAlertState">State (optional)</label><input type="text" id="greenAlertState" maxlength="20"></div>
           </div>
           <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="saveGreenAlertBtn">Save Alert</button></div>
         </details>
@@ -808,8 +817,8 @@
 
         <h2>Browse GreenHomes</h2>
         <form id="greenFilters" class="form-row two-col">
-          <div class="field"><label>City</label><input type="text" id="greenFilterCity"></div>
-          <div class="field"><label>State</label><input type="text" id="greenFilterState"></div>
+          <div class="field"><label for="greenFilterCity">City</label><input type="text" id="greenFilterCity"></div>
+          <div class="field"><label for="greenFilterState">State</label><input type="text" id="greenFilterState"></div>
         </form>
         <p class="tiny"><strong>Filter by feature:</strong></p>
         <div id="greenFilterChips"></div>
@@ -827,42 +836,35 @@
     <!-- FINDERMINE -->
     <section id="tab-findermine" class="tab-panel">
       <h1>FinderMine</h1>
-      <p class="section-sub">A deal-discovery board for developers and investors — post a project, browse what's out there by type, stage, and location, and discuss it directly with the person behind it.</p>
-      <p class="form-note">FinderMine is for discovering and discussing projects only. No funds, equity, or investments are tracked or transacted through Amico Haus — any deal you make is strictly between you and the other party, off-platform. Nothing posted here is an offer to sell securities or a solicitation to invest.</p>
+      <p class="section-sub">Projects looking for a builder, partner or co-buyer. Post a project, browse what's out there by type, stage, and location, and reach the person behind it through Amico Haus messages.</p>
+      <p class="form-note">FinderMine is for discovering and discussing projects only. No money, equity, or investments are offered, tracked, or transacted through Amico Haus, and anything you agree to is strictly between you and the other party, off-platform. Nothing posted here is an offer to sell securities or a solicitation to invest, so please leave out investment terms such as returns or minimum investments.</p>
 
       <div id="findermineListView">
         <details class="panel bulk-upload" id="postProjectWrap">
           <summary>Post a project</summary>
-          <div class="field"><label>Title <span class="required-mark">*</span></label><input type="text" id="projTitle" maxlength="120" placeholder="e.g. 12-unit multifamily rebuild, North Park"></div>
+          <div class="field"><label for="projTitle">Title <span class="required-mark">*</span></label><input type="text" id="projTitle" maxlength="120" placeholder="e.g. 12-unit multifamily rebuild, North Park"></div>
           <div class="form-row three-col">
-            <div class="field"><label>City <span class="required-mark">*</span></label><input type="text" id="projCity" maxlength="80"></div>
-            <div class="field"><label>State <span class="required-mark">*</span></label><input type="text" id="projState" maxlength="20"></div>
-            <div class="field"><label>Zip</label><input type="text" id="projZip" maxlength="10" inputmode="numeric"></div>
+            <div class="field"><label for="projCity">City <span class="required-mark">*</span></label><input type="text" id="projCity" maxlength="80"></div>
+            <div class="field"><label for="projState">State <span class="required-mark">*</span></label><input type="text" id="projState" maxlength="20"></div>
+            <div class="field"><label for="projZip">Zip</label><input type="text" id="projZip" maxlength="10" inputmode="numeric"></div>
           </div>
-          <div class="field"><label>Neighborhood (public)</label><input type="text" id="projNeighborhood" maxlength="80"></div>
-          <div class="field"><label>Street address (private — only you can see it)</label><input type="text" id="projAddress" maxlength="150"></div>
+          <div class="field"><label for="projNeighborhood">Neighborhood (public)</label><input type="text" id="projNeighborhood" maxlength="80"></div>
+          <div class="field"><label for="projAddress">Street address (private — only you can see it)</label><input type="text" id="projAddress" maxlength="150"></div>
           <div class="form-row two-col">
-            <div class="field"><label>Project type <span class="required-mark">*</span></label><select id="projTypeSelect"></select></div>
-            <div class="field"><label>Stage</label><select id="projStageSelect"></select></div>
+            <div class="field"><label for="projTypeSelect">Project type <span class="required-mark">*</span></label><select id="projTypeSelect"></select></div>
+            <div class="field"><label for="projStageSelect">Stage</label><select id="projStageSelect"></select></div>
           </div>
-          <div class="form-row two-col">
-            <div class="field"><label>Funding sought ($)</label><input type="number" id="projFundingGoal" min="0" max="5000000000" step="1000"></div>
-            <div class="field"><label>Min. investment ($)</label><input type="number" id="projMinInvestment" min="0" max="5000000000" step="1000"></div>
-          </div>
-          <div class="form-row two-col">
-            <div class="field"><label>Target return (free text, e.g. "15-18% IRR")</label><input type="text" id="projTargetReturn" maxlength="80"></div>
-            <div class="field"><label>Timeline (months)</label><input type="number" id="projTimelineMonths" min="0" max="600"></div>
-          </div>
-          <div class="field"><label>Description</label><textarea id="projDescription" maxlength="3000" placeholder="Scope, numbers, what you're looking for in a partner…"></textarea></div>
+          <div class="field"><label for="projTimelineMonths">Timeline (months)</label><input type="number" id="projTimelineMonths" min="0" max="600"></div>
+          <div class="field"><label for="projDescription">Description</label><textarea id="projDescription" maxlength="3000" placeholder="Scope, timeline, and the builder, partner or co-buyer you're looking for…"></textarea><p class="tiny field-hint composer-note">Describe the project, not who should live there or who lives nearby. No investment terms (returns, minimums, shares).</p></div>
           <div class="field">
-            <label>Built for any accessibility adaptations? (optional)</label>
-            <div id="projAdaptationsFields"></div>
+            <label id="projAdaptationsFieldsLabel">Built for any accessibility adaptations? (optional)</label>
+            <div id="projAdaptationsFields" role="group" aria-labelledby="projAdaptationsFieldsLabel"></div>
           </div>
           <div class="field">
-            <label>Built with any green features? (optional)</label>
-            <div id="projGreenFeaturesFields"></div>
+            <label id="projGreenFeaturesFieldsLabel">Built with any green features? (optional)</label>
+            <div id="projGreenFeaturesFields" role="group" aria-labelledby="projGreenFeaturesFieldsLabel"></div>
           </div>
-          <div class="field"><label>Photos / renderings (up to 8, added after posting)</label><input type="file" id="projPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple></div>
+          <div class="field"><label for="projPhotos">Photos / renderings (up to 8, added after posting)</label><input type="file" id="projPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple><p class="tiny field-hint">By adding photos you confirm: I took these photos or have permission to use them.</p></div>
           <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="createProjectBtn">Post Project</button></div>
         </details>
 
@@ -872,11 +874,11 @@
         <details class="panel bulk-upload" id="projectAlertWrap">
           <summary>Save what you're looking for — get notified</summary>
           <p class="section-sub">Pick a project type and, optionally, a city/state — you'll be notified the moment a newly-posted project matches.</p>
-          <div class="field"><label>Name this alert (optional)</label><input type="text" id="projectAlertLabel" maxlength="80" placeholder="e.g. Multi-family in San Diego"></div>
-          <div class="field"><label>Project type (optional)</label><select id="projectAlertType"><option value="">Any type</option></select></div>
+          <div class="field"><label for="projectAlertLabel">Name this alert (optional)</label><input type="text" id="projectAlertLabel" maxlength="80" placeholder="e.g. Multi-family in San Diego"></div>
+          <div class="field"><label for="projectAlertType">Project type (optional)</label><select id="projectAlertType"><option value="">Any type</option></select></div>
           <div class="form-row two-col">
-            <div class="field"><label>City (optional)</label><input type="text" id="projectAlertCity" maxlength="80"></div>
-            <div class="field"><label>State (optional)</label><input type="text" id="projectAlertState" maxlength="20"></div>
+            <div class="field"><label for="projectAlertCity">City (optional)</label><input type="text" id="projectAlertCity" maxlength="80"></div>
+            <div class="field"><label for="projectAlertState">State (optional)</label><input type="text" id="projectAlertState" maxlength="20"></div>
           </div>
           <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="saveProjectAlertBtn">Save Alert</button></div>
         </details>
@@ -888,12 +890,12 @@
 
         <h2>Browse Projects</h2>
         <form id="projectFilters" class="form-row two-col">
-          <div class="field"><label>City</label><input type="text" id="projectCity"></div>
-          <div class="field"><label>State</label><input type="text" id="projectState"></div>
+          <div class="field"><label for="projectCity">City</label><input type="text" id="projectCity"></div>
+          <div class="field"><label for="projectState">State</label><input type="text" id="projectState"></div>
         </form>
         <div class="form-row two-col">
-          <div class="field"><label>Project type</label><select id="projectTypeFilter"></select></div>
-          <div class="field"><label>Stage</label><select id="projectStageFilter"></select></div>
+          <div class="field"><label for="projectTypeFilter">Project type</label><select id="projectTypeFilter"></select></div>
+          <div class="field"><label for="projectStageFilter">Stage</label><select id="projectStageFilter"></select></div>
         </div>
         <details class="panel">
           <summary>Filter by accessibility adaptation (optional)</summary>
@@ -914,6 +916,10 @@
       </div>
     </section>
   </main>
+
+  <footer class="app-footer">
+    <p class="footer-legal">Equal Housing Opportunity · <a href="/accessibility">Accessibility</a></p>
+  </footer>
 
   <div id="notifPanel" class="hidden">
     <div class="panel-header">

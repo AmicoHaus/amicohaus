@@ -20,7 +20,7 @@ export async function onRequestGet(context) {
   if (!profile || profile.status !== 'approved') return notFound('Agent not found.');
 
   // A suspended account isn't served, the same as one that doesn't exist (the directory hides it too).
-  const user = await db.prepare("SELECT display_name, is_verified FROM users WHERE id = ? AND status = 'active'").bind(id).first();
+  const user = await db.prepare("SELECT display_name FROM users WHERE id = ? AND status = 'active'").bind(id).first();
   if (!user) return notFound('Agent not found.');
 
   const photos = await fetchAgentPortfolioPhotos(db, id);
@@ -38,7 +38,8 @@ export async function onRequestGet(context) {
   const { notifyNewRequests, rejectionReason, appliedAt, reviewedAt, ...publicProfile } = profile;
 
   return json({
-    profile: { ...publicProfile, displayName: user.display_name, isVerified: !!user.is_verified, teamName },
+    // No isVerified: the site doesn't show a "Verified" badge (Rudy 11.04).
+    profile: { ...publicProfile, displayName: user.display_name, teamName },
     photos, reviews, ratingSummary, stats, packages, caseStudies, isFavorited,
   });
 }

@@ -1,9 +1,10 @@
-import { clampString } from './util.js';
+import { clampString, DEMO_EMAIL_PATTERN } from './util.js';
 import { validateServiceZips } from './geo.js';
 
-// Vetting is admin-reviewed based on what the applicant self-reports here —
-// Amico Haus does not call any state licensing board to verify a license
-// number. The UI must say so plainly wherever an agent's license is shown.
+// Approval is an admin review of what the applicant enters here: before approving, the admin looks the license number
+// up by hand on the California DRE's public lookup (dreLookupUrl). There's no automatic call to the DRE, and the site
+// never vouches for an agent's status today: it says "DRE #01234567 on file" (plus, on the profile page, the date it
+// was checked and a link to check current status).
 export const SERVICE_TYPES = [
   'photography', 'drone', 'staging', 'cleaning', 'landscaping', 'virtual_tour',
   'social_media_ads', 'email_campaign', 'print_marketing', 'mls_syndication', 'other',
@@ -77,14 +78,23 @@ export function validateAgentApplication(body) {
   };
 }
 
+// The agent rules in the Terms of Use (terms.html#agent-rules). Applicants agree to them, and the version they agreed
+// to is stored, so there's always a written agreement to point to.
+export const AGENT_RULES_VERSION = '2026-11-04';
+export const RULES_REQUIRED_ERROR = 'Please agree to the agent rules in the Terms of Use to continue.';
+
 // Submitting again re-applies: an already-approved agent editing their
 // profile stays approved (this is a profile edit, not a fresh vetting
 // request), but a rejected or first-time applicant goes back to pending for
-// another admin review.
+// another admin review. Agreeing to the agent rules (body.acceptRules === true) is required for a new application,
+// and on any save by someone who hasn't agreed to the current version yet.
 export async function submitAgentApplication(db, userId, body) {
   const validated = validateAgentApplication(body);
   if (validated.error) return validated;
   const d = validated.data;
+  const prior = await db.prepare('SELECT status, rules_version FROM agent_profiles WHERE user_id = ?').bind(userId).first();
+  const needsRules = !prior || prior.status === 'rejected' || prior.rules_version !== AGENT_RULES_VERSION;
+  if (needsRules && body.acceptRules !== true) return { error: RULES_REQUIRED_ERROR, code: 'rules_required' };
 
   if (d.serviceZips.length > 0) {
     const placeholders = d.serviceZips.map(() => '?').join(',');
@@ -125,6 +135,11 @@ export async function submitAgentApplication(db, userId, body) {
     d.notifyNewRequests ? 1 : 0, JSON.stringify(d.specialtyTags), d.certifications, JSON.stringify(d.languages), d.saleToListRatio,
     d.soloAgent ? 1 : 0, d.acceptingClients ? 1 : 0, d.carriesEoInsurance ? 1 : 0
   ).run();
+  // The first agreement to this version keeps its date (a later save doesn't move it).
+  if (needsRules) {
+    await db.prepare("UPDATE agent_profiles SET rules_version = ?, rules_accepted_at = datetime('now') WHERE user_id = ?")
+      .bind(AGENT_RULES_VERSION, userId).run();
+  }
 
   // "New" = a first application or a re-application after a rejection -- not an approved or pending agent editing
   // their profile, which would otherwise alert the admin on every save.
@@ -132,6 +147,14 @@ export async function submitAgentApplication(db, userId, body) {
     status: nextStatus, isNewApplication: !existing || existing.status === 'rejected', licenseNumber: d.licenseNumber,
     licenseChanged: !!existing && existing.license_number !== d.licenseNumber,
   };
+}
+
+// When an admin last looked this license number up on the DRE (an agent_profiles row): the DRE check's own date, else
+// the approval date. Only while the check stands: an admin marking the license "not active", or the agent changing the
+// number, clears license_verified, and then there's no date to show (the old date was about a different check).
+export function licenseCheckedAt(row) {
+  if (!row || !row.license_verified) return null;
+  return row.license_verified_at || row.reviewed_at || null;
 }
 
 export async function getAgentProfile(db, userId) {
@@ -148,18 +171,43 @@ export async function getAgentProfile(db, userId) {
     avgDaysOnMarket: row.avg_days_on_market, homesSoldLastYear: row.homes_sold_last_year,
     notifyNewRequests: !!row.notify_new_requests,
     hasLicensePhoto: !!row.license_photo_r2_key, licenseVerified: !!row.license_verified,
+    licenseCheckedAt: licenseCheckedAt(row),
     specialtyTags: JSON.parse(row.specialty_tags_json || '[]'), certifications: row.certifications,
     languages: JSON.parse(row.languages_json || '["English"]'), saleToListRatio: row.sale_to_list_ratio,
     soloAgent: !!row.solo_agent,
     acceptingClients: !!row.accepting_clients, carriesEoInsurance: !!row.carries_eo_insurance,
     appliedAt: row.applied_at, reviewedAt: row.reviewed_at, rejectionReason: row.rejection_reason,
     reviewInviteFromYear: row.review_invite_from_year || null, reviewInviteToYear: row.review_invite_to_year || null,
+    // Which version of the agent rules (Terms of Use) they agreed to, so the form only asks again when it changes.
+    rulesVersion: row.rules_version || null,
   };
 }
 
 export async function isApprovedAgent(db, userId) {
   const row = await db.prepare("SELECT 1 FROM agent_profiles WHERE user_id = ? AND status = 'approved'").bind(userId).first();
   return !!row;
+}
+
+// A rejection (or a removed approval) gives one of these fixed reasons, the same list for every applicant, so a
+// decision is never a one-off judgment in the admin's own words. "Other" carries a short note.
+export const REJECTION_REASONS = [
+  'License not found or not active',
+  "Brokerage doesn't match the DRE record",
+  'Service area outside San Diego County',
+  'Incomplete application',
+  'Other (explained below)',
+];
+const OTHER_REASON = REJECTION_REASONS[REJECTION_REASONS.length - 1];
+
+// { reason, note } -> the text stored and shown to the applicant, or { error }. A blank reason means none is given;
+// free text that isn't on the list (the old prompt) is filed under "Other" with that text as the note.
+export function rejectionReasonText(reason, note) {
+  let r = clampString(reason, 200);
+  let n = clampString(note, 300);
+  if (!r) return { text: n ? `Other: ${n}` : '' };
+  if (!REJECTION_REASONS.includes(r)) { n = [r, n].filter(Boolean).join(' '); r = OTHER_REASON; }
+  if (r === OTHER_REASON && !n) return { error: 'Add a short explanation for "Other".' };
+  return { text: clampString(r === OTHER_REASON ? `Other: ${n}` : `${r}${n ? `. ${n}` : ''}`, 500) };
 }
 
 export async function reviewAgentApplication(db, adminUserId, applicantUserId, approve, rejectionReason) {
@@ -176,38 +224,38 @@ export async function fetchAgentPortfolioPhotos(db, agentUserId) {
   return rows.results;
 }
 
-// A ballpark of what each prep service typically costs, pulled from what
-// approved agents on the platform have actually listed as their default
-// per-service fee — not a market survey, just "here's what's on Amico Haus
-// today" so a homeowner has some expectation before opening a pre-listing
-// to bid. Flat fees only; hourly/included entries and $0 fees are excluded
-// since they don't produce a meaningful dollar estimate.
+// The range of flat fees approved agents on Amico Haus list for each prep service: not a market survey and not a quote,
+// just "here's what agents here list today" so a homeowner has a rough idea before posting. Flat fees only;
+// hourly/included entries and $0 fees don't give a dollar figure. A service shows only once at least
+// MIN_AGENTS_FOR_ESTIMATE different agents list it, as a low-high range with no average, so no single agent's price is
+// published as "the" price. Demo and suspended accounts never count.
+export const MIN_AGENTS_FOR_ESTIMATE = 3;
+export const SERVICE_ESTIMATE_NOTE = 'Not a quote. The range of flat fees approved agents on Amico Haus list today; each agent sets their own fees, and fees are negotiable.';
+
 export async function fetchServiceEstimates(db) {
   const rows = await db.prepare(
-    "SELECT services_json FROM agent_profiles WHERE status = 'approved'"
-  ).all();
+    `SELECT agent_profiles.user_id, agent_profiles.services_json FROM agent_profiles JOIN users ON users.id = agent_profiles.user_id
+     WHERE agent_profiles.status = 'approved' AND users.status = 'active' AND users.email NOT LIKE ?`
+  ).bind(DEMO_EMAIL_PATTERN).all();
 
   const feesByType = {};
   for (const row of rows.results) {
     let services;
     try { services = JSON.parse(row.services_json || '[]'); } catch { continue; }
-    for (const s of services) {
+    for (const s of Array.isArray(services) ? services : []) {
       if (s.feeType !== 'flat' || !s.fee || s.fee <= 0) continue;
       if (!SERVICE_TYPES.includes(s.type)) continue;
-      (feesByType[s.type] ||= []).push(s.fee);
+      const entry = (feesByType[s.type] ||= { fees: [], agents: new Set() });
+      entry.fees.push(s.fee);
+      entry.agents.add(row.user_id);
     }
   }
 
   const estimates = {};
   for (const type of SERVICE_TYPES) {
-    const fees = feesByType[type];
-    if (!fees || fees.length === 0) { estimates[type] = null; continue; }
-    fees.sort((a, b) => a - b);
-    const sum = fees.reduce((a, b) => a + b, 0);
-    estimates[type] = {
-      min: fees[0], max: fees[fees.length - 1],
-      avg: Math.round(sum / fees.length), sampleSize: fees.length,
-    };
+    const entry = feesByType[type];
+    if (!entry || entry.agents.size < MIN_AGENTS_FOR_ESTIMATE) { estimates[type] = null; continue; }
+    estimates[type] = { min: Math.min(...entry.fees), max: Math.max(...entry.fees), agentCount: entry.agents.size };
   }
   return estimates;
 }

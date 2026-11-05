@@ -1,6 +1,7 @@
 import { getSessionUser } from '../../../_lib/auth.js';
 import { json, badRequest, unauthorized, forbidden, notFound, clampString } from '../../../_lib/util.js';
-import { isEitherBlocked } from '../../../_lib/blocks.js';
+import { isEitherBlocked, hasBlocked } from '../../../_lib/blocks.js';
+import { claimUserAction, rateLimited } from '../../../_lib/rateLimits.js';
 import { notifyNewMessage } from '../../../_lib/marketplaceNotify.js';
 import { contactDecision, sendPushUnlessQuiet, sqlUtc, WEEKLY_LIMIT_ERROR } from '../../../_lib/contactPolicy.js';
 
@@ -15,6 +16,7 @@ async function loadConversationForParticipant(db, conversationId, userId) {
 
 // other: who the viewer is talking to, their DRE identity when they're an approved agent, and how the viewer's
 // messages reach them (deliveryMode 'weekly' or 'quiet' only when the contact dial applies to the viewer).
+// blockedByMe: the viewer blocked them (the composer turns off with an Unblock link). Never whether they blocked the viewer.
 async function describeOther(db, viewerId, otherId) {
   const row = await db.prepare(
     `SELECT users.id, users.display_name, agent_profiles.status AS agent_status, agent_profiles.license_number, agent_profiles.brokerage_name
@@ -27,6 +29,7 @@ async function describeOther(db, viewerId, otherId) {
     displayName: row.display_name,
     agent: row.agent_status === 'approved' ? { licenseNumber: row.license_number || '', brokerageName: row.brokerage_name || '' } : null,
     deliveryMode: decision.appliesToSender && !decision.exempt ? decision.mode : 'open',
+    blockedByMe: await hasBlocked(db, viewerId, otherId),
   };
 }
 
@@ -73,6 +76,10 @@ export async function onRequestPost(context) {
   if (!isParticipant) return forbidden();
 
   const recipientId = convo.user_a_id === user.id ? convo.user_b_id : convo.user_a_id;
+  if (await hasBlocked(db, user.id, recipientId)) {
+    const other = await db.prepare('SELECT display_name FROM users WHERE id = ?').bind(recipientId).first();
+    return json({ error: `Unblock ${(other && other.display_name) || 'this person'} to send a message.`, code: 'blocked_by_me' }, { status: 403 });
+  }
   if (await isEitherBlocked(db, user.id, recipientId)) return forbidden('You cannot message this user.');
 
   let body;
@@ -84,6 +91,8 @@ export async function onRequestPost(context) {
   const decision = await contactDecision(db, user.id, recipientId);
   if (!decision.allow) return json({ error: decision.error, code: decision.code }, { status: decision.code === 'contact_quiet' ? 403 : 400 });
   const held = !!decision.holdUntil;
+  // The per-person message limits (rateLimits.js), including a cap per thread.
+  if (!(await claimUserAction(db, 'message', user.id, `conversation:${Number(conversationId)}`))) return rateLimited();
 
   // A held message is stored only if none from this sender is still waiting here, checked in the same statement
   // (D1 runs one statement at a time), so a double send can't queue two for Sunday. The pair has one conversation,

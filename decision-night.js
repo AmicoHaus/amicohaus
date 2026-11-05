@@ -185,7 +185,7 @@ function openPitchReels(preListingId, trigger) {
       b.ownerPick = ownerPick;
       if (ownerPick && reels[index] === b && index < reels.length - 1) { index++; }
       draw();
-    } catch (err) { toast(err.message); } finally { busy = false; }
+    } catch (err) { toastActionError(err); } finally { busy = false; }
   };
   // Captured before main.js's own Escape handler, which would otherwise also leave the pre-listing.
   const onKey = (e) => {
@@ -200,7 +200,7 @@ function openPitchReels(preListingId, trigger) {
     const focusedControl = document.activeElement && overlay.contains(document.activeElement) ? document.activeElement.dataset.reel : null;
     const b = reels[index];
     // Name, then DRE number and brokerage (the same identity line every agent carries; client.js).
-    const creds = agentCredentialsLine(b.licenseNumber, b.brokerageName);
+    const creds = agentLicenseOnFileLine(b.licenseNumber, b.brokerageName);
     overlay.innerHTML = `
       <div class="reel-stage">
         <div class="reel-top"><span class="reel-counter">${index + 1} of ${reels.length}</span><button type="button" class="btn btn-ghost btn-sm" data-reel="close">Close</button></div>
@@ -216,7 +216,7 @@ function openPitchReels(preListingId, trigger) {
           <button type="button" class="btn btn-ghost" data-reel="next"${index === reels.length - 1 ? ' disabled' : ''}>Next</button>
           <button type="button" class="btn btn-primary" data-reel="shortlist">${b.ownerPick === 'shortlist' ? 'Undo shortlist' : 'Shortlist →'}</button>
         </div>
-        <p class="reel-report"><button type="button" class="link-btn" data-reel="report">Report this video</button></p>
+        <div class="reel-report" data-report-host><button type="button" class="link-btn" data-reel="report">Report this video</button></div>
       </div>`;
     const video = overlay.querySelector('.reel-video');
     video.play().catch(() => { /* the controls are there if autoplay is blocked */ });
@@ -234,7 +234,7 @@ function openPitchReels(preListingId, trigger) {
     else if (what === 'pass' || what === 'shortlist') pick(what);
     else if (what === 'next' && index < reels.length - 1) { index++; draw(); }
     else if (what === 'prev' && index > 0) { index--; draw(); }
-    else if (what === 'report' && typeof submitReport === 'function') submitReport('user', reels[index].agentUserId);
+    else if (what === 'report' && typeof submitReport === 'function') submitReport('user', reels[index].agentUserId, btn);
   });
   // Swipe (touch or pen only): right shortlists, left passes. Not from the video's own controls bar at the bottom
   // (dragging the seek bar is not a swipe), and a scroll the browser takes over cancels it.
@@ -372,7 +372,7 @@ async function makeShareCard(p, count) {
         toast('Pitch reel removed.');
         openPreListingDetail(id);
       }
-    } catch (err) { toast(err.message); } finally { btn.disabled = false; }
+    } catch (err) { toastActionError(err); } finally { btn.disabled = false; }
   });
 
   // At most 3 finalist reasons: the rest disable once 3 are ticked.

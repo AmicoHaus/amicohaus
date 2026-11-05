@@ -79,9 +79,10 @@ export async function fetchAgentIdentity(db, userId) {
   };
 }
 
-// "Name · DRE #01234567 · Brokerage", leaving out a missing part and its dot.
-export function identityLine({ name, licenseNumber, brokerageName }) {
-  return [name, licenseNumber ? `DRE #${licenseNumber}` : '', brokerageName].filter(Boolean).join(' · ');
+// "Name · DRE #01234567 · Brokerage", leaving out a missing part and its dot. onFile (pages, cards and flyers):
+// "DRE #01234567 on file", never "verified": the site doesn't vouch for anyone's license status today.
+export function identityLine({ name, licenseNumber, brokerageName }, { onFile = false } = {}) {
+  return [name, licenseNumber ? `DRE #${licenseNumber}${onFile ? ' on file' : ''}` : '', brokerageName].filter(Boolean).join(' · ');
 }
 
 // "Name (DRE #01234567, Brokerage)" for message alerts; just the name when neither is on file.

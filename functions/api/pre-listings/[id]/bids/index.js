@@ -4,6 +4,8 @@ import { isApprovedAgent } from '../../../../_lib/agents.js';
 import { upsertBid } from '../../../../_lib/marketplace.js';
 import { notifyNewBid } from '../../../../_lib/marketplaceNotify.js';
 import { proposalsSealed } from '../../../../_lib/decisionNight.js';
+import { isEitherBlocked } from '../../../../_lib/blocks.js';
+import { claimUserAction, rateLimited } from '../../../../_lib/rateLimits.js';
 
 const PROPOSALS_PAUSED_ERROR = "This homeowner has paused new proposals for now. Check back soon: you'll be able to send one when they reopen.";
 
@@ -17,9 +19,11 @@ export async function onRequestPost(context) {
 
   const preListing = await db.prepare(
     `SELECT pre_listings.user_id, pre_listings.status, pre_listings.proposals_due_at, pre_listings.proposals_paused, users.contact_mode AS owner_contact_mode
-     FROM pre_listings JOIN users ON users.id = pre_listings.user_id WHERE pre_listings.id = ?`
+     FROM pre_listings JOIN users ON users.id = pre_listings.user_id AND users.status = 'active' WHERE pre_listings.id = ?`
   ).bind(id).first();
-  if (!preListing) return notFound('Pre-listing not found.');
+  // A block either way, or a suspended owner (the join above), looks the same as a home that isn't there (never
+  // "you're blocked").
+  if (!preListing || await isEitherBlocked(db, user.id, preListing.user_id)) return notFound('Pre-listing not found.');
   if (preListing.user_id === user.id) return forbidden("You can't bid on your own pre-listing.");
   if (preListing.status !== 'open') return badRequest('This pre-listing is no longer open for proposals.');
 
@@ -37,7 +41,11 @@ export async function onRequestPost(context) {
   let body;
   try { body = await context.request.json(); } catch { return badRequest('Invalid request body.'); }
 
-  const result = await upsertBid(db, 'pre_listing', id, user.id, body);
+  // Every send and edit counts toward the per-person proposal limits (rateLimits.js), checked once the proposal is valid.
+  const result = await upsertBid(db, 'pre_listing', id, user.id, body, {
+    beforeWrite: () => claimUserAction(db, 'proposal', user.id, `pre_listing:${Number(id)}`),
+  });
+  if (result.rateLimited) return rateLimited();
   if (result.error) return badRequest(result.error);
 
   // While sealed, only a new proposal is mentioned (an edit would just repeat "a new proposal came in"). An owner

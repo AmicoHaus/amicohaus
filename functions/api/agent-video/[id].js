@@ -1,16 +1,21 @@
 import { notFound } from '../../_lib/util.js';
+import { mediaCacheControl } from '../../_lib/visibility.js';
 
-// Public, and supports Range requests — without it, a browser can't seek
-// within the video or start playing before the whole file downloads, which
-// matters a lot more for a few-minutes-long video than it does for a photo.
+// Public for an approved agent with an active account, and supports Range requests — without it, a browser can't
+// seek within the video or start playing before the whole file downloads, which matters a lot more for a
+// few-minutes-long video than it does for a photo. A pending, rejected or suspended applicant's video goes only to
+// themself and admins (the admin review screen plays it).
 export async function onRequestGet(context) {
   const db = context.env.DB;
-  // A suspended account's video isn't served (its profile pages are gone too).
   const agent = await db.prepare(
-    `SELECT ap.video_r2_key, ap.video_content_type FROM agent_profiles ap JOIN users u ON u.id = ap.user_id
-     WHERE ap.user_id = ? AND u.status = 'active'`
+    `SELECT ap.user_id, ap.status AS agent_status, ap.video_r2_key, ap.video_content_type, u.status AS user_status
+     FROM agent_profiles ap JOIN users u ON u.id = ap.user_id WHERE ap.user_id = ?`
   ).bind(context.params.id).first();
   if (!agent || !agent.video_r2_key) return notFound('No video for this agent.');
+  // Same URL after an agent replaces their video, so the public copy can't be cached for long.
+  const isPublic = agent.agent_status === 'approved' && agent.user_status === 'active';
+  const cacheControl = await mediaCacheControl(context, isPublic, agent.user_id, 'public, max-age=3600');
+  if (!cacheControl) return notFound('No video for this agent.');
 
   const bucket = context.env.PHOTOS;
   if (!bucket) return notFound('Video storage is not configured.');
@@ -39,8 +44,7 @@ export async function onRequestGet(context) {
   const headers = {
     'Content-Type': agent.video_content_type,
     'Accept-Ranges': 'bytes',
-    // Same URL after an agent replaces their video, so it can't be cached for long.
-    'Cache-Control': 'public, max-age=3600',
+    'Cache-Control': cacheControl,
     'Content-Length': String(length),
   };
   if (status === 206) headers['Content-Range'] = `bytes ${offset}-${offset + length - 1}/${totalSize}`;

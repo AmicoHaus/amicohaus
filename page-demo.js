@@ -131,12 +131,11 @@ function applyDynamicWidths(root) {
 
 /* ---------------- Agent Strategy (static walkthrough) ---------------- */
 const AGENT_FILTERS = [
-  { key: 'local', label: '📍 Local specialist', test: a => a.localSpecialist },
+  { key: 'local', label: '📍 Focused service area', test: a => a.focusedServiceArea },
   { key: 'accepting', label: 'Accepting new clients', test: a => a.accepting },
   { key: 'spanish', label: 'Speaks Spanish', test: a => a.languages.includes('Spanish') },
   { key: 'lowcomm', label: 'Commission ≤ 2.5%', test: a => a.commission !== null && a.commission <= 2.5 },
   { key: 'cases', label: 'Has case studies', test: a => a.caseStudies > 0 },
-  { key: 'top', label: '🏆 Top Rated', test: a => a.topRated },
 ];
 const activeAgentFilters = new Set();
 
@@ -215,7 +214,7 @@ function renderStory() {
             <div class="mini-block"><span class="label">Occupancy</span>${escapeHtml(h.occupancy)} during the sale</div>
             <div class="mini-block"><span class="label">Showing notice</span>${h.showingNoticeHours} hours required</div>
           </div>
-          <p class="tiny"><span class="label">Special instructions</span> ${escapeHtml(h.instructions)}</p>
+          <p class="tiny"><span class="label">Notes for agents</span> ${escapeHtml(h.instructions)}</p>
           <p class="tiny"><span class="label">Seller preferences</span> ${h.preferences.map(escapeHtml).join(' · ')}</p>
           <p class="tiny">The street address stays private.</p>
         </div>`,
@@ -233,27 +232,27 @@ function renderStory() {
     },
     {
       title: 'Agents share their strategy',
-      body: `<div class="stack stack-tight">${s.proposals.map(proposalCard).join('')}</div>`,
+      body: `<div class="stack stack-tight">${s.proposals.map(proposalCard).join('')}<p class="tiny">${escapeHtml(FEE_NOTE)}</p></div>`,
     },
     {
       title: 'The homeowner chooses a strategy',
       body: `
         <div class="card">
-          <p>Accepting a proposal declines every other pending one automatically. It is a record on the platform, not a contract, and no payment moves through Amico Haus. The two sides handle payment directly, the way they would anyway.</p>
+          <p>Accepting a proposal declines every other pending one automatically. It is a record on the platform, not a contract. Any commission is set in your written agreement with the agent's brokerage and is normally paid through escrow at closing. Never pay an agent personally or in advance. Amico Haus never handles payments.</p>
         </div>`,
     },
     {
       title: 'Both sides track progress',
       body: `
         <div class="card">
-          <p class="tiny">A shared checklist either side can update. Adding or checking off an item is a status note, not proof that anything was paid.</p>
+          <p class="tiny">A shared checklist either side can update. Checking off an item is a status note only.</p>
           <ul class="check-list">
             ${s.milestones.map(m => `<li class="${m.done ? 'done' : ''}"><span class="check-box">${m.done ? '✓' : ''}</span><span>${escapeHtml(m.label)}</span></li>`).join('')}
           </ul>
         </div>`,
     },
     {
-      title: 'Both sides review each other',
+      title: 'The homeowner reviews the agent',
       body: `
         <div class="stack stack-tight">
           ${s.reviews.map(r => `
@@ -265,7 +264,8 @@ function renderStory() {
               })}
               <p class="quote">“${escapeHtml(r.text)}”</p>
             </div>`).join('')}
-          <p class="tiny">Reviews go both ways, and either side can report an issue to an admin if something goes wrong.</p>
+          <p class="tiny">A homeowner who hired an agent here can review them. Either side can report a rules problem to an admin.</p>
+          <p class="tiny">${escapeHtml(OPERATOR_NOTE)}</p>
         </div>`,
     },
   ];

@@ -5,6 +5,11 @@ import { sanitizeAttribution } from '../../_lib/attribution.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// The Terms of Use / Privacy Policy version this release asks people to agree to. signup.html says "By tapping Email
+// Me a Link you agree to the Terms of Use and Privacy Policy." right above the button, so every signup records which
+// version they agreed to and when (users.terms_version / terms_accepted_at, migration_v43).
+const TERMS_VERSION = '2026-11-04';
+
 // Signing up only needs a name and an email. The account is created "pending"
 // (no password, no session) and an emailed link finishes it: opening the link
 // proves the person owns the address, and the page it opens is where they
@@ -49,9 +54,11 @@ export async function onRequestPost(context) {
     // just refresh the name and send a new link; whoever owns the mailbox is
     // the only one who can finish it.
     userId = existing.id;
+    // Signing up again is agreeing again, to today's version.
     await db.prepare(
-      "UPDATE users SET display_name = ?, signup_intent = COALESCE(?, signup_intent), signup_source = COALESCE(signup_source, ?), created_at = datetime('now') WHERE id = ?"
-    ).bind(displayName, intent || null, source, userId).run();
+      `UPDATE users SET display_name = ?, signup_intent = COALESCE(?, signup_intent), signup_source = COALESCE(signup_source, ?), created_at = datetime('now'),
+         terms_version = ?, terms_accepted_at = datetime('now') WHERE id = ?`
+    ).bind(displayName, intent || null, source, TERMS_VERSION, userId).run();
     // At most one delivered email per address every couple of minutes (like resend-confirmation), so repeat signups
     // can't flood an inbox or keep replacing the code someone is about to type. A send that failed doesn't count.
     const recent = await db.prepare("SELECT 1 FROM users WHERE id = ? AND verify_sent_at > datetime('now', '-2 minutes')").bind(userId).first();
@@ -65,9 +72,10 @@ export async function onRequestPost(context) {
     }
 
     const insert = (code) => db.prepare(
-      `INSERT INTO users (email, password_hash, display_name, role, referral_code, referred_by, email_confirmation_pending, signup_intent, signup_source)
-       VALUES (?, NULL, ?, 'user', ?, ?, 1, ?, ?)`
-    ).bind(email, displayName, code, referredBy, intent || null, source).run();
+      `INSERT INTO users (email, password_hash, display_name, role, referral_code, referred_by, email_confirmation_pending, signup_intent, signup_source,
+         terms_version, terms_accepted_at)
+       VALUES (?, NULL, ?, 'user', ?, ?, 1, ?, ?, ?, datetime('now'))`
+    ).bind(email, displayName, code, referredBy, intent || null, source, TERMS_VERSION).run();
 
     let result;
     try {

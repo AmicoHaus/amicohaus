@@ -3,6 +3,8 @@ import { json, badRequest, unauthorized, forbidden, notFound } from '../../../_l
 import { isApprovedAgent } from '../../../_lib/agents.js';
 import { proposalsSealed } from '../../../_lib/decisionNight.js';
 import { scrubVideoUpload } from '../../../_lib/videoMetadata.js';
+import { isEitherBlocked } from '../../../_lib/blocks.js';
+import { ownerIsActive } from '../../../_lib/visibility.js';
 
 // Pitch Reels: a 15-60 second video an agent records for one specific home, attached to their proposal. Only the
 // homeowner (once their proposals are open) and the agent who made it can watch it. Streamed straight to R2 like
@@ -27,7 +29,7 @@ export async function onRequestPut(context) {
   const db = context.env.DB;
   if (!(await isApprovedAgent(db, user.id))) return forbidden('Only approved agents can add a pitch reel.');
   const row = await loadBid(db, context.params.id, user.id);
-  if (!row) return notFound('Pre-listing not found.');
+  if (!row || !(await ownerIsActive(db, row.owner_id)) || await isEitherBlocked(db, user.id, row.owner_id)) return notFound('Pre-listing not found.');
   if (!row.bid_id || row.bid_status !== 'pending') return badRequest('Send your proposal first, then add a pitch reel to it.');
   if (row.pre_listing_status !== 'open') return badRequest('This pre-listing is no longer open for proposals.');
 
@@ -80,6 +82,8 @@ export async function onRequestGet(context) {
     // Same rule as the owner's proposal list: a suspended agent's proposal (and reel) drops out unless already hired.
     const agent = await db.prepare('SELECT status FROM users WHERE id = ?').bind(agentId).first();
     if ((!agent || agent.status !== 'active') && row.bid_status !== 'accepted') return notFound('No pitch reel here.');
+    // ...and the same for an agent blocked either way.
+    if (row.bid_status !== 'accepted' && await isEitherBlocked(db, user.id, agentId)) return notFound('No pitch reel here.');
   }
 
   const bucket = context.env.PHOTOS;

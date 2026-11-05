@@ -12,7 +12,7 @@ import { json, unauthorized, forbidden, priceTierFor, PRICE_TIERS } from '../../
 // generating everything in one request, since a few thousand rows of D1
 // writes would otherwise risk the Worker's request time limit.
 
-const FIRST_NAMES = ['James','Maria','Robert','Linda','John','Patricia','Michael','Jennifer','David','Elizabeth','William','Susan','Richard','Jessica','Joseph','Sarah','Thomas','Karen','Charles','Nancy','Daniel','Lisa','Matthew','Betty','Anthony','Margaret','Mark','Sandra','Paul','Ashley','Steven','Kimberly','Andrew','Emily','Kenneth','Donna','George','Michelle','Joshua','Carol','Kevin','Amanda','Brian','Melissa','Edward','Deborah','Ronald','Stephanie','Timothy','Rebecca','Jason','Laura','Jeff','Amy','Ryan','Angela','Jacob','Helen','Gary','Anna'];
+const FIRST_NAMES = ['James','Maria','Robert','Linda','John','Patricia','Michael','Jennifer','David','Elizabeth','William','Susan','Richard','Jessica','Joseph','Sarah','Thomas','Karen','Charles','Nancy','Daniel','Lisa','Matthew','Betty','Anthony','Margaret','Mark','Sandra','Paul','Ashley','Steven','Kimberly','Andrew','Emily','Kenneth','Donna','George','Michelle','Joshua','Carol','Kevin','Amanda','Brian','Melissa','Edward','Deborah','Ronald','Stephanie','Timothy','Rebecca','Jason','Laura','Eric','Amy','Ryan','Angela','Jacob','Helen','Gary','Anna'];
 const LAST_NAMES = ['Smith','Johnson','Williams','Brown','Jones','Garcia','Miller','Davis','Rodriguez','Martinez','Hernandez','Lopez','Gonzalez','Wilson','Anderson','Thomas','Taylor','Moore','Jackson','Martin','Lee','Perez','Thompson','White','Harris','Sanchez','Clark','Ramirez','Lewis','Robinson','Walker','Young','Allen','King','Wright','Scott','Torres','Nguyen','Hill','Flores','Green','Adams','Nelson','Baker','Hall','Rivera','Campbell','Mitchell','Carter','Roberts'];
 
 // Deliberately narrowed to 4 states so a smaller user count still produces
@@ -53,31 +53,24 @@ const POST_TEMPLATES = [
   () => `Has anyone here actually closed a trade through Amico Haus yet? Curious how it went.`,
   c => `My place would be perfect for someone leaving ${c} — comment or reach out.`,
   c => `Job's relocating me to ${c} — hoping to line up a trade instead of doing this the traditional way.`,
-  () => `Kids are grown and this house is way bigger than we need now. Ready to downsize if the right match shows up.`,
+  () => `This house has more room than we need now. Ready to trade for something smaller if the right match shows up.`,
   c => `Outgrowing our current place fast — looking to upsize into something in ${c} with more room.`,
-  () => `Empty-nesters here, happy to trade down for something smaller and easier to maintain.`,
-  c => `Growing family, need more space — would trade straight across for the right home in ${c}.`,
+  () => `Happy to trade down for something smaller and easier to maintain.`,
+  c => `Need more space — would trade straight across for the right home in ${c}.`,
 ];
 const COMMENT_TEMPLATES = ["This could be exactly what I'm looking for!", 'Sent you a message.', 'How flexible are you on timing?', 'Would you consider a 3-way trade?', 'Following — I have a similar situation.'];
 
-// A narrative scenario alongside the straight home-for-home trades: someone
-// who'd rather sell and put the proceeds toward a long-term luxury rental
-// than buy again. Same math as the public trade-for-lease calculator
-// (calculator.html/page-calculator.js) — a ~$1M home nets ~7-8 years at a
-// $10k/mo beachfront rental after typical selling costs — so the seeded
-// posts and the calculator tell the same story.
+// A narrative scenario alongside the straight home-for-home trades: someone weighing selling and renting by the
+// beach for a while instead of trading. The demo posts are shown word for word on the public /demo page, so they
+// carry no site-supplied money math (no "typical" selling costs or years of rent) and never describe who lives in a
+// home (Rudy 11.04).
 const BEACH_CITIES = ['San Diego', 'Los Angeles', 'Coronado', 'Long Beach', 'Miami', 'Fort Lauderdale', 'Naples', 'Sarasota', 'Tampa'];
-const LUXURY_RENT_MONTHLY = 10000;
-const SELLING_COST_PCT = 0.07;
-const LUXURY_COMMENT_TEMPLATES = ["That math actually checks out — beats signing up for another mortgage.", "How'd you land on that number?", 'I looked into this too, it stretches further than I expected right on the water.', 'Following — curious if you actually go through with it.', "We're weighing the exact same thing."];
+const LUXURY_COMMENT_TEMPLATES = ['Interesting idea. Following to see how it goes.', "How'd you land on that number?", 'I looked into this too, it stretches further than I expected right on the water.', 'Following — curious if you actually go through with it.', "We're weighing the exact same thing."];
 
 function fmtMoney(n) { return '$' + Math.round(n).toLocaleString('en-US'); }
 
 function luxuryRentalPostText(have) {
-  const netProceeds = have.estimatedValue * (1 - SELLING_COST_PCT);
-  const years = netProceeds / (LUXURY_RENT_MONTHLY * 12);
-  const yearsLabel = years >= 1 ? `${years.toFixed(1)} years` : `${Math.max(1, Math.round(years * 12))} months`;
-  return `My place in ${have.city} is worth around ${fmtMoney(have.estimatedValue)}. I ran the numbers on selling instead of trading — after typical selling costs, that's roughly ${yearsLabel} of a long-term luxury rental right on the beach instead of signing up for another mortgage. Anyone else weighing that option?`;
+  return `My place in ${have.city} is worth around ${fmtMoney(have.estimatedValue)} (my own guess). I'm weighing selling and renting by the beach for a while instead of trading. Anyone else weighing that option?`;
 }
 
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }

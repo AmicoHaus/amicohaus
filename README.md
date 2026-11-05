@@ -10,14 +10,14 @@ Before a home goes on the market, the homeowner usually gets one opinion on pric
 
 ## What Amico Haus does — "Agent Strategy"
 
-A homeowner posts a **pre-listing showcase**: basic details, photos, an asking price, and a few preferences (local specialist, language, minimum experience). From there:
+A homeowner posts a **pre-listing showcase**: basic details, photos, an asking price, and a few preferences (an agent focused on the area, language, minimum experience). From there:
 
-1. **Local agent experts evaluate the price.** Approved agents vote too high / too low / about right — an opinion, never an appraisal. The tally also shows how many of those votes came from agents whose service area actually covers the home, so "local expert" is a fact, not a claim.
+1. **Local agent experts evaluate the price.** Approved agents vote too high / too low / about right — an opinion, never an appraisal. The tally also shows how many of those votes came from agents whose service area actually covers the home: a count of nearby agents, not a claim about anyone's skill.
 2. **Agents share their strategy.** Each proposes a fee, what's included, and how fast they can start.
 3. **The homeowner compares and chooses** — ratings, response time, and the proposed strategy side by side.
-4. **Both sides review each other** once the work is done, the same as any real engagement.
+4. **The homeowner can review the agent they hired** once the work is done.
 
-No payments run through the platform — fees are handled directly between the two parties, the way they would be anyway. Homeowners who'd rather trade their home for another than sell it outright can do that too, still with a licensed agent involved.
+No payments run through the platform: any commission is set in the homeowner's written agreement with the agent's brokerage and is normally paid through escrow at closing. Homeowners who'd rather trade their home for another than sell it outright can do that too; we recommend a licensed agent on every trade.
 
 ## Built by
 

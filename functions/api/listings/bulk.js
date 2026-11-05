@@ -1,6 +1,7 @@
 import { getSessionUser } from '../../_lib/auth.js';
 import { json, badRequest, unauthorized } from '../../_lib/util.js';
 import { validateListingInput, insertListing } from '../../_lib/listings.js';
+import { notifySavedSearches, savedSearchHome } from '../../_lib/savedSearches.js';
 
 // Broker/agent mass-upload — the client parses a CSV into an array of the
 // same field shape the single-listing form uses, and this validates + inserts
@@ -19,6 +20,7 @@ export async function onRequestPost(context) {
 
   const db = context.env.DB;
   const results = [];
+  const newHomes = [];
   for (let i = 0; i < rows.length; i++) {
     const validated = validateListingInput(rows[i]);
     if (validated.error) {
@@ -28,9 +30,15 @@ export async function onRequestPost(context) {
     try {
       const id = await insertListing(db, user.id, validated.data);
       results.push({ row: i + 1, ok: true, id });
+      const home = savedSearchHome(id, user.id, validated.data);
+      if (home) newHomes.push(home);
     } catch {
       results.push({ row: i + 1, ok: false, error: 'Could not save this row.' });
     }
+  }
+  // One background pass for the whole upload: each person with a matching saved search gets one alert, not one per row.
+  if (newHomes.length) {
+    context.waitUntil(notifySavedSearches(db, newHomes).catch(err => console.log(`[saved search notify failed] ${err.message}`)));
   }
 
   return json({ created: results.filter(r => r.ok).length, total: rows.length, results });

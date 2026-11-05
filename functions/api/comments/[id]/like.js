@@ -9,8 +9,9 @@ export async function onRequestPost(context) {
   if (!user) return unauthorized();
 
   const db = context.env.DB;
-  const comment = await db.prepare('SELECT id, user_id FROM comments WHERE id = ?').bind(commentId).first();
-  if (!comment) return notFound('Comment not found.');
+  const comment = await db.prepare('SELECT id, user_id, hidden_at FROM comments WHERE id = ?').bind(commentId).first();
+  // A hidden comment (moderation.js) is gone for everyone but its author and admins.
+  if (!comment || (comment.hidden_at && comment.user_id !== user.id && user.role !== 'admin')) return notFound('Comment not found.');
 
   if (comment.user_id !== user.id && await isEitherBlocked(db, user.id, comment.user_id)) {
     return forbidden('You cannot like this comment.');

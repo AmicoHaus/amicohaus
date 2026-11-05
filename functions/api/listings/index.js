@@ -2,6 +2,7 @@ import { getSessionUser } from '../../_lib/auth.js';
 import { json, badRequest, unauthorized, parseJsonSafe } from '../../_lib/util.js';
 import { validateListingInput, insertListing } from '../../_lib/listings.js';
 import { notifyNewMatches } from '../../_lib/matchNotify.js';
+import { notifySavedSearches, savedSearchHome } from '../../_lib/savedSearches.js';
 import { fetchPortfolioMembers } from '../../_lib/portfolios.js';
 import { logMarketEventUnlessDemo, fetchRecentActivityBatch } from '../../_lib/marketEvents.js';
 import { fetchPriceSeriesBatch, fetchListingFavoriteCountBatch } from '../../_lib/priceSeries.js';
@@ -62,6 +63,11 @@ export async function onRequestPost(context) {
   // surfaced as this endpoint returning a bare Cloudflare 1101 error instead
   // of the listing it had, in fact, already successfully created.
   context.waitUntil(notifyNewMatches(context, listingId));
+  // Same reasoning for saved-search alerts (a buyer-only profile or a rental isn't a home anyone's search is for).
+  const home = savedSearchHome(listingId, user.id, validated.data);
+  if (home) {
+    context.waitUntil(notifySavedSearches(context.env.DB, home).catch(err => console.log(`[saved search notify failed] ${err.message}`)));
+  }
   // Buyer-only "profiles" and bundled portfolio members aren't a standalone property to list on the ticker.
   if (!validated.data.isBuyerOnly) {
     const price = '$' + Number(validated.data.estimatedValue).toLocaleString('en-US');

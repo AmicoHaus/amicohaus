@@ -93,11 +93,11 @@ export async function onRequestGet(context) {
     `SELECT posts.id, posts.body, posts.created_at, users.display_name AS author_name,
             groups.label AS group_label,
             (SELECT COUNT(*) FROM post_likes WHERE post_likes.post_id = posts.id) AS like_count,
-            (SELECT COUNT(*) FROM comments WHERE comments.post_id = posts.id) AS comment_count
+            (SELECT COUNT(*) FROM comments WHERE comments.post_id = posts.id AND comments.hidden_at IS NULL) AS comment_count
      FROM posts
      JOIN users ON users.id = posts.user_id
      LEFT JOIN groups ON groups.id = posts.group_id
-     WHERE users.email LIKE ?
+     WHERE users.email LIKE ? AND posts.hidden_at IS NULL
      ORDER BY posts.created_at DESC LIMIT 100`
   ).bind(DEMO_EMAIL_PATTERN).all();
 

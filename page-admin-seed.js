@@ -106,9 +106,16 @@ async function loadReports() {
           <h3>${escapeHtml(r.target_type)} #${r.target_id}</h3>
           <span class="badge badge-gold">Reported by ${escapeHtml(r.reporter_name)}</span>
         </div>
-        <p class="tiny">${escapeHtml(r.reason)}</p>
+        <p class="tiny">${escapeHtml(r.reason)}${r.target_hidden ? ' <span class="badge badge-paused">Already hidden</span>' : ''}</p>
         <div class="card-actions">
-          <button class="btn btn-danger btn-sm" data-action="delete_target">Delete Content</button>
+          ${r.target_type === 'user'
+            ? `<a class="btn btn-ghost btn-sm" href="/profile/${Number(r.target_id)}" target="_blank" rel="noopener">Open profile</a>
+          <button class="btn btn-danger btn-sm" data-action="suspend-user" data-user-id="${Number(r.target_id)}">Suspend account</button>`
+            : r.target_type === 'past_client_review'
+              ? '<span class="tiny">If it breaks the rules, remove it under Past-client reviews below.</span>'
+              : r.target_hidden && (r.target_type === 'post' || r.target_type === 'comment')
+                ? `<button class="btn btn-ghost btn-sm" data-action="unhide-target" data-kind="${r.target_type}" data-target-id="${Number(r.target_id)}">Unhide</button>`
+                : '<button class="btn btn-danger btn-sm" data-action="hide_target">Hide content</button>'}
           <button class="btn btn-ghost btn-sm" data-action="resolve">Resolve (no action)</button>
           <button class="btn btn-ghost btn-sm" data-action="dismiss">Dismiss</button>
         </div>
@@ -127,11 +134,28 @@ function dreRecordUrl(licenseNumber) {
   return `https://www2.dre.ca.gov/PublicASP/pplinfo.asp?License_id=${encodeURIComponent(id)}`;
 }
 
+// The fixed rejection reasons (functions/_lib/agents.js REJECTION_REASONS), sent with the application list.
+let rejectionReasons = [];
+function rejectFieldsHtml(userId, label) {
+  const id = Number(userId);
+  return `
+        <div class="field"><label for="rejReason-${id}">${escapeHtml(label)}</label>
+          <select id="rejReason-${id}" class="reject-reason">${rejectionReasons.map(r => `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></div>
+        <div class="field"><label for="rejNote-${id}">Note to the agent (optional; needed for "Other")</label>
+          <input type="text" id="rejNote-${id}" class="reject-note" maxlength="300"></div>`;
+}
+function rejectionFrom(card) {
+  const reason = card.querySelector('.reject-reason');
+  const note = card.querySelector('.reject-note');
+  return { rejectionReason: reason ? reason.value : '', rejectionNote: note ? note.value.trim() : '' };
+}
+
 async function loadLicenseRechecks() {
   const el = document.getElementById('licenseRecheckList');
   if (!el) return;
   try {
-    const { applications } = await apiGet('/api/admin/agent-applications?status=approved');
+    const { applications, rejectionReasons: reasons } = await apiGet('/api/admin/agent-applications?status=approved');
+    if (Array.isArray(reasons)) rejectionReasons = reasons;
     // Never-checked (or check removed) first, then the oldest check.
     const sorted = applications.slice().sort((a, b) => ((a.licenseVerified && a.licenseCheckedAt) || '').localeCompare((b.licenseVerified && b.licenseCheckedAt) || ''));
     el.innerHTML = sorted.length ? sorted.map(a => {
@@ -144,7 +168,9 @@ async function loadLicenseRechecks() {
           <button class="btn btn-ghost btn-sm" data-action="recheck-license">Checked on the DRE today</button>
           <button class="btn btn-ghost btn-sm" data-action="unverify-license">License not active — remove check</button>
           <button class="btn btn-danger btn-sm" data-action="remove-approval">Remove approval</button>
+          <button class="btn btn-danger btn-sm" data-action="suspend-user" data-user-id="${Number(a.userId)}">Suspend account</button>
         </div>
+        ${rejectFieldsHtml(a.userId, 'Reason if removing the approval (shown to the agent)')}
       </div>`;
     }).join('') : '<div class="empty-state">No approved agents yet.</div>';
   } catch (err) { el.innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`; }
@@ -159,7 +185,7 @@ async function loadPastClientReviews(before = 0) {
     const html = reviews.map(r => `
       <div class="card" data-id="${r.id}">
         <div class="card-head"><h3>${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)} for ${escapeHtml(r.agentName)}</h3><span class="badge ${r.status === 'published' ? 'badge-active' : 'badge-paused'}">${escapeHtml(r.status)}</span></div>
-        <p class="tiny">${escapeHtml(r.reviewerName)} (${escapeHtml(r.reviewerEmail)}) · ${escapeHtml(PAST_SIDE_LABELS[r.clientSide] || '')} in ${r.saleYear}, ${escapeHtml(r.saleCity)} · address given: ${escapeHtml(r.saleAddress)}</p>
+        <p class="tiny">${escapeHtml(r.reviewerName)}${r.reported ? ` (${escapeHtml(r.reviewerEmail || '')})` : ''} · ${escapeHtml(PAST_SIDE_LABELS[r.clientSide] || '')} in ${r.saleYear}, ${escapeHtml(r.saleCity)}${r.reported ? ` · address given: ${escapeHtml(r.saleAddress || 'none')} <span class="badge badge-paused">Review reported</span>` : ''}</p>
         ${r.comment ? `<p>${escapeHtml(r.comment)}</p>` : '<p class="tiny">(no comment)</p>'}
         ${r.removedReason ? `<p class="tiny">Removed: ${escapeHtml(r.removedReason)}</p>` : ''}
         <div class="card-actions">${r.status === 'published'
@@ -177,11 +203,62 @@ async function loadPastClientReviews(before = 0) {
   } catch (err) { el.innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`; }
 }
 
+function agentReviewCardHtml(r) {
+  const actions = r.recused
+    ? '<span class="badge badge-paused">Recused</span> <span class="tiny">An Amico Haus admin account sent a proposal on this home, so admins don&#39;t remove or restore this review.</span>'
+    : r.status === 'published'
+      ? '<button class="btn btn-danger btn-sm" data-action="remove-agent-review">Remove</button>'
+      : '<button class="btn btn-ghost btn-sm" data-action="restore-agent-review">Restore</button>';
+  return `
+      <div class="card" data-id="${Number(r.id)}">
+        <div class="card-head"><h3>${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)} for ${escapeHtml(r.agentName)}</h3><span class="badge ${r.status === 'published' ? 'badge-active' : 'badge-paused'}">${escapeHtml(r.status)}</span></div>
+        <p class="tiny">By ${escapeHtml(r.reviewerName)} · ${r.requestType === 'pre_listing' ? 'Pre-listing' : 'Trade'} #${Number(r.requestId)}</p>
+        ${r.comment ? `<p>${escapeHtml(r.comment)}</p>` : '<p class="tiny">(no comment)</p>'}
+        ${r.reason ? `<p class="tiny">Removed: ${escapeHtml(r.reason)}</p>` : ''}
+        <div class="card-actions">${actions}</div>
+      </div>`;
+}
+
+async function loadAgentReviews(before = 0) {
+  const el = document.getElementById('agentReviewList');
+  if (!el) return;
+  try {
+    const { reviews, removed, more } = await apiGet(`/api/admin/agent-reviews${before ? `?before=${before}` : ''}`);
+    const html = reviews.map(agentReviewCardHtml).join('');
+    const older = more ? `<p><button class="btn btn-ghost btn-sm" data-action="older-agent-reviews" data-before="${Number(reviews[reviews.length - 1].id)}">Show older reviews</button></p>` : '';
+    if (before) {
+      const btn = el.querySelector('[data-action="older-agent-reviews"]');
+      if (btn) btn.parentElement.remove();
+      el.insertAdjacentHTML('beforeend', html + older);
+      return;
+    }
+    const removedHtml = removed.length ? `<h4>Removed</h4>${removed.map(agentReviewCardHtml).join('')}` : '';
+    el.innerHTML = reviews.length || removed.length ? html + older + removedHtml : '<div class="empty-state">No reviews of agents hired here yet.</div>';
+  } catch (err) { el.innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`; }
+}
+
+// Suspend or reinstate an account (functions/api/admin/users/[id].js). True when it went through.
+async function suspendAccount(userId, action) {
+  const id = Number(userId);
+  if (!Number.isInteger(id) || id <= 0) { toast('Enter an account ID.'); return false; }
+  const ask = action === 'suspend'
+    ? `Suspend account #${id}? They're signed out everywhere, can't log in, and drop out of every list. An agent gives up their founding spots.`
+    : `Reinstate account #${id}? A founding spot comes back only if one is open.`;
+  if (!confirm(ask)) return false;
+  try {
+    const result = await apiPost(`/api/admin/users/${id}`, { action });
+    toast(action === 'suspend' ? 'Account suspended.' : `Account reinstated.${result.foundingZips && result.foundingZips.length ? ` Founding spot: ${result.foundingZips.join(', ')}.` : ''}`);
+    loadAuditLog();
+    return true;
+  } catch (err) { toast(err.message); return false; }
+}
+
 async function loadAgentApplications() {
   const el = document.getElementById('agentApplicationsList');
   el.innerHTML = '<div class="empty-state">Loading…</div>';
   try {
-    const { applications } = await apiGet('/api/admin/agent-applications?status=pending');
+    const { applications, rejectionReasons: reasons } = await apiGet('/api/admin/agent-applications?status=pending');
+    if (Array.isArray(reasons)) rejectionReasons = reasons;
     el.innerHTML = applications.length ? applications.map(a => `
       <div class="card" data-id="${a.userId}" data-license="${escapeHtml(a.licenseNumber)}">
         <div class="card-head">
@@ -208,8 +285,8 @@ async function loadAgentApplications() {
         <div class="card-actions">
           <button class="btn btn-primary btn-sm" data-action="approve-agent">Checked on the DRE — Approve</button>
           <button class="btn btn-danger btn-sm" data-action="reject-agent">Reject</button>
-
         </div>
+        ${rejectFieldsHtml(a.userId, 'Reason if rejecting (shown to the applicant)')}
       </div>
     `).join('') : '<div class="empty-state">No pending agent applications.</div>';
   } catch (err) {
@@ -217,28 +294,22 @@ async function loadAgentApplications() {
   }
 }
 
-const DISPUTE_REASON_LABELS = { work_not_done: 'Work not done', quality_issue: 'Quality issue', communication: 'Communication problem', payment_dispute: 'Payment dispute', other: 'Other' };
-
 async function loadDisputes() {
   const el = document.getElementById('disputesList');
   el.innerHTML = '<div class="empty-state">Loading…</div>';
   try {
-    const { disputes } = await apiGet('/api/admin/disputes?status=open');
+    const { disputes } = await apiGet('/api/admin/disputes');
     el.innerHTML = disputes.length ? disputes.map(d => `
-      <div class="card" data-id="${d.id}">
+      <div class="card" data-id="${Number(d.id)}">
         <div class="card-head">
-          <h3>${escapeHtml(DISPUTE_REASON_LABELS[d.reason] || d.reason)}</h3>
-          <span class="badge badge-gold">${d.requestType === 'pre_listing' ? 'Pre-listing' : 'Transaction'} #${d.requestId}</span>
+          <h3>${escapeHtml(d.reasonLabel || 'Other')}</h3>
+          <span class="badge badge-paused">${d.requestType === 'pre_listing' ? 'Pre-listing' : 'Transaction'} #${Number(d.requestId)}</span>
         </div>
-        <p class="tiny">${escapeHtml(d.raisedByName)} (raised) vs. ${escapeHtml(d.againstName)}</p>
+        <p class="tiny">Filed by ${escapeHtml(d.raisedByName)} about ${escapeHtml(d.againstName)} · ${escapeHtml(timeAgo(d.createdAt))} · ${escapeHtml(d.status || '')}</p>
         <p>${escapeHtml(d.description)}</p>
-        <div class="field"><label>Admin notes</label><textarea class="dispute-notes" maxlength="2000"></textarea></div>
-        <div class="card-actions">
-          <button class="btn btn-primary btn-sm" data-action="resolve-dispute">Mark Resolved</button>
-          <button class="btn btn-danger btn-sm" data-action="dismiss-dispute">Dismiss</button>
-        </div>
+        ${d.adminNotes ? `<p class="tiny">Old admin note: ${escapeHtml(d.adminNotes)}</p>` : ''}
       </div>
-    `).join('') : '<div class="empty-state">No open disputes.</div>';
+    `).join('') : '<div class="empty-state">No dispute history.</div>';
   } catch (err) {
     el.innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
   }
@@ -300,6 +371,7 @@ async function loadAuditLog() {
   loadAgentApplications();
   loadLicenseRechecks();
   loadPastClientReviews();
+  loadAgentReviews();
   loadDisputes();
   loadAuditLog();
   loadActivityChart();
@@ -317,15 +389,14 @@ async function loadAuditLog() {
         await apiPut(`/api/admin/agent-applications/${userId}`, { decision: 'approve', licenseNumber });
         toast('Agent approved.');
       } else if (btn.dataset.action === 'reject-agent') {
-        const reason = prompt('Optional reason (shown to the applicant):') || '';
-        await apiPut(`/api/admin/agent-applications/${userId}`, { decision: 'reject', rejectionReason: reason });
+        await apiPut(`/api/admin/agent-applications/${userId}`, { decision: 'reject', ...rejectionFrom(card) });
         toast('Agent application rejected.');
       } else if (btn.dataset.action === 'verify-license') {
         await apiPut(`/api/admin/agent-applications/${userId}/verify-license`, { verified: true, licenseNumber });
-        toast('License marked verified.');
+        toast('License marked checked.');
       } else if (btn.dataset.action === 'unverify-license') {
         await apiPut(`/api/admin/agent-applications/${userId}/verify-license`, { verified: false });
-        toast('License verification removed.');
+        toast('License check removed.');
       }
       loadAgentApplications();
       loadLicenseRechecks();
@@ -347,10 +418,11 @@ async function loadAuditLog() {
         await apiPut(`/api/admin/agent-applications/${userId}/verify-license`, { verified: false });
         toast('DRE check removed.');
       } else if (btn.dataset.action === 'remove-approval') {
-        const reason = prompt('Remove this approval? Optional reason (shown to the agent):');
-        if (reason === null) return;
-        await apiPut(`/api/admin/agent-applications/${userId}`, { decision: 'reject', rejectionReason: reason });
+        if (!confirm('Remove this approval? The reason you picked is shown to the agent.')) return;
+        await apiPut(`/api/admin/agent-applications/${userId}`, { decision: 'reject', ...rejectionFrom(card) });
         toast('Approval removed.');
+      } else if (btn.dataset.action === 'suspend-user') {
+        if (await suspendAccount(btn.dataset.userId, 'suspend')) loadAgentApplications();
       }
       loadLicenseRechecks();
     } catch (err) { toast(err.message); }
@@ -376,21 +448,34 @@ async function loadAuditLog() {
     } catch (err) { toast(err.message); }
   });
 
-  document.getElementById('disputesList').addEventListener('click', async (e) => {
+  document.getElementById('agentReviewList').addEventListener('click', async (e) => {
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
-    const card = btn.closest('[data-id]');
-    const disputeId = card.dataset.id;
-    const adminNotes = card.querySelector('.dispute-notes').value.trim();
+    if (btn.dataset.action === 'older-agent-reviews') { btn.disabled = true; loadAgentReviews(Number(btn.dataset.before)); return; }
+    const id = btn.closest('[data-id]').dataset.id;
+    const action = btn.dataset.action === 'remove-agent-review' ? 'remove' : btn.dataset.action === 'restore-agent-review' ? 'restore' : '';
+    if (!action) return;
+    const reason = prompt(action === 'remove' ? 'Why is this review being removed? (kept on the activity log; the reviewer is told)' : 'Why is this review being restored? (kept on the activity log)');
+    if (!reason || !reason.trim()) return;
     try {
-      if (btn.dataset.action === 'resolve-dispute') {
-        await apiPut(`/api/admin/disputes/${disputeId}`, { status: 'resolved', adminNotes });
-        toast('Dispute marked resolved.');
-      } else if (btn.dataset.action === 'dismiss-dispute') {
-        await apiPut(`/api/admin/disputes/${disputeId}`, { status: 'dismissed', adminNotes });
-        toast('Dispute dismissed.');
-      }
-      loadDisputes();
+      await apiPut(`/api/admin/agent-reviews/${id}`, { action, reason: reason.trim() });
+      toast(action === 'remove' ? 'Review removed.' : 'Review restored.');
+      loadAgentReviews();
+      loadAuditLog();
+    } catch (err) { toast(err.message); }
+  });
+
+  document.getElementById('suspendUserBtn').addEventListener('click', () => suspendAccount(document.getElementById('suspendUserId').value, 'suspend'));
+  document.getElementById('unsuspendUserBtn').addEventListener('click', () => suspendAccount(document.getElementById('suspendUserId').value, 'unsuspend'));
+  // A listing paused by moderation (hidden_at) comes back only through an admin: PUT /api/listings/:id { status: 'active' }.
+  document.getElementById('reactivateListingBtn').addEventListener('click', async () => {
+    const id = Number(document.getElementById('reactivateListingId').value);
+    if (!Number.isInteger(id) || id <= 0) { toast('Enter a listing ID.'); return; }
+    if (!confirm(`Reactivate listing #${id}? It shows in the directory and matches again.`)) return;
+    try {
+      await apiPut(`/api/listings/${id}`, { status: 'active' });
+      toast('Listing reactivated.');
+      loadAuditLog();
     } catch (err) { toast(err.message); }
   });
 
@@ -399,10 +484,20 @@ async function loadAuditLog() {
     if (!btn) return;
     const card = btn.closest('[data-id]');
     const id = card.dataset.id;
-    if (btn.dataset.action === 'delete_target' && !confirm('Delete the reported content? This cannot be undone.')) return;
+    if (btn.dataset.action === 'suspend-user') { if (await suspendAccount(btn.dataset.userId, 'suspend')) loadReports(); return; }
+    if (btn.dataset.action === 'unhide-target') {
+      // A mistaken hide can be undone here (the author and everyone else see it again).
+      if (await unhideContentById(btn.dataset.kind, btn.dataset.targetId)) { loadReports(); loadAuditLog(); }
+      return;
+    }
+    let reason = '';
+    if (btn.dataset.action === 'hide_target') {
+      reason = (prompt('Why is this being hidden? (the author is told; kept on the activity log)') || '').trim();
+      if (!reason) return;
+    }
     btn.disabled = true;
     try {
-      await apiPost(`/api/admin/reports/${id}`, { action: btn.dataset.action });
+      await apiPost(`/api/admin/reports/${id}`, { action: btn.dataset.action, ...(reason ? { reason } : {}) });
       toast('Report updated.');
       loadReports();
       loadAuditLog();

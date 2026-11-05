@@ -3,7 +3,7 @@ import { json, badRequest, unauthorized } from '../../_lib/util.js';
 import { submitAgentApplication, dreLookupUrl } from '../../_lib/agents.js';
 import { checkAlertsForAgent } from '../../_lib/agentSearchAlerts.js';
 import { alertAdmin } from '../../_lib/adminAlerts.js';
-import { releaseFoundingSpots } from '../../_lib/zipBoard.js';
+import { releaseFoundingSpots, grantFoundingSpots, foundingGrantedLine } from '../../_lib/zipBoard.js';
 
 export async function onRequestPost(context) {
   const user = await getSessionUser(context);
@@ -12,8 +12,9 @@ export async function onRequestPost(context) {
   let body;
   try { body = await context.request.json(); } catch { return badRequest('Invalid request body.'); }
 
-  const result = await submitAgentApplication(context.env.DB, user.id, body);
-  if (result.error) return badRequest(result.error);
+  const db = context.env.DB;
+  const result = await submitAgentApplication(db, user.id, body);
+  if (result.error) return result.code ? json({ error: result.error, code: result.code }, { status: 400 }) : badRequest(result.error);
   if (!result.isNewApplication && result.licenseChanged) {
     // The number the admin checked (or is about to check) changed: say so, so it gets looked up again.
     alertAdmin(context, user, {
@@ -42,10 +43,18 @@ export async function onRequestPost(context) {
   // An already-approved agent editing their profile can newly match a saved
   // search (a pending/rejected one isn't in the directory yet, so this is a
   // harmless no-op for them).
-  // Founding spots are only granted when an admin approves; an edit can only give up spots for ZIPs no longer served.
   if (result.status === 'approved') {
-    context.waitUntil(checkAlertsForAgent(context.env.DB, user.id));
+    context.waitUntil(checkAlertsForAgent(db, user.id));
   }
-  await releaseFoundingSpots(context.env.DB, user.id);
+  // Founding spots follow the service area: ZIPs no longer served are given up, and an approved agent who adds a
+  // launch ZIP takes an open spot there right away (no re-approval needed), the same first-come rule as an approval.
+  await releaseFoundingSpots(db, user.id);
+  if (result.status === 'approved') {
+    const granted = await grantFoundingSpots(db, user.id);
+    if (granted.length) {
+      await db.prepare("INSERT INTO notifications (user_id, type, body, link) VALUES (?, 'marketplace', ?, ?)")
+        .bind(user.id, foundingGrantedLine(granted).trim(), '/app#become-agent').run();
+    }
+  }
   return json(result, { status: 201 });
 }

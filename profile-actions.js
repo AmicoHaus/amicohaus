@@ -59,6 +59,33 @@
     });
   }
 
+  // "Report" on a past-client review: the same short report form as the app (client.js inlineReportFormHtml).
+  document.addEventListener('click', async e => {
+    const reportBtn = e.target.closest('[data-action="report-past-review"]');
+    if (reportBtn) {
+      const host = reportBtn.closest('[data-report-host]');
+      const open = host && host.querySelector(':scope > .inline-report');
+      if (open) { open.remove(); return; }
+      if (host) host.insertAdjacentHTML('beforeend', inlineReportFormHtml('past_client_review', reportBtn.dataset.id));
+      return;
+    }
+    const sendBtn = e.target.closest('[data-action="send-report"]');
+    if (sendBtn) {
+      const box = sendBtn.closest('.inline-report');
+      const preset = box.querySelector('.report-reason').value;
+      const details = box.querySelector('.report-details').value.trim();
+      if (!preset && !details) { toast('Say what the problem is, then send.'); box.querySelector('.report-details').focus(); return; }
+      sendBtn.disabled = true;
+      try {
+        await apiPost('/api/reports', reportPayload(box.dataset.targetType, box.dataset.targetId, preset, details));
+        box.innerHTML = '<p class="tiny">Report sent. Thank you.</p>';
+      } catch (err) { sendBtn.disabled = false; toastActionError(err); }
+      return;
+    }
+    const cancelBtn = e.target.closest('[data-action="cancel-report"]');
+    if (cancelBtn) cancelBtn.closest('.inline-report').remove();
+  });
+
   const editPhoneBtn = document.getElementById('editPhoneBtn');
   if (editPhoneBtn) {
     editPhoneBtn.addEventListener('click', () => {

@@ -3,6 +3,7 @@ import { json, badRequest, unauthorized, forbidden, notFound } from '../../../..
 import { isApprovedAgent } from '../../../../_lib/agents.js';
 import { validatePreviewInput, MAX_UPCOMING_PREVIEWS, fetchPreviews } from '../../../../_lib/sellerPrep.js';
 import { notifyPreviewScheduled } from '../../../../_lib/marketplaceNotify.js';
+import { isEitherBlocked } from '../../../../_lib/blocks.js';
 
 export async function onRequestGet(context) {
   const user = await getSessionUser(context);
@@ -12,6 +13,7 @@ export async function onRequestGet(context) {
   if (!preListing) return notFound('Pre-listing not found.');
   const isOwner = preListing.user_id === user.id;
   if (!isOwner && !(await isApprovedAgent(db, user.id))) return forbidden();
+  if (!isOwner && await isEitherBlocked(db, user.id, preListing.user_id)) return notFound('Pre-listing not found.');
   if (!isOwner && preListing.status !== 'open') return json({ previews: [] });
   return json(await fetchPreviews(db, context.params.id, { isOwner, viewerId: user.id, address: preListing.address }));
 }

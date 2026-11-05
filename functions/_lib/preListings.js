@@ -2,6 +2,7 @@ import { clampString } from './util.js';
 import { PROPERTY_TYPES } from './listings.js';
 import { lookupZipCoords, nearestServiceDistance, SERVICE_RADIUS_MILES } from './geo.js';
 import { PREP_ITEMS, validatePrep } from './sellerPrep.js';
+import { notBlockedByOwnersSql } from './blocks.js';
 
 function num(value, { min = 0, max = Infinity } = {}) {
   const n = Number(value);
@@ -161,7 +162,9 @@ export function validateComps(raw) {
 // priceOpen: the homeowner hasn't set a price, so there's nothing to vote on. The suggested list price is required
 // instead, any vote sent along is ignored (never stored), and only the opinion is saved.
 // opinionNew: this agent's first suggested price on this home (for the "shared a price opinion" notice).
-export async function castPriceVote(db, preListingId, agentUserId, body, { priceOpen = false } = {}) {
+// beforeWrite: an optional async check run once the input is valid, before anything is saved (the route's per-person
+// limit, rateLimits.js); when it returns false nothing is saved and the result is { rateLimited: true }.
+export async function castPriceVote(db, preListingId, agentUserId, body, { priceOpen = false, beforeWrite = null } = {}) {
   const vote = !priceOpen && VOTE_TYPES.includes(body.vote) ? body.vote : null;
   if (!priceOpen && !vote) return { error: 'Pick too high, too low, or just right.' };
   const note = clampString(body.note, 300);
@@ -180,6 +183,7 @@ export async function castPriceVote(db, preListingId, agentUserId, body, { price
     if (checked.error) return { error: checked.error };
     comps = checked.comps;
   }
+  if (beforeWrite && !(await beforeWrite())) return { rateLimited: true };
 
   const opinionBefore = await db.prepare('SELECT price_opinion FROM pre_listing_price_opinions WHERE pre_listing_id = ? AND agent_user_id = ?').bind(preListingId, agentUserId).first();
   const opinionNew = priceOpinion !== null && !(opinionBefore && opinionBefore.price_opinion !== null);
@@ -214,6 +218,8 @@ export async function castPriceVote(db, preListingId, agentUserId, body, { price
 // On a home that's open to price opinions there are no votes, so the tally counts the agents who shared a
 // suggested price instead (total = opinionCount, for "{N} agents shared a price opinion").
 // home: the pre-listing row ({ zip, asking_price }) when the caller already has it.
+// Only active agents with no block either way with the homeowner count (a blocked agent's vote stays stored, so
+// unblocking brings it back).
 export async function getVoteTally(db, preListingId, home = null) {
   if (!home) home = await db.prepare('SELECT zip, asking_price FROM pre_listings WHERE id = ?').bind(preListingId).first();
   const open = !!home && priceIsOpen(home.asking_price);
@@ -223,13 +229,16 @@ export async function getVoteTally(db, preListingId, home = null) {
          FROM pre_listing_price_opinions o
          JOIN users ON users.id = o.agent_user_id
          LEFT JOIN agent_profiles ap ON ap.user_id = o.agent_user_id
-         WHERE o.pre_listing_id = ? AND o.price_opinion IS NOT NULL AND users.status = 'active'`
+         WHERE o.pre_listing_id = ?1 AND o.price_opinion IS NOT NULL AND users.status = 'active'
+           AND ${notBlockedByOwnersSql('pre_listing', '?1', 'o.agent_user_id')}`
       ).bind(preListingId).all()
     : await db.prepare(
         `SELECT v.vote, ap.service_zips_json
          FROM pre_listing_price_votes v
+         JOIN users ON users.id = v.agent_user_id
          LEFT JOIN agent_profiles ap ON ap.user_id = v.agent_user_id
-         WHERE v.pre_listing_id = ?`
+         WHERE v.pre_listing_id = ?1 AND users.status = 'active'
+           AND ${notBlockedByOwnersSql('pre_listing', '?1', 'v.agent_user_id')}`
       ).bind(preListingId).all();
   const tally = { too_high: 0, too_low: 0, just_right: 0, total: 0, nearby: 0, priceOpen: open };
   if (open) tally.opinionCount = rows.results.length;
@@ -272,8 +281,8 @@ function parseComps(json) {
 }
 
 // Sealed: an agent who hasn't voted on the current asking price sees only how many agents have, never how they
-// voted, so nobody anchors on the crowd. The owner, admins, other homeowners and agents who've already voted see
-// the full tally. Price opinions are never shown to other agents at all.
+// voted, so nobody anchors on the crowd. Only the owner, admins and agents who've already voted see the full tally
+// (other homeowners don't get it at all). Price opinions are never shown to other agents at all.
 export function sealTally(tally) {
   return tally.priceOpen
     ? { sealed: true, total: tally.total, priceOpen: true, opinionCount: tally.opinionCount }
@@ -288,7 +297,8 @@ export async function fetchVotedIds(db, agentUserId) {
 
 // For the homeowner only: every agent's suggested price, comps and presentation file, plus the range and middle
 // once at least 3 agents have suggested a price (fewer than that isn't a range worth showing). Suspended agents'
-// opinions are left out, same as their proposals.
+// opinions are left out, same as their proposals, and so are agents blocked either way with the homeowner (from the
+// list, the range and the "fix before you list" counts; the rows stay, so unblocking brings them back).
 export const OPINION_SUMMARY_MIN = 3;
 export async function fetchPriceOpinions(db, preListingId) {
   // The agent's DRE number and brokerage ride along: an opinion is a first point of contact, so the homeowner
@@ -297,13 +307,13 @@ export async function fetchPriceOpinions(db, preListingId) {
     `SELECT o.agent_user_id, o.price_opinion, o.comps_json, o.note, o.prep_json, o.deck_name, o.deck_size, o.updated_at, users.display_name AS agent_name, users.role AS agent_role,
             ap.license_number, ap.brokerage_name
      FROM pre_listing_price_opinions o JOIN users ON users.id = o.agent_user_id LEFT JOIN agent_profiles ap ON ap.user_id = o.agent_user_id
-     WHERE o.pre_listing_id = ? AND users.status = 'active'`
+     WHERE o.pre_listing_id = ?1 AND users.status = 'active' AND ${notBlockedByOwnersSql('pre_listing', '?1', 'o.agent_user_id')}`
   ).bind(preListingId).all();
   const voteRows = await db.prepare(
     `SELECT v.agent_user_id, v.vote, v.note, users.display_name AS agent_name, users.role AS agent_role,
             ap.license_number, ap.brokerage_name
      FROM pre_listing_price_votes v JOIN users ON users.id = v.agent_user_id LEFT JOIN agent_profiles ap ON ap.user_id = v.agent_user_id
-     WHERE v.pre_listing_id = ? AND users.status = 'active'`
+     WHERE v.pre_listing_id = ?1 AND users.status = 'active' AND ${notBlockedByOwnersSql('pre_listing', '?1', 'v.agent_user_id')}`
   ).bind(preListingId).all();
   // One entry per agent who either voted or gave an opinion.
   const byAgent = new Map();
@@ -343,12 +353,3 @@ export async function fetchPriceOpinions(db, preListingId) {
   return { opinions, summary, prepSummary };
 }
 
-// Removes presentation files from storage before a pre-listing (and with it, its opinion rows) is deleted. Best
-// effort: a storage hiccup never blocks the delete itself.
-export async function deleteOpinionDecks(db, bucket, preListingId) {
-  if (!bucket) return;
-  const rows = await db.prepare('SELECT deck_r2_key FROM pre_listing_price_opinions WHERE pre_listing_id = ? AND deck_r2_key IS NOT NULL').bind(preListingId).all();
-  for (const r of rows.results) {
-    try { await bucket.delete(r.deck_r2_key); } catch (err) { console.log(`[deck delete failed] ${err.message}`); }
-  }
-}

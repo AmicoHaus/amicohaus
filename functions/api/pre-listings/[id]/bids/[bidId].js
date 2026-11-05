@@ -4,6 +4,7 @@ import { acceptBid, withdrawBid, isAgentActive } from '../../../../_lib/marketpl
 import { notifyBidDecision } from '../../../../_lib/marketplaceNotify.js';
 import { wrapUpSellerPrep } from '../../../../_lib/sellerPrepWrapUp.js';
 import { proposalsSealed } from '../../../../_lib/decisionNight.js';
+import { isEitherBlocked, hasBlocked } from '../../../../_lib/blocks.js';
 
 const OWNER_PICKS = { shortlist: 'shortlist', pass: 'pass', clear: null };
 
@@ -36,6 +37,10 @@ export async function onRequestPut(context) {
     if (preListing.status !== 'open') return badRequest('This pre-listing is no longer open.');
     if (bid.status !== 'pending') return badRequest('This proposal is no longer pending.');
     if (!(await isAgentActive(db, bid.agent_user_id))) return badRequest("This agent's account isn't active right now, so this proposal can't be accepted.");
+    // A block either way: the owner who blocked is told to unblock first; one the agent made reads as no proposal.
+    if (await isEitherBlocked(db, user.id, bid.agent_user_id)) {
+      return (await hasBlocked(db, user.id, bid.agent_user_id)) ? badRequest('Unblock this agent first.') : notFound('Proposal not found.');
+    }
 
     const declined = await acceptBid(db, 'pre_listing', id, bidId);
     context.waitUntil(notifyBidDecision(context, bid.agent_user_id, 'pre_listing', id, true));

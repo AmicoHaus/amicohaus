@@ -40,7 +40,7 @@ export async function onRequestPost(context) {
 
   const checked = validatePastClientReview(body, { fromYear: invite.from_year, toYear: invite.to_year });
   if (checked.error) return badRequest(checked.error);
-  // Someone who hired this agent on Amico Haus reviews them there, where it counts as a verified hire.
+  // Someone who hired this agent on Amico Haus reviews them on that request instead.
   const hiredHere = await db.prepare(
     `SELECT 1 FROM service_bids b
      LEFT JOIN pre_listings p ON b.request_type = 'pre_listing' AND p.id = b.request_id
@@ -60,7 +60,8 @@ export async function onRequestPost(context) {
 
   context.waitUntil(notifyPastClientReview(context, invite.user_id).catch(() => {}));
   // A heads-up so reviews can be checked on the admin page: at most one per agent per day, and without the
-  // reviewer's contact details or address (those stay on the admin page).
+  // reviewer's contact details or address (the admin page shows those only once someone who isn't an admin reports
+  // that review).
   // Claimed atomically on the agent's row, so two reviews at once can't both skip it or both send one.
   const due = await db.prepare(
     "UPDATE agent_profiles SET review_alert_sent_at = datetime('now') WHERE user_id = ? AND (review_alert_sent_at IS NULL OR review_alert_sent_at < datetime('now', '-1 day'))"

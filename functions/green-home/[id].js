@@ -3,15 +3,13 @@ import { identityLine } from '../_lib/contactPolicy.js';
 import { escapeHtml } from '../_lib/util.js';
 import { ASSET_VERSIONS } from '../_lib/assetVersions.js';
 import { withSecurityHeaders } from '../_lib/withSecurityHeaders.js';
-import { homeCostsFromRow, homeCostsLines } from '../_lib/homeCosts.js';
+import { homeCostsFromRow, homeCostsLines, HOME_COSTS_HEADING, HOME_COSTS_CONFIRM_LINE } from '../_lib/homeCosts.js';
 import { GREEN_FEATURE_ITEMS } from '../_lib/greenFeatures.js';
-import { LIFE_EVENT_ITEMS } from '../_lib/lifeEvents.js';
 import { fetchSimilarEntities, similarEntitiesHtml } from '../_lib/similarEntities.js';
 import { mortgageCalcHtml } from '../_lib/mortgageCalc.js';
 import { realEstateListingJsonLd } from '../_lib/structuredData.js';
 
 const GREEN_FEATURE_LABELS = Object.fromEntries(GREEN_FEATURE_ITEMS.map(i => [i.key, i.label]));
-const LIFE_EVENT_LABELS = Object.fromEntries(LIFE_EVENT_ITEMS.map(i => [i.key, i.label]));
 
 function money(n) {
   n = Number(n) || 0;
@@ -70,6 +68,7 @@ ${jsonLd}
   </main>
   <footer class="site-footer">
     <span class="footer-tagline">Amico Haus: the real estate marketplace of tomorrow! Everything that's missing from the real estate market for the homeowner!</span> <a href="/about">About</a> · <a href="/whats-new">What's New</a> · <a href="/calculator">Calculator</a> · <a href="/assumable-loans">Assumable loans</a> · <a href="/contact">Contact</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="https://www.instagram.com/amicohaus" target="_blank" rel="noopener noreferrer">Instagram</a> · <a href="https://www.tiktok.com/@amicohaus" target="_blank" rel="noopener noreferrer">TikTok</a> · <a href="https://www.youtube.com/@amicohaus" target="_blank" rel="noopener noreferrer">YouTube</a>
+    <p class="footer-legal">Equal Housing Opportunity · <a href="/accessibility">Accessibility</a></p>
   </footer>
 </div>
 <script src="/client.js?v=${ASSET_VERSIONS['/client.js']}"></script>
@@ -91,7 +90,7 @@ async function renderPage(context) {
   const db = context.env.DB;
   const home = await db.prepare(
     `SELECT green_homes.*, users.id AS owner_id, users.display_name AS owner_name, users.phone AS owner_phone,
-            users.phone_public AS owner_phone_public, users.is_verified AS owner_verified,
+            users.phone_public AS owner_phone_public,
             owner_agent.license_number AS owner_license, owner_agent.brokerage_name AS owner_brokerage,
             (SELECT id FROM green_home_photos WHERE green_home_photos.green_home_id = green_homes.id ORDER BY position ASC LIMIT 1) AS photo_id
      FROM green_homes JOIN users ON users.id = green_homes.user_id
@@ -108,9 +107,8 @@ async function renderPage(context) {
   // (California rule): "Name · DRE #01234567 · Brokerage". Homeowners and buyers keep the plain name.
   const ownerLicense = String(home.owner_license || '').trim();
   const ownerBrokerage = String(home.owner_brokerage || '').trim();
-  const ownerIdentity = ownerLicense || ownerBrokerage ? identityLine({ name: home.owner_name, licenseNumber: ownerLicense, brokerageName: ownerBrokerage }) : '';
+  const ownerIdentity = ownerLicense || ownerBrokerage ? identityLine({ name: home.owner_name, licenseNumber: ownerLicense, brokerageName: ownerBrokerage }, { onFile: true }) : '';
   const greenFeatures = JSON.parse(home.green_features_json || '[]');
-  const lifeEventTags = JSON.parse(home.life_event_tags_json || '[]');
   const similar = await fetchSimilarEntities(db, 'green_home', { excludeId: id, city: home.city, state: home.state, propertyType: home.property_type });
 
   const loc = `${home.neighborhood ? escapeHtml(home.neighborhood) + ', ' : ''}${escapeHtml(home.city)}, ${escapeHtml(home.state)}`;
@@ -124,11 +122,11 @@ async function renderPage(context) {
   const body = `
     <div id="entityMeta" class="hidden" data-kind="green_home" data-id="${id}" data-title="${escapeHtml(home.title || home.property_type)}" data-amount="${home.asking_price}" data-city="${escapeHtml(home.city)}" data-state="${escapeHtml(home.state)}"></div>
     <div class="card">
-      <img class="directory-thumb" src="${home.photo_id ? `/api/green-home-photos/${home.photo_id}` : '/favicon.svg'}" alt="">
+      <img class="directory-thumb" src="${home.photo_id ? `/api/green-home-photos/${home.photo_id}` : '/favicon.svg'}" alt="${home.photo_id ? `Photo of the ${escapeHtml(home.property_type)} in ${escapeHtml(home.city)}` : ''}">
       <div class="card-head">
         <div>
           <h1>${escapeHtml(home.title || home.property_type)}</h1>
-          <div class="card-agent">Listed by <a class="profile-link" href="/profile/${home.owner_id}">${escapeHtml(ownerIdentity || home.owner_name)}</a>${home.owner_verified ? ' <span class="badge badge-verified" title="Verified by Amico Haus">✓ Verified</span>' : ''}</div>
+          <div class="card-agent">Listed by <a class="profile-link" href="/profile/${home.owner_id}">${escapeHtml(ownerIdentity || home.owner_name)}</a></div>
         </div>
         <span class="badge badge-gold">GreenHomes</span>
       </div>
@@ -138,10 +136,9 @@ async function renderPage(context) {
         ${escapeHtml(home.property_type)} · ${home.beds}bd/${home.baths}ba${home.sqft ? ` · ${home.sqft.toLocaleString('en-US')} sqft` : ''}<br>
         ${loc}<br>
         ${money(home.asking_price)} asking
-        ${(() => { const lines = homeCostsLines(homeCostsFromRow(home)); return lines.length ? `<p class="tiny"><span class="label">Costs</span> ${escapeHtml(lines.join(' · '))}</p>` : ''; })()}
+        ${(() => { const lines = homeCostsLines(homeCostsFromRow(home)); return lines.length ? `<p class="tiny"><span class="label">${escapeHtml(HOME_COSTS_HEADING)}</span> ${escapeHtml(lines.join(' · '))}</p><p class="tiny">${escapeHtml(HOME_COSTS_CONFIRM_LINE)}</p>` : ''; })()}
       </div>
 
-      ${lifeEventTags.length ? `<p class="tiny">${lifeEventTags.map(k => `<span class="badge badge-gold">${escapeHtml(LIFE_EVENT_LABELS[k] || k)}</span>`).join(' ')}</p>` : ''}
       ${home.description ? `<p>${escapeHtml(home.description)}</p>` : ''}
 
       <h3>Green Features</h3>

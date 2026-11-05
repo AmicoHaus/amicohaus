@@ -2,6 +2,9 @@ import { getSessionUser } from '../../../../_lib/auth.js';
 import { json, badRequest, unauthorized, forbidden, notFound } from '../../../../_lib/util.js';
 import { isApprovedAgent } from '../../../../_lib/agents.js';
 import { notifyPreviewCanceled, notifyPreviewRsvp } from '../../../../_lib/marketplaceNotify.js';
+import { isEitherBlocked } from '../../../../_lib/blocks.js';
+import { ownerIsActive } from '../../../../_lib/visibility.js';
+import { claimUserAction, rateLimited } from '../../../../_lib/rateLimits.js';
 
 async function loadPreview(db, preListingId, previewId) {
   return db.prepare(
@@ -12,7 +15,8 @@ async function loadPreview(db, preListingId, previewId) {
   ).bind(previewId, preListingId).first();
 }
 
-// An approved agent RSVPs ({ going: true }) or takes it back ({ going: false }).
+// An approved agent RSVPs ({ going: true }) or takes it back ({ going: false }). The owner hears about an agent's
+// first RSVP to a window only (notifyPreviewRsvp), so going back and forth doesn't ping them again.
 export async function onRequestPut(context) {
   const user = await getSessionUser(context);
   if (!user) return unauthorized();
@@ -21,12 +25,16 @@ export async function onRequestPut(context) {
   if (!preview) return notFound('Preview not found.');
   if (preview.owner_id === user.id) return forbidden("You can't RSVP to your own preview.");
   if (!(await isApprovedAgent(db, user.id))) return forbidden('Only approved agents can RSVP.');
+  if (!(await ownerIsActive(db, preview.owner_id)) || await isEitherBlocked(db, user.id, preview.owner_id)) return notFound('Pre-listing not found.');
   if (preview.status !== 'open') return badRequest('This pre-listing is closed.');
   if (new Date(preview.ends_at).getTime() <= Date.now()) return badRequest('This preview has already ended.');
 
   let body;
   try { body = await context.request.json(); } catch { return badRequest('Invalid request body.'); }
   if (body.going) {
+    const already = await db.prepare('SELECT 1 FROM pre_listing_preview_rsvps WHERE preview_id = ? AND agent_user_id = ?').bind(preview.id, user.id).first();
+    if (already) return json({ ok: true, going: true });
+    if (!(await claimUserAction(db, 'preview_rsvp', user.id, `preview:${preview.id}`))) return rateLimited();
     const added = await db.prepare('INSERT OR IGNORE INTO pre_listing_preview_rsvps (preview_id, agent_user_id) VALUES (?, ?)').bind(preview.id, user.id).run();
     if (added.meta && added.meta.changes) {
       context.waitUntil(notifyPreviewRsvp(context, context.params.id, preview.owner_id, user.id, preview.starts_at).catch(err => console.log(`[rsvp notify failed] ${err.message}`)));

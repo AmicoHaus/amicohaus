@@ -78,8 +78,14 @@ r = await call(reviews.onRequestPost, 'POST', '/x', 2, null, good);
 check('an agent cannot review themselves', r.status === 400);
 r = await call(reviews.onRequestPost, 'POST', '/x', 4, null, { ...good, saleYear: 2019 });
 check("a year outside the agent's chosen years is refused", r.status === 400);
+// Batch L1 (#12): the street address is optional now (city, year and side stay required); this review is removed
+// again so the real one below starts fresh.
 r = await call(reviews.onRequestPost, 'POST', '/x', 4, null, { ...good, saleAddress: '' });
-check('the street address is required (it stays private)', r.status === 400);
+check('the street address is optional (it stays private when given)', r.status === 201, JSON.stringify(r.json));
+sqlite.prepare('DELETE FROM past_client_reviews WHERE reviewer_user_id = 4 AND agent_user_id = 2').run();
+sqlite.prepare("DELETE FROM notifications WHERE user_id = 2 AND body LIKE 'A past client left you a review%'").run();
+r = await call(reviews.onRequestPost, 'POST', '/x', 4, null, { ...good, saleCity: '' });
+check('...but the city is still required', r.status === 400);
 r = await call(reviews.onRequestPost, 'POST', '/x', 9, null, good);
 check('demo accounts cannot leave reviews', r.status === 400);
 sqlite.prepare("INSERT INTO pre_listings (id, user_id, city, state, zip, property_type, beds, baths, asking_price, status) VALUES (60, 5, 'Chula Vista', 'CA', '91913', 'Condo', 2, 2, 500000, 'awarded')").run();
@@ -126,7 +132,21 @@ check('an admin can remove one, and it is logged', r.status === 200 && sqlite.pr
 r = await call(profile.onRequestGet, 'GET', '/profile/2', null, { id: '2' });
 check('a removed review leaves the profile and the average', !/Review from 6/.test(r.text) && /★ 4\.5 \(2\)/.test(r.text));
 r = await call(adminList.onRequestGet, 'GET', '/x', 1);
-check('the admin list shows the private address and removed reviews', r.json.reviews.some(x => x.saleAddress === '123 Example St') && r.json.reviews.some(x => x.status === 'removed') && r.json.more === false);
+// Batch L1 (#12): the reviewer's email and street address stay out of the admin list until the reviewer is reported.
+check('the admin list shows removed reviews, without the private address or email', r.json.reviews.some(x => x.status === 'removed') && r.json.more === false && r.json.reviews.every(x => x.saleAddress === null && x.reviewerEmail === null) && !JSON.stringify(r.json).includes('123 Example St'));
+// Only a report on the review itself, from someone who isn't an admin, reveals them (a report about the person, or
+// one the operator files, doesn't).
+const pcrId = sqlite.prepare("SELECT id FROM past_client_reviews WHERE sale_address = '123 Example St'").get().id;
+sqlite.prepare("INSERT INTO reports (reporter_id, target_type, target_id, reason) VALUES (2, 'user', 4, 'Rules problem')").run();
+sqlite.prepare("INSERT INTO reports (reporter_id, target_type, target_id, reason) VALUES (1, 'past_client_review', ?, 'Fake review')").run(pcrId);
+r = await call(adminList.onRequestGet, 'GET', '/x', 1);
+check('...a report about the reviewer, or an admin\x27s own report, still reveals nothing', r.json.reviews.every(x => x.saleAddress === null && x.reviewerEmail === null && x.reported === false));
+const reportsRoute = await mod('functions/api/reports/index.js');
+r = await call(reportsRoute.onRequestPost, 'POST', '/api/reports', 2, {}, { targetType: 'past_client_review', targetId: pcrId, reason: 'Fake review' });
+check('a signed-in member can report a past-client review', r.status === 201, r.text);
+r = await call(adminList.onRequestGet, 'GET', '/x', 1);
+check('...and once the review is reported, the admin sees the address they gave', r.json.reviews.some(x => x.saleAddress === '123 Example St' && x.reported === true && !!x.reviewerEmail));
+sqlite.prepare("DELETE FROM reports WHERE target_type = 'user' AND target_id = 4").run();
 const oldest = r.json.reviews[r.json.reviews.length - 1].id;
 r = await call(adminList.onRequestGet, 'GET', `/x?before=${oldest}`, 1);
 check('older reviews page back with ?before=', r.status === 200 && r.json.reviews.every(x => x.id < oldest));

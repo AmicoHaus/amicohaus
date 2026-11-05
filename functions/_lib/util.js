@@ -4,30 +4,26 @@
 // membership, since a demo account has no password and can never reply.
 export const DEMO_EMAIL_PATTERN = '%@demo.amicohaus.local';
 
-// Same formula as the public trade-for-lease calculator (calculator.html /
-// page-calculator.js) — kept in sync manually since one runs client-side as a
-// static script and the other server-side as a Function; there's no shared
-// module boundary between the two.
+// Rough math behind rental matches (functions/_lib/matching.js): the seller's own home value, less a rough share
+// for selling costs, divided by a year's rent. It's only used to decide whether a rental is worth showing as a
+// match, never as advice. The site no longer adds any "extra time for paying it as a lump sum" (Rudy 11.04): a
+// platform-set bonus read as a suggestion, and a large rent prepayment can be lost if the landlord sells,
+// refinances or loses the home. The public calculator (calculator.html / page-calculator.js) uses the owner's own
+// numbers, including their loan payoff.
 export const RENTAL_SELLING_COST_PCT = 0.07;
-// A lump-sum prepayment of years of rent is worth more to a landlord than the
-// same total collected month by month — no vacancy risk, no collections
-// risk, cash in hand today — so the tenant's real negotiating range runs from
-// the exact math up to an extra 15% of time in exchange for paying it all
-// upfront. This is a suggested starting point for negotiation, not a promise.
-export const RENTAL_LUMP_SUM_BONUS_PCT = 0.15;
 
 export function netSaleProceeds(estimatedValue, sellingCostPct = RENTAL_SELLING_COST_PCT) {
   return Math.max(0, Number(estimatedValue) || 0) * (1 - sellingCostPct);
 }
 
 // Returns null if there's no rent to divide by (avoids a division by zero
-// reading as an infinite or NaN "years").
+// reading as an infinite or NaN "years"). yearsHigh is kept (equal to
+// yearsLow) so older callers that print a range still read one number.
 export function lumpSumRentalYears(netProceeds, monthlyRent) {
   const rent = Number(monthlyRent) || 0;
   if (rent <= 0) return null;
   const yearsLow = netProceeds / (rent * 12);
-  const yearsHigh = yearsLow * (1 + RENTAL_LUMP_SUM_BONUS_PCT);
-  return { yearsLow, yearsHigh };
+  return { yearsLow, yearsHigh: yearsLow };
 }
 
 export const PRICE_TIERS = [

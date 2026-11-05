@@ -1,13 +1,11 @@
 import { getSessionUser, phoneVisibleTo } from '../_lib/auth.js';
-import { identityLine } from '../_lib/contactPolicy.js';
 import { escapeHtml, parseJsonSafe } from '../_lib/util.js';
 import { propertyArtUrl } from '../_lib/propertyArt.js';
 import { fetchPortfolioMembers } from '../_lib/portfolios.js';
 import { ASSET_VERSIONS } from '../_lib/assetVersions.js';
 import { DEMO_EMAIL_PATTERN } from '../_lib/util.js';
 import { withSecurityHeaders } from '../_lib/withSecurityHeaders.js';
-import { homeCostsFromRow, homeCostsLines } from '../_lib/homeCosts.js';
-import { LIFE_EVENT_ITEMS } from '../_lib/lifeEvents.js';
+import { homeCostsFromRow, homeCostsLines, HOME_COSTS_HEADING, HOME_COSTS_CONFIRM_LINE } from '../_lib/homeCosts.js';
 import { fetchOpenHouses } from '../_lib/openHouses.js';
 import { fetchMyOffer } from '../_lib/listingOffers.js';
 import { findOrCreateThreadPost } from '../_lib/dealThreads.js';
@@ -16,7 +14,19 @@ import { fetchSimilarEntities, similarEntitiesHtml } from '../_lib/similarEntiti
 import { mortgageCalcHtml } from '../_lib/mortgageCalc.js';
 import { realEstateListingJsonLd } from '../_lib/structuredData.js';
 
-const LIFE_EVENT_LABELS = Object.fromEntries(LIFE_EVENT_ITEMS.map(i => [i.key, i.label]));
+// Beside every offer, accept and counter (Rudy 11.04): the tools only say "I'd like to move forward", never a contract.
+const OFFER_TOOLS_LINE = "Not a purchase agreement. A California home sale needs a written contract signed by both sides, usually prepared by your agents. Accepting here only tells the other side you'd like to move forward.";
+// Under the comment box (fair housing).
+const COMPOSER_LINE = 'Describe the home, not who should live there or who lives nearby.';
+
+// An approved agent's identity at a point of contact: "Name · DRE #01234567 on file · Brokerage". "On file", never
+// "verified": the site doesn't vouch for anyone's license status today.
+function agentIdentity(name, licenseNumber, brokerageName) {
+  const lic = String(licenseNumber || '').trim();
+  const brok = String(brokerageName || '').trim();
+  if (!lic && !brok) return '';
+  return [name, lic ? `DRE #${lic} on file` : '', brok].filter(Boolean).join(' · ');
+}
 
 function money(n) {
   n = Number(n) || 0;
@@ -112,6 +122,7 @@ ${jsonLd}
   </main>
   <footer class="site-footer">
     <span class="footer-tagline">Amico Haus: the real estate marketplace of tomorrow! Everything that's missing from the real estate market for the homeowner!</span> <a href="/about">About</a> · <a href="/whats-new">What's New</a> · <a href="/calculator">Calculator</a> · <a href="/assumable-loans">Assumable loans</a> · <a href="/contact">Contact</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="https://www.instagram.com/amicohaus" target="_blank" rel="noopener noreferrer">Instagram</a> · <a href="https://www.tiktok.com/@amicohaus" target="_blank" rel="noopener noreferrer">TikTok</a> · <a href="https://www.youtube.com/@amicohaus" target="_blank" rel="noopener noreferrer">YouTube</a>
+    <p class="footer-legal">Equal Housing Opportunity · <a href="/accessibility">Accessibility</a></p>
   </footer>
 </div>
 <script src="/client.js?v=${ASSET_VERSIONS['/client.js']}"></script>
@@ -135,7 +146,7 @@ async function renderListingPage(context) {
   // Sample listings seeded for the demo have no public page: the demo and the live site stay separate.
   const listing = await db.prepare(
     `SELECT listings.*, users.id AS owner_id, users.display_name AS owner_name,
-            users.phone AS owner_phone, users.phone_public AS owner_phone_public, users.is_verified AS owner_verified,
+            users.phone AS owner_phone, users.phone_public AS owner_phone_public,
             owner_agent.license_number AS owner_license, owner_agent.brokerage_name AS owner_brokerage,
             desired_criteria.locations, desired_criteria.property_type AS desired_type,
             desired_criteria.price_min, desired_criteria.price_max,
@@ -159,12 +170,12 @@ async function renderListingPage(context) {
   // agent); otherwise visitors reach them through Amico Haus messages.
   const ownerPhone = await phoneVisibleTo(db, viewer, { id: listing.owner_id, phone: listing.owner_phone, phone_public: listing.owner_phone_public });
   // An approved agent who posted this (e.g. for a client) carries their DRE identity line at this point of contact
-  // (California rule): "Name · DRE #01234567 · Brokerage". Homeowners and buyers keep the plain name.
-  const ownerLicense = String(listing.owner_license || '').trim();
-  const ownerBrokerage = String(listing.owner_brokerage || '').trim();
-  const ownerIdentity = ownerLicense || ownerBrokerage ? identityLine({ name: listing.owner_name, licenseNumber: ownerLicense, brokerageName: ownerBrokerage }) : '';
-  const isOwnerOrAdmin = viewer && (viewer.id === listing.owner_id || viewer.role === 'admin');
-  const showAddress = listing.show_exact_address && isOwnerOrAdmin && listing.address;
+  // (California rule): "Name · DRE #01234567 on file · Brokerage". Homeowners and buyers keep the plain name.
+  const ownerIdentity = agentIdentity(listing.owner_name, listing.owner_license, listing.owner_brokerage);
+  const isOwner = !!viewer && viewer.id === listing.owner_id;
+  const isOwnerOrAdmin = !!viewer && (isOwner || viewer.role === 'admin');
+  // The street address is only ever shown to the owner (and admins), labeled so they know nobody else sees it.
+  const showAddress = isOwnerOrAdmin && listing.address;
 
   // Don't count the owner refreshing their own page — "X people viewed this"
   // should mean actual prospective matches, not the owner checking on it.
@@ -178,13 +189,11 @@ async function renderListingPage(context) {
   const description = listing.is_portfolio
     ? `A portfolio of ${members.length} properties, ${money(listing.estimated_value)} combined. Listed on Amico Haus, looking to trade for ${listing.desired_type || 'the right match'}.`
     : listing.is_rental
-    ? `${listing.property_type} · ${listing.beds}bd/${listing.baths}ba in ${listing.city}, ${listing.state}. Ultra-luxury rental at ${money(listing.rent_amount)}/mo on Amico Haus.`
-    : `${listing.property_type} · ${listing.beds}bd/${listing.baths}ba in ${listing.city}, ${listing.state}, valued around ${money(listing.estimated_value)}. Listed on Amico Haus, looking to trade for ${listing.desired_type || 'the right match'}.`;
+    ? `${listing.property_type} · ${listing.beds}bd/${listing.baths}ba in ${listing.city}, ${listing.state}. For rent at ${money(listing.rent_amount)}/mo on Amico Haus.`
+    : `${listing.property_type} · ${listing.beds}bd/${listing.baths}ba in ${listing.city}, ${listing.state}. Owner's estimated value ${money(listing.estimated_value)} (not an appraisal). Listed on Amico Haus, looking to trade for ${listing.desired_type || 'the right match'}.`;
 
-  const lifeEventTags = parseJsonSafe(listing.life_event_tags_json, []);
-  const lifeEventHtml = lifeEventTags.length
-    ? `<p class="tiny">${lifeEventTags.map(k => `<span class="badge badge-gold">${escapeHtml(LIFE_EVENT_LABELS[k] || k)}</span>`).join(' ')}</p>`
-    : '';
+  // "Why I'm moving" tags are never shown on this public page (fair housing and privacy): only the owner and their
+  // matches see them in the app.
 
   const similar = await fetchSimilarEntities(db, 'listing', { excludeId: id, city: listing.city, state: listing.state, propertyType: listing.property_type });
 
@@ -209,7 +218,7 @@ async function renderListingPage(context) {
   let offerHtml = '';
   if (canOffer) {
     if (!viewer) {
-      offerHtml = `<div class="card about-card"><h2>Make an Offer</h2><p class="tiny">Create a free account to submit a structured offer — price, financing, and timeline — directly to the owner.</p><a class="btn btn-primary btn-sm" href="/signup">Sign Up Free</a> <a class="tiny" href="/login">Have an account? Log in</a></div>`;
+      offerHtml = `<div class="card about-card"><h2>Make an Offer</h2><p class="tiny">Create a free account to tell the owner the price, financing and timeline you'd offer. It's not a purchase agreement.</p><a class="btn btn-primary btn-sm" href="/signup">Sign Up Free</a> <a class="tiny" href="/login">Have an account? Log in</a></div>`;
     } else {
       const myOffer = await fetchMyOffer(db, id, viewer.id);
       if (myOffer && myOffer.status === 'pending') {
@@ -218,6 +227,7 @@ async function renderListingPage(context) {
             <h2>Your Offer</h2>
             <p><strong>${money(myOffer.offerPrice)}</strong> — ${myOffer.financingType === 'cash' ? 'Cash' : 'Financed'} <span class="badge">pending</span></p>
             <div class="card-actions"><button type="button" class="btn btn-ghost btn-sm" data-action="withdraw-offer" data-id="${myOffer.id}">Withdraw Offer</button></div>
+            <p class="form-note">${OFFER_TOOLS_LINE}</p>
           </div>`;
       } else if (myOffer && myOffer.status === 'countered' && myOffer.counteredBy === 'owner') {
         offerHtml = `
@@ -236,6 +246,7 @@ async function renderListingPage(context) {
               <div class="field"><label>Message (optional)</label><textarea id="counterBackMessage" maxlength="1000"></textarea></div>
               <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="counter-back" data-id="${myOffer.id}">Send Counter</button></div>
             </details>
+            <p class="form-note">${OFFER_TOOLS_LINE}</p>
           </div>`;
       } else if (myOffer && myOffer.status === 'countered' && myOffer.counteredBy === 'buyer') {
         offerHtml = `
@@ -251,63 +262,77 @@ async function renderListingPage(context) {
         offerHtml = `
           <div class="card about-card" id="offerFormCard">
             <h2>Make an Offer</h2>
-            <p class="tiny">A structured offer — not just a message. The owner sees it directly; no funds move through Amico Haus.</p>
+            <p class="tiny">Tell the owner your price, financing and timeline. The owner sees it directly; no funds move through Amico Haus.</p>
             <div class="field"><label>Offer price ($)</label><input type="number" id="offerPrice" min="1" max="500000000" step="1000"></div>
             <div class="field"><label>Financing</label><select id="offerFinancingType"><option value="financed">Financed</option><option value="cash">Cash</option></select></div>
             <div class="field"><label>Proposed closing timeline</label><input type="text" id="offerClosingTimeline" maxlength="100" placeholder="e.g. 30 days"></div>
             <div class="field"><label>Contingencies</label><input type="text" id="offerContingencies" maxlength="500" placeholder="e.g. subject to inspection, financing approval"></div>
             <div class="field"><label>Message to the owner</label><textarea id="offerMessage" maxlength="1000"></textarea></div>
             <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="submit-offer" data-listing-id="${id}">Submit Offer</button></div>
+            <p class="form-note">${OFFER_TOOLS_LINE}</p>
           </div>`;
       }
     }
   }
 
-  // Public discussion thread -- readable by anyone, same as the listing page itself; posting requires
-  // sign-in. Reuses the same posts/comments API the SPA's deal threads use, no new comment logic here.
-  const threadPostId = await findOrCreateThreadPost(db, 'listing', id, listing.owner_id);
-  const blockClause = viewer
-    ? `AND NOT EXISTS (
-         SELECT 1 FROM user_blocks
-         WHERE (user_blocks.blocker_id = ? AND user_blocks.blocked_id = comments.user_id)
-            OR (user_blocks.blocker_id = comments.user_id AND user_blocks.blocked_id = ?)
-       )`
-    : '';
-  const likedByMeSelect = viewer
-    ? '(SELECT 1 FROM comment_likes WHERE comment_likes.comment_id = comments.id AND comment_likes.user_id = ?) AS liked_by_me'
-    : '0 AS liked_by_me';
-  const commentRows = await db.prepare(
-    `SELECT comments.id, comments.user_id, comments.body, comments.created_at, users.display_name AS author_name,
-            (SELECT COUNT(*) FROM comment_likes WHERE comment_likes.comment_id = comments.id) AS like_count,
-            ${likedByMeSelect}
-     FROM comments JOIN users ON users.id = comments.user_id
-     WHERE comments.post_id = ? ${blockClause}
-     ORDER BY comments.created_at ASC LIMIT 200`
-  ).bind(...(viewer ? [viewer.id] : []), threadPostId, ...(viewer ? [viewer.id, viewer.id] : [])).all();
-  const commentHtml = (c) => `
+  // Discussion thread: shown to signed-in members only, so other people's comments never sit on a public, indexed page.
+  // Reuses the same posts/comments API the SPA's deal threads use, no new comment logic here. Hidden comments
+  // (moderation, functions/_lib/moderation.js) are left out, except for their author and admins, labeled. A comment by
+  // an approved agent carries their DRE identity line (California rule).
+  let discussionHtml;
+  if (!viewer) {
+    discussionHtml = `
+    <div class="card about-card">
+      <h2>Discussion</h2>
+      <p class="tiny"><a href="/signup">Sign up free</a> to read and join the discussion about this home (or <a href="/login">log in</a>).</p>
+    </div>`;
+  } else {
+    const threadPostId = await findOrCreateThreadPost(db, 'listing', id, listing.owner_id);
+    const commentRows = await db.prepare(
+      `SELECT comments.id, comments.user_id, comments.body, comments.created_at, comments.hidden_at, comments.hidden_reason,
+              users.display_name AS author_name,
+              author_agent.license_number AS author_license, author_agent.brokerage_name AS author_brokerage,
+              (SELECT COUNT(*) FROM comment_likes WHERE comment_likes.comment_id = comments.id) AS like_count
+       FROM comments JOIN users ON users.id = comments.user_id
+       LEFT JOIN agent_profiles AS author_agent ON author_agent.user_id = comments.user_id AND author_agent.status = 'approved'
+       WHERE comments.post_id = ?1 AND (comments.hidden_at IS NULL OR comments.user_id = ?2 OR ?3 = 1)
+         AND NOT EXISTS (
+           SELECT 1 FROM user_blocks
+           WHERE (user_blocks.blocker_id = ?2 AND user_blocks.blocked_id = comments.user_id)
+              OR (user_blocks.blocker_id = comments.user_id AND user_blocks.blocked_id = ?2)
+         )
+       ORDER BY comments.created_at ASC LIMIT 200`
+    ).bind(threadPostId, viewer.id, viewer.role === 'admin' ? 1 : 0).all();
+    // The home's owner and admins can hide other people's comments here (POST /api/comments/:id/hide).
+    const canHideComments = viewer.id === listing.owner_id || viewer.role === 'admin';
+    const commentHtml = (c) => `
     <div class="side" data-comment-id="${c.id}">
-      <strong><a class="profile-link" href="/profile/${c.user_id}">${escapeHtml(c.author_name)}</a></strong> <span class="tiny">${timeAgo(c.created_at)}</span>
+      <strong><a class="profile-link" href="/profile/${c.user_id}">${escapeHtml(agentIdentity(c.author_name, c.author_license, c.author_brokerage) || c.author_name)}</a></strong> <span class="tiny">${timeAgo(c.created_at)}</span>
+      ${!c.hidden_at ? '' : viewer.id === c.user_id
+        ? '<p class="tiny">Hidden by moderation. Only you can see this comment.</p>'
+        : `<p class="tiny hidden-note">Hidden (admins only see this)${c.hidden_reason ? `: ${escapeHtml(c.hidden_reason)}` : ''} <button type="button" class="link-btn" data-action="unhide-content" data-kind="comment" data-id="${c.id}">Unhide</button></p>`}
       <p class="tiny">${escapeHtml(c.body)}</p>
-      ${viewer ? `<button type="button" class="link-btn" data-action="like-comment" data-id="${c.id}">👍 ${c.like_count || 0}</button>` : ''}
-      ${viewer && viewer.id === c.user_id
+      <button type="button" class="link-btn" data-action="like-comment" data-id="${c.id}">👍 ${c.like_count || 0}</button>
+      ${viewer.id === c.user_id
         ? `<button type="button" class="link-btn danger" data-action="delete-comment" data-id="${c.id}">Delete</button>`
-        : viewer ? `<button type="button" class="link-btn" data-action="report-comment" data-id="${c.id}">Report</button>` : ''}
+        : `<button type="button" class="link-btn" data-action="report-comment" data-id="${c.id}">Report</button>`}
+      ${canHideComments && viewer.id !== c.user_id && !c.hidden_at ? `<button type="button" class="link-btn" data-action="hide-comment" data-id="${c.id}">Hide</button>` : ''}
     </div>
   `;
-  const discussionHtml = `
+    discussionHtml = `
     <div class="card about-card">
       <h2>Discussion</h2>
       <div class="comments-list" id="comments-list-${threadPostId}">
         ${commentRows.results.map(commentHtml).join('') || '<p class="tiny">No comments yet.</p>'}
       </div>
-      ${viewer
-        ? `<form class="comment-form" data-post-id="${threadPostId}">
-             <input type="text" maxlength="1000" placeholder="Write a comment…" required>
-             <button type="submit" class="btn btn-ghost btn-sm">Send</button>
-           </form>`
-        : `<p class="tiny"><a href="/signup">Sign up free</a> to join the discussion (or <a href="/login">log in</a>).</p>`}
+      <form class="comment-form" data-post-id="${threadPostId}">
+        <input type="text" maxlength="1000" placeholder="Write a comment…" aria-label="Write a comment" required>
+        <button type="submit" class="btn btn-ghost btn-sm">Send</button>
+      </form>
+      <p class="form-note">${COMPOSER_LINE}</p>
     </div>
   `;
+  }
 
   const externalLinks = parseJsonSafe(listing.external_links, []);
   const virtualTour = externalLinks.find(l => l.label === 'Virtual Tour');
@@ -328,7 +353,7 @@ async function renderListingPage(context) {
       <div class="card-head">
         <div>
           <h1>${escapeHtml(listing.title || listing.property_type)}</h1>
-          <div class="card-agent">Listed by <a class="profile-link" href="/profile/${listing.owner_id}">${escapeHtml(ownerIdentity || listing.owner_name)}</a>${listing.owner_verified ? ' <span class="badge badge-verified" title="Verified by Amico Haus">✓ Verified</span>' : ''}${(listing.client_name && isOwnerOrAdmin) ? ` on behalf of <strong>${escapeHtml(listing.client_name)}</strong>` : ''}${isOwnerOrAdmin ? ` · ${listing.views} view${listing.views === 1 ? '' : 's'}` : ''}</div>
+          <div class="card-agent">Listed by <a class="profile-link" href="/profile/${listing.owner_id}">${escapeHtml(ownerIdentity || listing.owner_name)}</a>${(listing.client_name && isOwnerOrAdmin) ? ` on behalf of <strong>${escapeHtml(listing.client_name)}</strong>` : ''}${isOwnerOrAdmin ? ` · ${listing.views} view${listing.views === 1 ? '' : 's'}` : ''}</div>
         </div>
         <span class="badge badge-gold">${listing.is_portfolio ? `Portfolio · ${members.length}` : (listing.is_rental ? 'For Rent' : escapeHtml(listing.price_tier))}</span>
       </div>
@@ -337,10 +362,11 @@ async function renderListingPage(context) {
         <div class="mini-block">
           <span class="label">Has</span>
           ${listing.is_portfolio ? `${members.length} properties` : `${escapeHtml(listing.property_type)} · ${listing.beds}bd/${listing.baths}ba${listing.sqft ? ` · ${listing.sqft.toLocaleString('en-US')} sqft` : ''}`}<br>
-          ${showAddress ? escapeHtml(listing.address) + '<br>' : ''}${loc}${listing.is_portfolio ? ' (primary property)' : ''}<br>
+          ${showAddress ? `${escapeHtml(listing.address)} <span class="tiny">(${isOwner ? 'only you see this' : 'private: only the owner and admins see this'})</span><br>` : ''}${loc}${listing.is_portfolio ? ' (primary property)' : ''}<br>
+          <span class="tiny">Owner's estimated value (not an appraisal or list price)</span><br>
           ${money(listing.estimated_value)}${listing.is_portfolio ? ' combined' : ''} ${listing.is_portfolio ? '' : sparklineHtml(priceSeries)}
           ${listing.is_portfolio ? '' : `<div class="tiny">${daysOnMarketLabel(listing.created_at)}</div>`}
-          ${(() => { const lines = homeCostsLines(homeCostsFromRow(listing)); return lines.length ? `<p class="tiny"><span class="label">Costs</span> ${escapeHtml(lines.join(' · '))}</p>` : ''; })()}
+          ${(() => { const lines = homeCostsLines(homeCostsFromRow(listing)); return lines.length ? `<p class="tiny"><span class="label">${escapeHtml(HOME_COSTS_HEADING)}</span> ${escapeHtml(lines.join(' · '))}</p><p class="tiny">${escapeHtml(HOME_COSTS_CONFIRM_LINE)}</p>` : ''; })()}
         </div>
         ${listing.is_rental
           ? `<div class="mini-block">
@@ -355,9 +381,8 @@ async function renderListingPage(context) {
         </div>`}
       </div>
       ${listing.is_portfolio ? `<div class="mini-block"><span class="label">Includes</span>${members.map(m => `${escapeHtml(m.propertyType)} in ${escapeHtml(m.city)}, ${escapeHtml(m.state)} (${money(m.estimatedValue)})`).join('<br>')}</div><p class="tiny">This is a portfolio trade — all ${members.length} properties move together as one deal. The combined value is the sum of what the owner entered for each property, not an appraisal.</p>` : ''}
-      ${listing.is_rental ? '<p class="tiny">A lump-sum, multi-year prepayment may be negotiable in exchange for extra lease time — see the <a href="/calculator">rent-for-equity calculator</a> for an illustrative range. Not a guaranteed or platform-set term.</p>' : ''}
+      ${listing.is_rental ? '<p class="tiny">See the <a href="/calculator">rent calculator</a> for rough math from your own numbers. A large rent prepayment can be lost if the landlord sells, refinances or loses the home. Use escrow and a real estate attorney; California rules on advance rent may apply.</p>' : ''}
 
-      ${lifeEventHtml}
       ${listing.description ? `<p>${escapeHtml(listing.description)}</p>` : ''}
       ${linksHtml}
       ${!listing.is_rental ? `<p class="form-note trust"><strong>Talk to a lender.</strong> If a trade like this means financing a cash difference, rates, loan programs and approvals come from lenders, not from websites or real estate agents. Talk to your own mortgage broker, or use our preferred lender, <strong>Point Mortgage Corporation</strong> (NMLS #231073), at <a href="tel:+16194754095">(619) 475-4095</a>. You are always free to choose any lender you like, and you can verify any lender's license at nmlsconsumeraccess.org.</p>` : ''}
@@ -405,7 +430,9 @@ async function renderListingPage(context) {
     beds: listing.is_portfolio ? undefined : listing.beds,
     baths: listing.is_portfolio ? undefined : listing.baths,
     sqft: listing.is_portfolio ? undefined : listing.sqft,
-    price: listing.is_rental ? listing.rent_amount : listing.estimated_value,
+    // A trade listing's number is the owner's estimated value (not an appraisal or list price), so it's never
+    // published to search engines as an offer price; a rental's asking rent is.
+    price: listing.is_rental ? listing.rent_amount : undefined,
   });
 
   return new Response(renderShell(title, description, body, authCta, { jsonLd, image: shareImage, url: pageUrl }), {

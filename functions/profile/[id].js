@@ -6,23 +6,28 @@
 import { getSessionUser, phoneVisibleTo } from '../_lib/auth.js';
 import { fetchPastClientReviews, fetchPastClientSummary, PAST_CLIENT_SIDES } from '../_lib/pastClientReviews.js';
 import { escapeHtml, parseJsonSafe, DEMO_EMAIL_PATTERN } from '../_lib/util.js';
-import { getAgentProfile, fetchAgentPortfolioPhotos } from '../_lib/agents.js';
+import { getAgentProfile, fetchAgentPortfolioPhotos, dreLookupUrl } from '../_lib/agents.js';
 import { fetchAgentReviews, fetchAgentRatingSummary, fetchAgentStats } from '../_lib/marketplace.js';
 import { fetchAgentPackages } from '../_lib/agentPackages.js';
 import { fetchCaseStudies } from '../_lib/caseStudies.js';
-import { fetchActiveTeamName } from '../_lib/agentTeams.js';
+import { fetchActiveTeamName, teamDisplayName } from '../_lib/agentTeams.js';
 import { fetchFavoriteAgentIds } from '../_lib/favoriteAgents.js';
 import { fetchPortfolioMembers } from '../_lib/portfolios.js';
 import { propertyArtUrl } from '../_lib/propertyArt.js';
 import { ASSET_VERSIONS } from '../_lib/assetVersions.js';
 import { withSecurityHeaders } from '../_lib/withSecurityHeaders.js';
-import { fetchFoundingZips } from '../_lib/zipBoard.js';
+import { fetchFoundingZips, foundingCaption } from '../_lib/zipBoard.js';
 
 // Shown with someone's phone number on their own profile (it's private unless they turn it on).
 const PHONE_PRIVATE_NOTE = "Private unless you turn on 'Show my phone number' in You're in Control.";
 const PHONE_PUBLIC_NOTE = "Shown on your public profile and listings. You can turn this off in You're in Control.";
 // The settings live in the app (main.js opens them for /app#control).
 const CONTROL_LINK = '<a href="/app#control">Change this setting</a>';
+
+// Shown beside every review section (Rudy 11.04, Fair Play): the person who runs the site also competes as an agent.
+const OPERATOR_LINE = 'Amico Haus is run by Rudy Flores, a Coldwell Banker West agent who may compete for the same homes.';
+// Shown beside agent fee chips.
+const FEE_LINE = 'Each agent sets their own fees; commissions are negotiable and not set by law or by Amico Haus.';
 
 // Signed-out visitors can't message anyone, so they get the way in instead of a button that can only fail.
 const SIGN_UP_TO_MESSAGE = '<a class="btn btn-primary btn-sm" href="/signup">Sign up to message</a> <a class="btn btn-ghost btn-sm" href="/login">Log in</a>';
@@ -82,10 +87,25 @@ function packageChipHtml(pkg) {
 function personHeadHtml({ avatar, nameHtml, sub = '', chips = [] }) {
   return `<div class="person-head">${avatar}<div class="person-main"><h1>${nameHtml}</h1>${sub ? `<p class="tiny">${escapeHtml(sub)}</p>` : ''}${chips.length ? `<div class="chip-row chip-row-tight">${chips.join('')}</div>` : ''}</div></div>`;
 }
+// A plain fact, never a badge: "★ 4.8 from 3 homeowners who hired them here".
 function ratingChipHtml(rating, reviewCount) {
   return rating
-    ? `<span class="chip chip-star"><span class="chip-star-mark" aria-hidden="true">★</span>${escapeHtml(String(rating))} <span class="chip-k">· ${reviewCount} review${reviewCount === 1 ? '' : 's'}</span></span>`
+    ? `<span class="chip chip-star"><span class="chip-star-mark" aria-hidden="true">★</span>${escapeHtml(String(rating))} <span class="chip-k">from ${reviewCount} homeowner${reviewCount === 1 ? '' : 's'} who hired them here</span></span>`
     : chipHtml('No reviews yet', 'outline');
+}
+// "Name Team", unless the name already ends in Team, Group or Associates (the shared rule in agentTeams.js).
+const teamLabel = teamDisplayName;
+// "Oct 30, 2026" for a SQLite UTC timestamp, in Pacific time.
+function shortDate(sqlTime) {
+  const d = new Date(String(sqlTime).replace(' ', 'T') + 'Z');
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/Los_Angeles' });
+}
+// The license line on an agent's profile (Rudy 11.04): what's on file, when an admin last looked it up, and a link to
+// the DRE's own lookup. Never "verified": the site doesn't vouch for anyone's status today.
+function licenseLineHtml(licenseNumber, checkedAt) {
+  if (!licenseNumber) return '';
+  const checked = checkedAt ? shortDate(checkedAt) : '';
+  return `<p class="tiny license-line">DRE license #${escapeHtml(licenseNumber)} on file${checked ? ` · checked ${escapeHtml(checked)}` : ''} · <a href="${escapeHtml(dreLookupUrl(licenseNumber))}" target="_blank" rel="noopener noreferrer">Check current status</a></p>`;
 }
 // Same as agent-cards.js: days round up so the label matches the directory's "within N days" filter.
 function formatResponseHours(hours) {
@@ -146,6 +166,7 @@ ${jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd)}</script
   </main>
   <footer class="site-footer">
     <span class="footer-tagline">Amico Haus: the real estate marketplace of tomorrow! Everything that's missing from the real estate market for the homeowner!</span> <a href="/about">About</a> · <a href="/whats-new">What's New</a> · <a href="/calculator">Calculator</a> · <a href="/assumable-loans">Assumable loans</a> · <a href="/contact">Contact</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="https://www.instagram.com/amicohaus" target="_blank" rel="noopener noreferrer">Instagram</a> · <a href="https://www.tiktok.com/@amicohaus" target="_blank" rel="noopener noreferrer">TikTok</a> · <a href="https://www.youtube.com/@amicohaus" target="_blank" rel="noopener noreferrer">YouTube</a>
+    <p class="footer-legal">Equal Housing Opportunity · <a href="/accessibility">Accessibility</a></p>
   </footer>
 </div>
 <script src="/client.js?v=${ASSET_VERSIONS['/client.js']}"></script>
@@ -213,8 +234,8 @@ async function renderUserProfilePage(context, db, user, { viewer, isMine, isAdmi
   const posts = await db.prepare(
     `SELECT posts.id, posts.body, posts.created_at,
             (SELECT COUNT(*) FROM post_likes WHERE post_likes.post_id = posts.id) AS like_count,
-            (SELECT COUNT(*) FROM comments WHERE comments.post_id = posts.id) AS comment_count
-     FROM posts WHERE posts.user_id = ? ORDER BY posts.created_at DESC LIMIT 15`
+            (SELECT COUNT(*) FROM comments WHERE comments.post_id = posts.id AND comments.hidden_at IS NULL) AS comment_count
+     FROM posts WHERE posts.user_id = ? AND posts.hidden_at IS NULL ORDER BY posts.created_at DESC LIMIT 15`
   ).bind(user.id).all();
 
   const joined = user.created_at ? new Date(user.created_at + 'Z').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '';
@@ -234,14 +255,14 @@ async function renderUserProfilePage(context, db, user, { viewer, isMine, isAdmi
 
   const listingCard = l => `
     <div class="card">
-      <img class="directory-thumb" src="${l.photo_id ? `/api/photos/${l.photo_id}` : propertyArtUrl(l.property_type, l.id)}" alt="${l.photo_id ? '' : 'Illustrative photo, not this home'}" loading="lazy">
+      <img class="directory-thumb" src="${l.photo_id ? `/api/photos/${l.photo_id}` : propertyArtUrl(l.property_type, l.id)}" alt="${l.photo_id ? escapeHtml(`Photo of ${l.title || l.property_type} in ${l.city}`) : 'Illustrative photo, not this home'}" loading="lazy">
       ${l.photo_id ? '' : '<span class="photo-caption">Illustrative photo</span>'}
       <div class="card-head">
         <h3><a class="profile-link" href="/listing/${l.id}">${escapeHtml(l.title || l.property_type)}</a></h3>
         <span class="badge badge-gold">${l.is_portfolio ? `Portfolio · ${(membersByPortfolio.get(l.id) || []).length}` : (l.is_rental ? 'For Rent' : escapeHtml(l.price_tier))}</span>
       </div>
       <div class="mini-two">
-        <div class="mini-block"><span class="label">Has</span>${l.is_portfolio ? `${(membersByPortfolio.get(l.id) || []).length} properties` : `${escapeHtml(l.property_type)} · ${l.beds}bd/${l.baths}ba`}<br>${l.neighborhood ? escapeHtml(l.neighborhood) + ', ' : ''}${escapeHtml(l.city)}, ${escapeHtml(l.state)}<br>${money(l.estimated_value)}${l.is_portfolio ? ' combined' : ''}</div>
+        <div class="mini-block"><span class="label">Has</span>${l.is_portfolio ? `${(membersByPortfolio.get(l.id) || []).length} properties` : `${escapeHtml(l.property_type)} · ${l.beds}bd/${l.baths}ba`}<br>${l.neighborhood ? escapeHtml(l.neighborhood) + ', ' : ''}${escapeHtml(l.city)}, ${escapeHtml(l.state)}<br>${money(l.estimated_value)}${l.is_portfolio ? ' combined' : ''} <span class="tiny">(owner's estimated value)</span></div>
         ${l.is_portfolio
           ? `<div class="mini-block"><span class="label">Includes</span>${(membersByPortfolio.get(l.id) || []).map(m => `${escapeHtml(m.propertyType)} in ${escapeHtml(m.city)}, ${escapeHtml(m.state)}`).join('<br>')}</div>`
           : (l.is_rental
@@ -264,12 +285,12 @@ async function renderUserProfilePage(context, db, user, { viewer, isMine, isAdmi
     <div class="card" id="profileCard" data-user-id="${user.id}">
       <div class="card-head">
         <div>
-          <h1>${escapeHtml(user.display_name)} ${user.is_verified ? '<span class="badge badge-verified" title="Verified by Amico Haus">✓ Verified</span>' : ''}</h1>
+          <h1>${escapeHtml(user.display_name)}</h1>
           ${joined ? `<p class="tiny">Member since ${joined}</p>` : ''}
         </div>
         ${isMine ? '<button type="button" class="btn btn-ghost btn-sm" id="editBioBtn">Edit Profile</button>' : ''}
         ${isMine ? '' : viewer ? `<button type="button" class="btn btn-primary btn-sm" id="messageUserBtn" data-id="${user.id}" data-name="${escapeHtml(user.display_name)}">Message</button>` : SIGN_UP_TO_MESSAGE}
-        ${isAdmin ? `<button type="button" class="btn btn-ghost btn-sm" id="toggleVerifiedBtn" data-id="${user.id}" data-action="${user.is_verified ? 'unverify' : 'verify'}">${user.is_verified ? 'Remove Verification' : 'Mark as Verified'}</button>` : ''}
+        ${isAdmin ? `<button type="button" class="btn btn-ghost btn-sm" id="toggleVerifiedBtn" data-id="${user.id}" data-action="${user.is_verified ? 'unverify' : 'verify'}">${user.is_verified ? 'Clear admin "verified" note' : 'Admin note: verified (never shown publicly)'}</button>` : ''}
       </div>
       <div id="bioSection" data-bio="${escapeHtml(user.bio || '')}">
         <p>${user.bio ? escapeHtml(user.bio) : '<span class="tiny">No bio yet.</span>'}</p>
@@ -320,14 +341,14 @@ async function renderAgentProfilePage(context, db, user, agentProfile, { viewer,
   const isFavorited = viewer ? (await fetchFavoriteAgentIds(db, viewer.id)).includes(user.id) : false;
   // An agent's phone shows here only once they turn on "Show my phone number", the same rule as everyone's.
   const phone = isMine ? (user.phone_public ? String(user.phone || '').trim() : '') : await phoneVisibleTo(db, viewer, user);
-  const topRated = ratingSummary.avgRating >= 4.5 && ratingSummary.reviewCount >= 3 && stats.winRate !== null && stats.winRate >= 0.3;
 
   const title = `${user.display_name}, Real Estate Agent${agentProfile.brokerageName ? ` at ${agentProfile.brokerageName}` : ''} — Amico Haus`;
   const description = [
-    `${user.display_name} is a vetted real estate agent on Amico Haus`,
+    `${user.display_name} is an approved real estate agent on Amico Haus`,
     agentProfile.brokerageName ? ` with ${agentProfile.brokerageName}` : '',
+    agentProfile.licenseNumber ? ` (DRE #${agentProfile.licenseNumber})` : '',
     agentProfile.yearsExperience ? `, ${agentProfile.yearsExperience} years experience` : '',
-    ratingSummary.avgRating ? `, rated ${ratingSummary.avgRating}/5 (${ratingSummary.reviewCount} review${ratingSummary.reviewCount === 1 ? '' : 's'})` : '',
+    ratingSummary.avgRating ? `, rated ${ratingSummary.avgRating}/5 by ${ratingSummary.reviewCount} homeowner${ratingSummary.reviewCount === 1 ? '' : 's'} who hired them here` : '',
     '.',
   ].join('');
 
@@ -336,13 +357,13 @@ async function renderAgentProfilePage(context, db, user, agentProfile, { viewer,
     chipHtml(agentProfile.acceptingClients ? 'Accepting new clients' : 'Not accepting new clients', agentProfile.acceptingClients ? 'good' : 'bad'),
     // The admin account that runs Amico Haus, when it competes as an agent: always labeled (Fair Play rules).
     user.role === 'admin' ? chipHtml('Platform operator: runs Amico Haus', 'outline') : '',
-    agentProfile.licenseVerified ? chipHtml('License checked on DRE', 'good') : '',
-    foundingZips.length ? chipHtml(`Founding agent · ${foundingZips.join(', ')}`, 'good') : '',
+    // Founding = among the first 3 approved agents in a launch ZIP; recognition only (the tooltip says so).
+    foundingZips.length ? `<span class="chip chip-good" title="${escapeHtml(foundingCaption(foundingZips))}">${escapeHtml(`Founding agent · ${foundingZips.join(', ')}`)}</span>` : '',
     agentProfile.carriesEoInsurance ? chipHtml('E&O insured (self-reported)', 'good') : '',
     agentProfile.soloAgent ? chipHtml('Sole point of contact', 'outline') : '',
   ].filter(Boolean);
   const onPlatformChips = [
-    stats.acceptedBids > 0 ? statChipHtml('Hired here', `${stats.acceptedBids} time${stats.acceptedBids === 1 ? '' : 's'}`) : '',
+    stats.acceptedBids > 0 ? statChipHtml('Proposal accepted', `${stats.acceptedBids} time${stats.acceptedBids === 1 ? '' : 's'} here`) : '',
     stats.finalistCount > 0 ? statChipHtml('Finalist', `${stats.finalistCount} home${stats.finalistCount === 1 ? '' : 's'}`) : '',
     respLabel ? statChipHtml('Proposal speed', respLabel) : '',
     caseStudies.length ? statChipHtml('Case studies', String(caseStudies.length)) : '',
@@ -366,7 +387,7 @@ async function renderAgentProfilePage(context, db, user, agentProfile, { viewer,
     chipBlockHtml('Self-reported', selfReportedChips),
     chipBlockHtml('Specialties', specialtyChips),
     chipBlockHtml('Speaks', languageChips),
-    chipBlockHtml('Fees & packages', feeChips, { hint: packages.length ? 'Hover or tap a package to see what’s included.' : '' }),
+    chipBlockHtml('Fees & packages', feeChips, { hint: `${packages.length ? 'Hover or tap a package to see what’s included. ' : ''}${FEE_LINE}` }),
   ].filter(Boolean).join('');
 
   const photoGallery = photos.length
@@ -396,11 +417,13 @@ async function renderAgentProfilePage(context, db, user, agentProfile, { viewer,
       `).join('')
     : '<div class="empty-state">No reviews yet.</div>';
   // Bring Your Reviews: always labeled and kept apart from reviews of agents hired here.
+  // Signed-in visitors can report one (e.g. as fake): only such a report shows the reviewer's details to an admin.
   const pastReviewsHtml = pastReviews.map(r => `
-        <div class="side">
+        <div class="side" data-report-host>
           <strong>${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)}</strong>
           <span class="tiny">${escapeHtml(r.reviewerName)} · ${escapeHtml(PAST_CLIENT_SIDES[r.clientSide] || '')} in ${r.saleYear}, ${escapeHtml(r.saleCity)}</span>
           ${r.comment ? `<p class="tiny">${escapeHtml(r.comment)}</p>` : ''}
+          ${viewer && !isMine && viewer.id !== r.reviewerUserId ? `<button type="button" class="link-btn" data-action="report-past-review" data-id="${Number(r.id)}">Report</button>` : ''}
         </div>
       `).join('');
 
@@ -409,20 +432,23 @@ async function renderAgentProfilePage(context, db, user, agentProfile, { viewer,
     <div class="card" id="profileCard" data-user-id="${user.id}" data-agent="1">
       ${personHeadHtml({
         avatar: avatarHtml(user.display_name, { seed: user.id, size: 'lg' }),
-        nameHtml: `${escapeHtml(user.display_name)}${user.is_verified ? ' <span class="badge badge-verified" title="Verified by Amico Haus">✓ Verified</span>' : ''}${topRated ? ' <span class="badge badge-gold">🏆 Top Rated</span>' : ''}`,
-        // The DRE license number and brokerage, as California requires wherever an agent meets a homeowner.
-        sub: [agentProfile.licenseNumber ? `DRE #${agentProfile.licenseNumber}` : '', agentProfile.brokerageName, teamName ? `${teamName} Team` : ''].filter(Boolean).join(' · '),
+        // No "Verified" and no "Top Rated" badge (Rudy 11.04): the site doesn't vouch for or rank agents.
+        nameHtml: escapeHtml(user.display_name),
+        // The brokerage (and team) here and the DRE license line right below, as California requires wherever an
+        // agent meets a homeowner.
+        sub: [agentProfile.brokerageName, teamLabel(teamName)].filter(Boolean).join(' · '),
         chips: [ratingChipHtml(ratingSummary.avgRating, ratingSummary.reviewCount), agentProfile.yearsExperience ? chipHtml(`${agentProfile.yearsExperience} yrs experience`, 'outline') : ''].filter(Boolean),
       })}
+      ${licenseLineHtml(agentProfile.licenseNumber, agentProfile.licenseCheckedAt)}
       <div class="card-actions">
         ${isMine ? '' : viewer ? `<button type="button" class="btn btn-primary btn-sm" id="messageUserBtn" data-id="${user.id}" data-name="${escapeHtml(user.display_name)}">Message</button>` : SIGN_UP_TO_MESSAGE}
         ${viewer && !isMine ? `<button type="button" class="btn btn-ghost btn-sm" id="favoriteAgentBtn" data-id="${user.id}">${isFavorited ? '★ Favorited' : '☆ Favorite'}</button>` : ''}
-        ${isAdmin ? `<button type="button" class="btn btn-ghost btn-sm" id="toggleVerifiedBtn" data-id="${user.id}" data-action="${user.is_verified ? 'unverify' : 'verify'}">${user.is_verified ? 'Remove Verification' : 'Mark as Verified'}</button>` : ''}
+        ${isAdmin ? `<button type="button" class="btn btn-ghost btn-sm" id="toggleVerifiedBtn" data-id="${user.id}" data-action="${user.is_verified ? 'unverify' : 'verify'}">${user.is_verified ? 'Clear admin "verified" note' : 'Admin note: verified (never shown publicly)'}</button>` : ''}
       </div>
       ${phone ? `<p class="tiny"><span class="label">Phone</span> <a href="tel:${escapeHtml(phone.replace(/[^0-9+]/g, ''))}">${escapeHtml(phone)}</a></p>` : ''}
       ${agentProfile.bio ? `<p>${escapeHtml(agentProfile.bio)}</p>` : ''}
       ${agentProfile.certifications ? `<p class="tiny"><span class="label">Certifications (self-reported)</span> ${escapeHtml(agentProfile.certifications)}</p>` : ''}
-      <p class="tiny">Before approving an agent, Amico Haus looks up their license on the California DRE's public license lookup. It's still worth confirming a license yourself before engaging anyone.</p>
+      <p class="tiny">Before approving an agent, Amico Haus looks up their license on the California DRE's public license lookup. Check an agent's current license status anytime on the DRE's public lookup before engaging anyone.</p>
       <div class="agent-details">${agentDetailsBody}</div>
     </div>
 
@@ -430,9 +456,10 @@ async function renderAgentProfilePage(context, db, user, agentProfile, { viewer,
     ${photoGallery ? `<h2>Portfolio</h2>${photoGallery}` : ''}
     ${caseStudiesHtml ? `<h2>Case Studies</h2><div class="grid">${caseStudiesHtml}</div>` : ''}
     <h2>Reviews from homeowners who hired them on Amico Haus</h2>
+    <p class="tiny">${OPERATOR_LINE}</p>
     <div class="stack">${reviewsHtml}</div>
     ${pastReviews.length ? `<h2>Past clients, outside Amico Haus</h2>
-    <p class="tiny">${pastSummary.count} review${pastSummary.count === 1 ? '' : 's'} averaging ${pastSummary.avgRating} stars from people this agent helped outside Amico Haus${agentProfile.reviewInviteFromYear ? `. The agent agreed to send their review link to every client they helped from ${agentProfile.reviewInviteFromYear}${agentProfile.reviewInviteToYear !== agentProfile.reviewInviteFromYear ? ` to ${agentProfile.reviewInviteToYear}` : ''}` : ''}. Agents can't hide or remove these reviews; Amico Haus removes one only if it's fake, abusive or not about the agent's work, the same rule for every rating. Not yet checked against public sale records.</p>
+    <p class="tiny">${pastSummary.count} review${pastSummary.count === 1 ? '' : 's'} averaging ${pastSummary.avgRating} stars from people this agent helped outside Amico Haus${agentProfile.reviewInviteFromYear ? `. The agent agreed to send their review link to every client they helped from ${agentProfile.reviewInviteFromYear}${agentProfile.reviewInviteToYear !== agentProfile.reviewInviteFromYear ? ` to ${agentProfile.reviewInviteToYear}` : ''}` : ''}. Agents can't hide or remove these reviews; Amico Haus removes one only if it's fake, abusive or not about the agent's work, the same rule for every rating. Amico Haus doesn't check these against sale records. ${OPERATOR_LINE}</p>
     <div class="stack">${pastReviewsHtml}</div>` : ''}
   `;
 

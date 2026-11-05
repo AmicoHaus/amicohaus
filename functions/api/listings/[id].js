@@ -7,6 +7,7 @@ import { notifyNewMatches } from '../../_lib/matchNotify.js';
 import { snapshotListingForTrash } from '../../_lib/trash.js';
 import { DEMO_EMAIL_PATTERN } from '../../_lib/util.js';
 import { logMarketEventUnlessDemo } from '../../_lib/marketEvents.js';
+import { deleteR2Keys } from '../../_lib/r2Cleanup.js';
 
 async function loadListing(db, id) {
   return db.prepare(
@@ -49,7 +50,10 @@ export async function onRequestGet(context) {
     delete safe.views;
   }
   safe.external_links = parseJsonSafe(listing.external_links, []);
-  safe.life_event_tags = parseJsonSafe(listing.life_event_tags_json, []);
+  // Why the owner is moving (optional) is shown only to the owner and their matches (functions/api/matches.js),
+  // never to every visitor.
+  delete safe.life_event_tags_json;
+  if (isOwnerOrAdmin) safe.life_event_tags = parseJsonSafe(listing.life_event_tags_json, []);
   // The body differs per viewer (the owner gets the address), so no shared cache may keep it.
   return json({ listing: safe, isOwner: isOwnerOrAdmin }, { headers: { 'Cache-Control': 'private, no-store' } });
 }
@@ -60,7 +64,7 @@ export async function onRequestPut(context) {
   if (!user) return unauthorized();
 
   const db = context.env.DB;
-  const existing = await db.prepare('SELECT user_id, is_buyer_only, is_rental, is_portfolio, estimated_value FROM listings WHERE id = ?').bind(id).first();
+  const existing = await db.prepare('SELECT user_id, is_buyer_only, is_rental, is_portfolio, estimated_value, hidden_at, hidden_reason FROM listings WHERE id = ?').bind(id).first();
   if (!existing) return notFound('Listing not found.');
   if (existing.user_id !== user.id && user.role !== 'admin') return forbidden();
 
@@ -73,6 +77,13 @@ export async function onRequestPut(context) {
 
   let body;
   try { body = await context.request.json(); } catch { return badRequest('Invalid request body.'); }
+
+  // Moderation: an admin can hide (pause) or show again, or remove, someone else's listing, but never change what
+  // the owner wrote, so no admin can be said to have altered a listing.
+  const isAdminOnOthers = existing.user_id !== user.id;
+  if (isAdminOnOthers && (body.action === 'edit' || body.description !== undefined || !body.status)) {
+    return forbidden("An admin can hide or remove someone else's listing, but not edit it.");
+  }
 
   // Full edit: the client sends the whole create-shaped payload plus
   // action: 'edit'. A portfolio's membership can't be edited (dissolve and
@@ -100,24 +111,39 @@ export async function onRequestPut(context) {
     // widens a price range or drops a beds/baths minimum can surface a wave
     // of new matches at once.
     context.waitUntil(notifyNewMatches(context, id));
-  // An admin acting on someone else's content is on the admin activity log.
-    if (existing.user_id !== user.id) await logAdminAction(db, user.id, 'edit_listing', 'listing', id);
     return json({ ok: true });
   }
 
   if (body.status && !['active', 'paused'].includes(body.status)) return badRequest('Invalid status.');
 
+  // A listing an admin paused (moderation, hidden_at set) stays paused until an admin makes it active again.
+  if (user.role !== 'admin' && body.status === 'active' && existing.hidden_at) {
+    return json({ error: 'Paused by Amico Haus: ' + (existing.hidden_reason || 'a rules problem'), code: 'moderation_paused' }, { status: 403 });
+  }
+  // ...and an admin only undoes a moderation pause: a listing its owner paused themselves is theirs to reactivate.
+  if (isAdminOnOthers && body.status === 'active' && !existing.hidden_at) {
+    return json({ error: "This listing wasn't paused by Amico Haus. Its owner paused it, so only they can reactivate it.", code: 'owner_paused' }, { status: 403 });
+  }
+
   const fields = [];
   const values = [];
   if (body.status) { fields.push('status = ?'); values.push(body.status); }
-  if (typeof body.showExactAddress === 'boolean') { fields.push('show_exact_address = ?'); values.push(body.showExactAddress ? 1 : 0); }
+  if (isAdminOnOthers && body.status === 'paused') {
+    fields.push("hidden_at = datetime('now')", 'hidden_reason = ?');
+    values.push(clampString(body.reason, 300) || existing.hidden_reason || 'Paused by an admin');
+  } else if (user.role === 'admin' && body.status === 'active') {
+    fields.push('hidden_at = NULL', 'hidden_reason = NULL');
+  }
+  // (The old "reveal exact address once matched" switch is gone: a listing's street address is only ever shown to
+  // its owner, so showExactAddress is no longer accepted here.)
   if (body.description !== undefined) { fields.push('description = ?'); values.push(clampString(body.description, 2000)); }
 
   if (fields.length > 0) {
     fields.push("updated_at = datetime('now')");
     values.push(id);
     await db.prepare(`UPDATE listings SET ${fields.join(', ')} WHERE id = ?`).bind(...values).run();
-    if (existing.user_id !== user.id) await logAdminAction(db, user.id, 'edit_listing', 'listing', id);
+    // An admin acting on someone else's content is on the admin activity log.
+    if (isAdminOnOthers) await logAdminAction(db, user.id, body.status === 'paused' ? 'hide_listing' : 'unhide_listing', 'listing', id);
   }
 
   return json({ ok: true });
@@ -146,14 +172,22 @@ export async function onRequestDelete(context) {
   // A portfolio never goes through the trash/undo path below since dissolving
   // is already non-destructive. An admin removing someone ELSE's listing
   // (moderation) also skips it — that's often for cause, and letting the
-  // affected user self-restore would defeat the point.
+  // affected user self-restore would defeat the point. Only the trash keeps
+  // the photos (for a restore); otherwise they're read here, before the rows
+  // cascade away, and removed from storage once the listing is gone.
+  const toTrash = !existing.is_portfolio && existing.user_id === user.id;
+  let photoKeys = [];
   if (existing.is_portfolio) {
     await releasePortfolioMembers(db, id);
-  } else if (existing.user_id === user.id) {
+  } else if (toTrash) {
     await snapshotListingForTrash(db, id);
+  }
+  if (!toTrash) {
+    photoKeys = (await db.prepare('SELECT r2_key FROM listing_photos WHERE listing_id = ?').bind(id).all()).results.map(r => r.r2_key);
   }
 
   await db.prepare('DELETE FROM listings WHERE id = ?').bind(id).run();
+  await deleteR2Keys(context.env.PHOTOS, photoKeys);
   if (user.role === 'admin' && existing.user_id !== user.id) {
     await logAdminAction(db, user.id, 'delete_listing', 'listing', id);
   }

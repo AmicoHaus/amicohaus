@@ -2,6 +2,8 @@ import { getSessionUser } from '../../../../_lib/auth.js';
 import { json, badRequest, unauthorized, forbidden, notFound, clampString } from '../../../../_lib/util.js';
 import { validateScores, parseJsonArray } from '../../../../_lib/sellerPrep.js';
 import { notifyInterviewScheduled, notifyInterviewCanceled } from '../../../../_lib/marketplaceNotify.js';
+import { isEitherBlocked } from '../../../../_lib/blocks.js';
+import { ownerIsActive } from '../../../../_lib/visibility.js';
 
 // The agent picks one of the offered times ({ chosenSlot }); the owner cancels ({ action: 'cancel' }), or saves
 // their private scorecard and notes ({ scores, ownerNotes, done }).
@@ -21,6 +23,7 @@ export async function onRequestPut(context) {
   try { body = await context.request.json(); } catch { return badRequest('Invalid request body.'); }
 
   if (user.id === agentId) {
+    if (!(await ownerIsActive(db, row.owner_id)) || await isEitherBlocked(db, user.id, row.owner_id)) return notFound('Pre-listing not found.');
     if (row.pre_listing_status !== 'open' || !['requested', 'scheduled'].includes(row.status)) return badRequest('This interview is no longer open.');
     const slot = String(body.chosenSlot || '');
     if (row.status === 'scheduled' && row.chosen_slot === slot) return json({ ok: true, status: 'scheduled', chosenSlot: slot });

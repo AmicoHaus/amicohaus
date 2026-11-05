@@ -9,7 +9,7 @@ const byName = (a, b) => a.displayName.localeCompare(b.displayName);
 const SORTS = {
   name: byName,
   distance: (a, b) => (a.distanceMiles ?? Infinity) - (b.distanceMiles ?? Infinity) || byName(a, b),
-  // 3+ reviews first (the same bar Top Rated uses), so one 5-star review can't outrank a 4.8 average over 40.
+  // 3+ reviews first, so one 5-star review can't outrank a 4.8 average over 40 (a sort the viewer picks, not a badge).
   highestRated: (a, b) => {
     const tier = e => (e.reviewCount >= 3 ? 0 : e.reviewCount > 0 ? 1 : 2);
     return tier(a) - tier(b) || (b.rating ?? 0) - (a.rating ?? 0) || b.reviewCount - a.reviewCount || byName(a, b);

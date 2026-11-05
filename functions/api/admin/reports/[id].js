@@ -1,9 +1,12 @@
 import { getSessionUser } from '../../../_lib/auth.js';
 import { json, badRequest, unauthorized, forbidden, notFound } from '../../../_lib/util.js';
 import { logAdminAction } from '../../../_lib/audit.js';
+import { hideContent, cleanReason, REASON_REQUIRED_ERROR } from '../../../_lib/moderation.js';
 
-const DELETE_TABLE = { post: 'posts', comment: 'comments', listing: 'listings' };
-
+// { action: 'resolve' | 'dismiss' } closes a report. { action: 'hide_target', reason } (the older 'delete_target'
+// means the same) takes the reported thing down without deleting it (Rudy 11.04): a post or comment is hidden and its
+// author is told the reason; a listing is paused and its owner is told. A reported person can't be "hidden": the
+// admin resolves the report and, if needed, suspends the account from the user page.
 export async function onRequestPost(context) {
   const id = context.params.id;
   const user = await getSessionUser(context);
@@ -12,19 +15,33 @@ export async function onRequestPost(context) {
 
   let body;
   try { body = await context.request.json(); } catch { return badRequest('Invalid request body.'); }
-  const action = body.action;
-  if (!['resolve', 'dismiss', 'delete_target'].includes(action)) return badRequest('Invalid action.');
+  const action = body.action === 'delete_target' ? 'hide_target' : body.action;
+  if (!['resolve', 'dismiss', 'hide_target'].includes(action)) return badRequest('Invalid action.');
 
   const db = context.env.DB;
   const report = await db.prepare('SELECT * FROM reports WHERE id = ?').bind(id).first();
   if (!report) return notFound('Report not found.');
 
-  if (action === 'delete_target') {
-    const table = DELETE_TABLE[report.target_type];
-    if (table) {
-      await db.prepare(`DELETE FROM ${table} WHERE id = ?`).bind(report.target_id).run();
-      await logAdminAction(db, user.id, 'delete_reported_content', report.target_type, report.target_id, { reportId: id });
+  if (action === 'hide_target') {
+    const reason = cleanReason(body.reason);
+    if (!reason) return json({ error: REASON_REQUIRED_ERROR, code: 'reason_required' }, { status: 400 });
+    if (report.target_type === 'post' || report.target_type === 'comment') {
+      await hideContent(db, report.target_type, report.target_id, reason);
+    } else if (report.target_type === 'listing') {
+      const listing = await db.prepare('SELECT user_id FROM listings WHERE id = ?').bind(report.target_id).first();
+      if (listing) {
+        // hidden_at marks the pause as moderation, so the owner can't simply reactivate it (listings/[id].js PUT).
+        await db.prepare("UPDATE listings SET status = 'paused', hidden_at = datetime('now'), hidden_reason = ?, updated_at = datetime('now') WHERE id = ?")
+          .bind(reason, report.target_id).run();
+        await db.prepare("INSERT INTO notifications (user_id, type, body, link) VALUES (?, 'moderation', ?, '/app')")
+          .bind(listing.user_id, `Your listing was paused by Amico Haus: ${reason}`).run();
+      }
+    } else if (report.target_type === 'past_client_review') {
+      return badRequest('Remove a past-client review with the past-client review tool (Admin › Past-client reviews), then resolve this report.');
+    } else {
+      return badRequest('A report about a person is resolved or dismissed; suspend the account from the user page if needed.');
     }
+    await logAdminAction(db, user.id, 'hide_reported_content', report.target_type, report.target_id, { reportId: id, reason });
   }
 
   const status = action === 'dismiss' ? 'dismissed' : 'resolved';

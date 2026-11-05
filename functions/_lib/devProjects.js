@@ -4,8 +4,10 @@ import { validAdaptationKeys } from './adaptations.js';
 import { validGreenFeatureKeys } from './greenFeatures.js';
 
 export const PROJECT_TYPES = ['flip', 'new_construction', 'multifamily', 'commercial', 'land', 'other'];
+// The stored key 'flip' stays (existing rows, filters and alerts use it); it reads as "Renovation" everywhere, so
+// nothing sounds like an investment pitch (Rudy 11.04).
 export const PROJECT_TYPE_LABELS = {
-  flip: 'Fix & Flip',
+  flip: 'Renovation',
   new_construction: 'New Construction',
   multifamily: 'Multi-Family',
   commercial: 'Commercial',
@@ -17,7 +19,7 @@ export const PROJECT_STAGE_LABELS = {
   concept: 'Concept',
   permitting: 'Permitting',
   under_construction: 'Under Construction',
-  funded: 'Fully Funded',
+  funded: 'Ready to build', // older rows only: no new project can pick it (no investment terms, Rudy 11.04)
   completed: 'Completed',
 };
 
@@ -27,8 +29,6 @@ export function validateDevProjectInput(body) {
   const state = clampString(body.state, 20);
   const projectType = PROJECT_TYPES.includes(body.projectType) ? body.projectType : null;
   const stage = PROJECT_STAGES.includes(body.stage) ? body.stage : 'concept';
-  const fundingGoal = num(body.fundingGoal, { min: 0, max: 5000000000 });
-  const minInvestment = body.minInvestment ? num(body.minInvestment, { min: 0, max: 5000000000 }) : 0;
   const timelineMonths = body.timelineMonths ? num(body.timelineMonths, { min: 0, max: 600 }) : null;
 
   if (!title || !city || !state || !projectType) {
@@ -42,9 +42,11 @@ export function validateDevProjectInput(body) {
       address: clampString(body.address, 150),
       neighborhood: clampString(body.neighborhood, 80),
       zip: clampString(body.zip, 10),
-      fundingGoal: fundingGoal || 0,
-      minInvestment: minInvestment || 0,
-      targetReturn: clampString(body.targetReturn, 80),
+      // No investment terms (Rudy 11.04): a funding amount, minimum investment or target return is never accepted.
+      // The columns stay and every save writes them empty, which also clears anything stored before the rule.
+      fundingGoal: 0,
+      minInvestment: 0,
+      targetReturn: '',
       timelineMonths,
       // Purely informational/filterable -- which accessibility adaptations this project is being built for,
       // reusing the exact same taxonomy AugmentedHomes uses. Optional, unlike AugmentedHomes' own requirement
@@ -97,43 +99,3 @@ export async function setDevProjectStatus(db, id, status) {
   return { ok: true };
 }
 
-export async function fetchInterestCount(db, projectId) {
-  const row = await db.prepare('SELECT COUNT(*) AS n FROM dev_project_interests WHERE dev_project_id = ?').bind(projectId).first();
-  return row.n;
-}
-
-export async function fetchInterestCountBatch(db, ids) {
-  const map = new Map();
-  if (!ids.length) return map;
-  const rows = await db.prepare(
-    `SELECT dev_project_id, COUNT(*) AS n FROM dev_project_interests WHERE dev_project_id IN (${ids.map(() => '?').join(',')}) GROUP BY dev_project_id`
-  ).bind(...ids).all();
-  for (const r of rows.results) map.set(r.dev_project_id, r.n);
-  return map;
-}
-
-export async function toggleInterest(db, projectId, investorUserId, note) {
-  const existing = await db.prepare('SELECT id FROM dev_project_interests WHERE dev_project_id = ? AND investor_user_id = ?').bind(projectId, investorUserId).first();
-  if (existing) {
-    await db.prepare('DELETE FROM dev_project_interests WHERE id = ?').bind(existing.id).run();
-    return { interested: false };
-  }
-  await db.prepare('INSERT INTO dev_project_interests (dev_project_id, investor_user_id, note) VALUES (?, ?, ?)')
-    .bind(projectId, investorUserId, clampString(note, 300)).run();
-  return { interested: true };
-}
-
-export async function hasExpressedInterest(db, projectId, investorUserId) {
-  const row = await db.prepare('SELECT id FROM dev_project_interests WHERE dev_project_id = ? AND investor_user_id = ?').bind(projectId, investorUserId).first();
-  return !!row;
-}
-
-export async function fetchInterestedInvestors(db, projectId) {
-  const rows = await db.prepare(
-    `SELECT dev_project_interests.investor_user_id AS user_id, dev_project_interests.note, dev_project_interests.created_at,
-            users.display_name
-     FROM dev_project_interests JOIN users ON users.id = dev_project_interests.investor_user_id
-     WHERE dev_project_interests.dev_project_id = ? ORDER BY dev_project_interests.created_at DESC`
-  ).bind(projectId).all();
-  return rows.results;
-}

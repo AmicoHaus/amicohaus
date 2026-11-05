@@ -3,6 +3,7 @@ import { sendEmail } from './email.js';
 import { sendPushToUser } from './webpush.js';
 import { DEMO_EMAIL_PATTERN } from './util.js';
 import { isQuietNow } from './contactPolicy.js';
+import { notBlockedSql } from './blocks.js';
 
 const LISTING_FIELDS = `listings.id AS listing_id, listings.user_id, listings.city, listings.state, listings.neighborhood,
             listings.property_type, listings.beds, listings.baths, listings.estimated_value,
@@ -28,22 +29,29 @@ export async function notifyNewMatches(context, newListingId) {
   // LEFT JOIN, not JOIN — a rental listing has no desired_criteria row at
   // all, so an inner join would either exclude the new listing outright (if
   // it's a rental) or drop every existing rental from the candidate pool.
+  // Only an active listing announces itself: a paused one (e.g. paused by moderation and then restored from the
+  // trash, which keeps it paused, or edited while paused) isn't in anyone's matches, so nobody is told about it.
   const newRow = await db.prepare(
     `SELECT ${LISTING_FIELDS}, users.display_name AS owner_name, users.email AS owner_email, users.notify_matches, users.email_frequency
      FROM listings JOIN users ON users.id = listings.user_id
      LEFT JOIN desired_criteria ON desired_criteria.listing_id = listings.id
-     WHERE listings.id = ?`
+     WHERE listings.id = ? AND listings.status = 'active'`
   ).bind(newListingId).first();
   if (!newRow) return;
+  // A demo or suspended owner's listing never announces itself to anyone.
+  const owner = await db.prepare("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND email NOT LIKE ?").bind(newRow.user_id, DEMO_EMAIL_PATTERN).first();
+  if (!owner) return;
 
   // A bundled member listing is only tradeable through its portfolio now, so
-  // it's excluded from the candidate pool the same way as matches.js.
+  // it's excluded from the candidate pool the same way as matches.js, and so is anyone in a block either way with
+  // the new listing's owner.
   const others = await db.prepare(
     `SELECT ${LISTING_FIELDS}, users.display_name AS owner_name, users.email AS owner_email, users.notify_matches, users.email_frequency
      FROM listings JOIN users ON users.id = listings.user_id
      LEFT JOIN desired_criteria ON desired_criteria.listing_id = listings.id
-     WHERE listings.status = 'active' AND listings.user_id != ? AND users.email NOT LIKE ?
-       AND listings.id NOT IN (SELECT member_listing_id FROM portfolio_members) LIMIT 1500`
+     WHERE listings.status = 'active' AND listings.user_id != ?1 AND users.email NOT LIKE ?2 AND users.status = 'active'
+       AND listings.id NOT IN (SELECT member_listing_id FROM portfolio_members)
+       AND ${notBlockedSql('listings.user_id', '?1')} LIMIT 1500`
   ).bind(newRow.user_id, DEMO_EMAIL_PATTERN).all();
 
   const [newProfile] = rowsToProfiles([newRow]);
@@ -54,8 +62,8 @@ export async function notifyNewMatches(context, newListingId) {
   // one of those listings. Collecting hits per user first, instead of firing
   // a notification/email per match found, turns what would otherwise be a
   // wall of near-identical pings into one digest each. Rental hits are
-  // tracked separately from plain score hits since they carry an extra year
-  // range on top of the score and read out differently in the digest text.
+  // tracked separately from plain score hits since they read out differently
+  // in the digest text.
   const perUser = new Map(); // userId -> { email, notifyMatches, emailFrequency, hits: [{name, score}], rentalHits: [{name, score, yearsLow, yearsHigh}] }
   function ensureUser(userId, email, notifyMatches, emailFrequency) {
     if (!perUser.has(userId)) perUser.set(userId, { email, notifyMatches, emailFrequency, hits: [], rentalHits: [] });
@@ -150,12 +158,13 @@ export async function notifyNewMatches(context, newListingId) {
         ? `a new ${best.score}% match with ${best.name}`
         : `${info.hits.length} new matches (best: ${best.score}% with ${best.name})`);
     }
+    // No "covers about X years" here: that would be the site doing money math for someone. The Matches tab and the
+    // rent calculator work from the person's own numbers.
     if (info.rentalHits.length > 0) {
       const best = info.rentalHits.reduce((b, h) => (h.score > b.score ? h : b));
-      const range = `${best.yearsLow.toFixed(1)}-${best.yearsHigh.toFixed(1)} years`;
       parts.push(info.rentalHits.length === 1
-        ? `a new ${best.score}% rental match with ${best.name} (covers about ${range})`
-        : `${info.rentalHits.length} new rental matches (best: ${best.score}% with ${best.name}, about ${range})`);
+        ? `a new ${best.score}% rental match with ${best.name}`
+        : `${info.rentalHits.length} new rental matches (best: ${best.score}% with ${best.name})`);
     }
     const body = `You have ${parts.join(' and ')}!`;
     statements.push(db.prepare(

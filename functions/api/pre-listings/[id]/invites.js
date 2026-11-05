@@ -3,6 +3,7 @@ import { json, badRequest, unauthorized, forbidden, notFound } from '../../../_l
 import { inviteAgent, fetchInvitesForRequest } from '../../../_lib/agentInvites.js';
 import { notifyAgentInvited } from '../../../_lib/marketplaceNotify.js';
 import { proposalsSealed } from '../../../_lib/decisionNight.js';
+import { claimUserAction, rateLimited } from '../../../_lib/rateLimits.js';
 
 export async function onRequestGet(context) {
   const id = context.params.id;
@@ -30,7 +31,13 @@ export async function onRequestPost(context) {
   const agentUserId = Number(body.agentUserId);
   if (!Number.isInteger(agentUserId)) return badRequest('Pick an agent to invite.');
 
-  const result = await inviteAgent(context.env.DB, 'pre_listing', id, user.id, agentUserId, body.message);
+  // Blocks are checked inside inviteAgent, then the per-person invite limit (rateLimits.js). An invite the agent
+  // declined stays declined, and the agent isn't pinged again within 30 days (notifyAgentInvited).
+  const db = context.env.DB;
+  const result = await inviteAgent(db, 'pre_listing', id, user.id, agentUserId, body.message, {
+    beforeWrite: () => claimUserAction(db, 'agent_invite', user.id, `pre_listing:${Number(id)}`),
+  });
+  if (result.rateLimited) return rateLimited();
   if (result.error) return badRequest(result.error);
   context.waitUntil(notifyAgentInvited(context, 'pre_listing', id, agentUserId, user.id));
   return json(result, { status: 201 });

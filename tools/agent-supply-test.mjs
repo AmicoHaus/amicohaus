@@ -52,13 +52,13 @@ const verify = await mod('functions/api/admin/agent-applications/[id]/verify-lic
 const base = { brokerageName: 'Bay Realty', serviceZips: ['91913'] };
 
 // --- 3-minute apply ---
-let r = await call(apply.onRequestPost, 'POST', '/x', 2, null, { ...base, licenseNumber: 'DRE #1234567' });
+let r = await call(apply.onRequestPost, 'POST', '/x', 2, null, { acceptRules: true, ...base, licenseNumber: 'DRE #1234567' });
 const lic2 = sqlite.prepare('SELECT license_number, default_commission_pct, default_flat_fee FROM agent_profiles WHERE user_id = 2').get();
 check('applying needs only a DRE number, brokerage and ZIP (no fee)', r.status === 201 && lic2.default_commission_pct === null && lic2.default_flat_fee === null, JSON.stringify(r.json));
 check('"DRE #1234567" is stored as the 8-digit ID 01234567', lic2.license_number === '01234567', lic2.license_number);
-r = await call(apply.onRequestPost, 'POST', '/x', 3, null, { ...base, licenseNumber: 'FAKE-1' });
+r = await call(apply.onRequestPost, 'POST', '/x', 3, null, { acceptRules: true, ...base, licenseNumber: 'FAKE-1' });
 check('a non-DRE license number is refused with a clear message', r.status === 400 && /California DRE license number/.test(r.json.error), JSON.stringify(r.json));
-r = await call(apply.onRequestPost, 'POST', '/x', 3, null, { ...base, licenseNumber: '123456789' });
+r = await call(apply.onRequestPost, 'POST', '/x', 3, null, { acceptRules: true, ...base, licenseNumber: '123456789' });
 check('a number longer than 8 digits is refused', r.status === 400);
 
 // --- DRE check stamp (no license photo needed), tied to the number shown; approval grants founding spots ---
@@ -81,26 +81,28 @@ const note2 = sqlite.prepare("SELECT body FROM notifications WHERE user_id = 2 O
 check('the approval message says which ZIPs they are a founding agent in', note2 && /founding agent in 91913/.test(note2.body), note2 && note2.body);
 const approve = (id, lic) => call(decide.onRequestPut, 'PUT', '/x', 1, { id: String(id) }, { decision: 'approve', licenseNumber: lic });
 for (const id of [3, 4, 5]) {
-  await call(apply.onRequestPost, 'POST', '/x', id, null, { brokerageName: `Realty ${id}`, licenseNumber: `0100000${id}`, serviceZips: ['91913', '92104'] });
+  await call(apply.onRequestPost, 'POST', '/x', id, null, { acceptRules: true, brokerageName: `Realty ${id}`, licenseNumber: `0100000${id}`, serviceZips: ['91913', '92104'] });
   await approve(id, `0100000${id}`);
 }
 const f913 = sqlite.prepare("SELECT agent_user_id FROM founding_agents WHERE zip = '91913' ORDER BY id").all().map(x => x.agent_user_id);
 check('only the first 3 approved agents get founding spots in a ZIP', f913.join() === '2,3,4', JSON.stringify(f913));
 check('ZIPs outside the launch area never get founding spots', sqlite.prepare("SELECT COUNT(*) AS n FROM founding_agents WHERE zip = '92104'").get().n === 0);
-await call(apply.onRequestPost, 'POST', '/x', 6, null, { brokerageName: 'Realty 6', licenseNumber: '01000006', serviceZips: ['91902'] });
+await call(apply.onRequestPost, 'POST', '/x', 6, null, { acceptRules: true, brokerageName: 'Realty 6', licenseNumber: '01000006', serviceZips: ['91902'] });
 check('a pending application gets no founding spot', sqlite.prepare('SELECT COUNT(*) AS n FROM founding_agents WHERE agent_user_id = 6').get().n === 0);
 await approve(6, '01000006');
-await call(apply.onRequestPost, 'POST', '/x', 5, null, { brokerageName: 'Realty 5', licenseNumber: '01000005', serviceZips: ['91913', '91902'] });
-check('editing a profile never grants a founding spot (only an admin approval does)', sqlite.prepare("SELECT COUNT(*) AS n FROM founding_agents WHERE agent_user_id = 5 AND zip = '91902'").get().n === 0);
+await call(apply.onRequestPost, 'POST', '/x', 5, null, { acceptRules: true, brokerageName: 'Realty 5', licenseNumber: '01000005', serviceZips: ['91913', '91902'] });
+// Batch L1: an already-approved agent who adds a launch ZIP on a profile edit gets an open founding spot right away
+// (no re-approval needed), and is told in the app.
+check('an approved agent who adds a launch ZIP on an edit gets the open spot there', sqlite.prepare("SELECT COUNT(*) AS n FROM founding_agents WHERE agent_user_id = 5 AND zip = '91902'").get().n === 1);
+check('...and is told in the app', /founding agent in 91902/.test(sqlite.prepare("SELECT body FROM notifications WHERE user_id = 5 ORDER BY id DESC").get().body), sqlite.prepare("SELECT body FROM notifications WHERE user_id = 5 ORDER BY id DESC").get().body);
 r = await approve(5, '01000005');
-check('re-approving an agent who added a launch ZIP gives them the open spot there', r.status === 200 && sqlite.prepare("SELECT COUNT(*) AS n FROM founding_agents WHERE agent_user_id = 5 AND zip = '91902'").get().n === 1);
-check('...and tells them in the app', /founding agent in 91902/.test(sqlite.prepare("SELECT body FROM notifications WHERE user_id = 5 ORDER BY id DESC").get().body));
+check('re-approving them keeps that one spot (no duplicate)', r.status === 200 && sqlite.prepare("SELECT COUNT(*) AS n FROM founding_agents WHERE agent_user_id = 5 AND zip = '91902'").get().n === 1);
 
 // Four approvals racing for the 3 spots in 91910: each insert counts the holders itself, so exactly 3 get one.
-for (const id of [13, 15, 16, 17]) await call(apply.onRequestPost, 'POST', '/x', id, null, { brokerageName: `Realty ${id}`, licenseNumber: `020000${id}`, serviceZips: ['91910'] });
+for (const id of [13, 15, 16, 17]) await call(apply.onRequestPost, 'POST', '/x', id, null, { acceptRules: true, brokerageName: `Realty ${id}`, licenseNumber: `020000${id}`, serviceZips: ['91910'] });
 await Promise.all([13, 15, 16, 17].map(id => approve(id, `020000${id}`)));
 check('approvals at the same moment never hand out more than 3 spots in a ZIP', sqlite.prepare("SELECT COUNT(*) AS n FROM founding_agents WHERE zip = '91910'").get().n === 3);
-await call(apply.onRequestPost, 'POST', '/x', 14, null, { brokerageName: 'Demo Realty', licenseNumber: '02000014', serviceZips: ['91911'] });
+await call(apply.onRequestPost, 'POST', '/x', 14, null, { acceptRules: true, brokerageName: 'Demo Realty', licenseNumber: '02000014', serviceZips: ['91911'] });
 await approve(14, '02000014');
 check('a demo agent never takes a founding spot', sqlite.prepare('SELECT COUNT(*) AS n FROM founding_agents WHERE agent_user_id = 14').get().n === 0);
 
@@ -136,7 +138,7 @@ check("proposals carry each agent's founding ZIPs", bids.find(b => b.agentUserId
 
 // --- A spot lasts while the agent stays approved, active and serving the ZIP ---
 const boardZip = async (zip) => (await call(board.onRequestGet, 'GET', '/api/zip-board', 7)).json.zips.find(z => z.zip === zip);
-r = await call(apply.onRequestPost, 'POST', '/x', 3, null, { brokerageName: 'Realty 3', licenseNumber: '01000003', serviceZips: ['92104'] });
+r = await call(apply.onRequestPost, 'POST', '/x', 3, null, { acceptRules: true, brokerageName: 'Realty 3', licenseNumber: '01000003', serviceZips: ['92104'] });
 check('an agent who drops a launch ZIP gives up that founding spot', sqlite.prepare("SELECT COUNT(*) AS n FROM founding_agents WHERE agent_user_id = 3 AND zip = '91913'").get().n === 0);
 check('...which opens it up on the board', (await boardZip('91913')).foundingOpen === 1);
 r = await call(detail.onRequestGet, 'GET', '/x', 3, { id: '10' });
@@ -152,7 +154,7 @@ r = await call(verify.onRequestPut, 'PUT', '/x', 1, { id: '6' }, { verified: tru
 r = await call(verify.onRequestPut, 'PUT', '/x', 1, { id: '6' }, { verified: false });
 const p6 = sqlite.prepare('SELECT license_verified, license_verified_at FROM agent_profiles WHERE user_id = 6').get();
 check('"License not active" removes the check and its date', r.status === 200 && p6.license_verified === 0 && p6.license_verified_at === null, JSON.stringify(p6));
-r = await call(apply.onRequestPost, 'POST', '/x', 6, null, { brokerageName: 'Realty 6', licenseNumber: '01000066', serviceZips: ['91902'] });
+r = await call(apply.onRequestPost, 'POST', '/x', 6, null, { acceptRules: true, brokerageName: 'Realty 6', licenseNumber: '01000066', serviceZips: ['91902'] });
 check('an agent changing their license number is flagged (so the admin checks it again)', r.status === 201 && r.json.licenseChanged === true, JSON.stringify(r.json));
 
 // The owner of a pre-listing is never "the founding agent" on their own home.

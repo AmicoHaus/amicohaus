@@ -128,8 +128,8 @@ export function findBuyerMatches(buyerProfiles, sellerProfiles) {
 // reuses the same matchScore/MATCH_THRESHOLD as every other match type,
 // scored one-directionally (same shape as findBuyerMatches). On top of that
 // score gate, a rental match also needs the seller's net sale proceeds to
-// cover at least MIN_RENTAL_YEARS of it (see util.js's lumpSumRentalYears
-// for why the years figure itself is a range, not a single number).
+// cover at least MIN_RENTAL_YEARS of it (rough math from the values the two
+// owners entered; see util.js's lumpSumRentalYears).
 export function findRentalMatches(sellerProfiles, rentalProfiles) {
   const matches = [];
   for (const seller of sellerProfiles) {
@@ -140,7 +140,8 @@ export function findRentalMatches(sellerProfiles, rentalProfiles) {
       if (b.score < MATCH_THRESHOLD) continue;
       const years = lumpSumRentalYears(proceeds, rental.rentAmount);
       if (!years || years.yearsLow < MIN_RENTAL_YEARS) continue;
-      matches.push({ sellerId: seller.id, rentalId: rental.id, score: b.score, breakdown: b, yearsLow: years.yearsLow, yearsHigh: years.yearsHigh });
+      // yearsHigh falls back to yearsLow now that the platform-set lump-sum bonus is gone (util.js).
+      matches.push({ sellerId: seller.id, rentalId: rental.id, score: b.score, breakdown: b, yearsLow: years.yearsLow, yearsHigh: years.yearsHigh ?? years.yearsLow });
     }
   }
   return matches;

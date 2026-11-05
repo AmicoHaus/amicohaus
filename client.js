@@ -162,7 +162,12 @@ async function apiUpload(path, formData) {
   const res = await fetch(path, { method: 'POST', credentials: 'include', body: prepared });
   let data = null;
   try { data = await res.json(); } catch { /* no body */ }
-  if (!res.ok) throw new Error((data && data.error) || `Upload failed (${res.status})`);
+  if (!res.ok) {
+    const err = new Error((data && data.error) || `Upload failed (${res.status})`);
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
   return data;
 }
 
@@ -175,14 +180,17 @@ const HOA_INCLUDE_LABELS = {
 // California HOAs can't ban renting out (only rentals of 30 days or less) or all pets, so there's no "not allowed".
 const HOA_RULE_LABELS = { allowed: 'Allowed', no_short_term: 'Allowed, no short-term (30 days or less)', limited: 'Limited (see HOA rules)' };
 
+// These numbers are what the owner typed, never something Amico Haus checked, so every chip says so in a neutral color.
 function homeCostChipsHtml(melloRoosAnnual, hoaMonthly) {
   const chips = [];
-  if (melloRoosAnnual === 0) chips.push(chipHtml('No Mello-Roos', 'good'));
-  else if (melloRoosAnnual > 0) chips.push(chipHtml(`Mello-Roos ${money(melloRoosAnnual)}/yr`, 'outline'));
-  if (hoaMonthly === 0) chips.push(chipHtml('No HOA', 'good'));
-  else if (hoaMonthly > 0) chips.push(chipHtml(`HOA ${money(hoaMonthly)}/mo`, 'outline'));
+  if (melloRoosAnnual === 0) chips.push(chipHtml('Owner says: no Mello-Roos', 'outline'));
+  else if (melloRoosAnnual > 0) chips.push(chipHtml(`Owner says: Mello-Roos ${money(melloRoosAnnual)}/yr`, 'outline'));
+  if (hoaMonthly === 0) chips.push(chipHtml('Owner says: no HOA', 'outline'));
+  else if (hoaMonthly > 0) chips.push(chipHtml(`Owner says: HOA ${money(hoaMonthly)}/mo`, 'outline'));
   return chips.length ? `<div class="chip-row">${chips.join('')}</div>` : '';
 }
+
+const HOME_COSTS_CONFIRM_LINE = "Confirm on the property tax bill and in the seller's Mello-Roos and HOA disclosures.";
 
 // The full snapshot for a detail view; costs uses the API's camelCase shape ({ melloRoosAnnual, hoaMonthly, hoaDetails }).
 function homeCostsDetailHtml(costs) {
@@ -198,25 +206,53 @@ function homeCostsDetailHtml(costs) {
     d.specialAssessment && `Special assessment: ${d.specialAssessment}`,
   ].filter(Boolean);
   return `
+    <p class="label home-costs-heading">Costs (from the owner)</p>
     <div class="mini-two">
       <div class="mini-block"><span class="label">Mello-Roos</span>${escapeHtml(mello)}</div>
       <div class="mini-block"><span class="label">HOA</span>${escapeHtml(hoa)}${extras.length ? `<br><span class="tiny">${escapeHtml(extras.join(' · '))}</span>` : ''}</div>
-    </div>`;
+    </div>
+    <p class="tiny">${escapeHtml(HOME_COSTS_CONFIRM_LINE)}</p>`;
 }
 
 function escapeHtml(str) {
   return String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-// Kept in sync by hand with functions/_lib/lifeEvents.js.
-const LIFE_EVENT_LABELS = {
-  relocation: 'Relocating for work or family', upsizing_growing_family: 'Growing family, need more space',
-  downsizing: 'Downsizing, need less space', divorce_separation: 'Divorce or separation',
-  inheritance: 'Inherited property', investment: 'Investment property', retirement: 'Retirement', other: 'Other',
+// Kept in sync by hand with functions/_lib/lifeEvents.js: a property reason for the move, never who lives there.
+// The form offers LIFE_EVENT_ITEMS; keys saved before the relabel still read as their new label.
+const LIFE_EVENT_ITEMS = [
+  { key: 'more_space', label: 'Need more space' },
+  { key: 'less_space', label: 'Need less space' },
+  { key: 'relocation', label: 'Relocating' },
+  { key: 'estate', label: 'Estate / inherited' },
+  { key: 'investment', label: 'Investment' },
+  { key: 'life_change', label: 'Life change' },
+  { key: 'other', label: 'Other' },
+];
+const LIFE_EVENT_LEGACY_KEYS = {
+  upsizing_growing_family: 'more_space', downsizing: 'less_space', divorce_separation: 'life_change',
+  inheritance: 'estate', retirement: 'life_change',
 };
+// A stored key (old or new) as the key the form uses now, or null when it isn't one we know.
+function currentLifeEventKey(key) {
+  const k = LIFE_EVENT_LEGACY_KEYS[key] || key;
+  return LIFE_EVENT_ITEMS.some(i => i.key === k) ? k : null;
+}
+function lifeEventLabel(key) {
+  const k = currentLifeEventKey(key);
+  return k ? LIFE_EVENT_ITEMS.find(i => i.key === k).label : null;
+}
+// Labels only (a raw key is never printed), each once. Shown only to the owner and their matches.
 function renderLifeEventTags(tags) {
   if (!Array.isArray(tags) || tags.length === 0) return '';
-  return `<p class="tiny">${tags.map(k => `<span class="badge badge-gold">${escapeHtml(LIFE_EVENT_LABELS[k] || k)}</span>`).join(' ')}</p>`;
+  const labels = [...new Set(tags.map(lifeEventLabel).filter(Boolean))];
+  return labels.length ? `<p class="tiny">${labels.map(l => `<span class="badge badge-gold">${escapeHtml(l)}</span>`).join(' ')}</p>` : '';
+}
+function lifeEventCheckboxesHtml(checkClass, checkedKeys = []) {
+  const on = new Set((checkedKeys || []).map(currentLifeEventKey).filter(Boolean));
+  return LIFE_EVENT_ITEMS.map(i => `
+    <label class="checkbox-row"><input type="checkbox" class="${escapeHtml(checkClass)}" value="${i.key}"${on.has(i.key) ? ' checked' : ''}><span>${escapeHtml(i.label)}</span></label>
+  `).join('');
 }
 
 function renderExternalLinks(links) {
@@ -279,7 +315,8 @@ function momentumBannerHtml(trends, scopeLabel) {
   const parts = [];
   if (counts.new_listing) parts.push(`${counts.new_listing} new`);
   if (counts.price_drop) parts.push(`${counts.price_drop} price drop${counts.price_drop === 1 ? '' : 's'}`);
-  if (counts.offer_accepted) parts.push(`${counts.offer_accepted} deal${counts.offer_accepted === 1 ? '' : 's'} closed`);
+  // An accepted offer here is not a closed sale.
+  if (counts.offer_accepted) parts.push(`${counts.offer_accepted} offer${counts.offer_accepted === 1 ? '' : 's'} accepted`);
   if (!parts.length) return '';
   return `<p class="momentum-banner">🔥 ${parts.join(' · ')} this week${scopeLabel ? ` in ${escapeHtml(scopeLabel)}` : ''}</p>`;
 }
@@ -384,13 +421,57 @@ function medianOf(values) {
 }
 
 // Every agent shown to a homeowner at a point of contact carries this (California DRE rule):
-// "Name · DRE #01234567 · Brokerage", leaving out any missing part. Plain text: escape it where it's used.
+// "Name · DRE #01234567 on file · Brokerage", leaving out any missing part. "On file", never "verified": the site
+// doesn't vouch for anyone's license status today. Plain text: escape it where it's used.
 function agentCredentialsLine(licenseNumber, brokerageName) {
-  const lic = String(licenseNumber ?? '').trim();
-  return [lic ? `DRE #${lic}` : '', String(brokerageName ?? '').trim()].filter(Boolean).join(' · ');
+  return agentLicenseOnFileLine(licenseNumber, brokerageName);
 }
 function agentIdentityLine({ name, licenseNumber, brokerageName } = {}) {
   return [String(name ?? '').trim(), agentCredentialsLine(licenseNumber, brokerageName)].filter(Boolean).join(' · ');
+}
+
+// A post or comment author: an approved agent's name carries their identity line (authorAgent from the API).
+function contentAuthorLabel(name, authorAgent) {
+  return authorAgent ? agentIdentityLine({ name, licenseNumber: authorAgent.licenseNumber, brokerageName: authorAgent.brokerageName }) : String(name ?? '');
+}
+// A hidden post or comment reaches only its author and admins (the API leaves it out for everyone else), so anyone
+// who isn't the author here is an admin and gets an Unhide button (data-action="unhide-content"). kind: 'post' or 'comment'.
+function hiddenContentNoteHtml(item, isMine, kind) {
+  if (!item || !item.hidden) return '';
+  const reason = item.hiddenReason ? `: ${escapeHtml(item.hiddenReason)}` : '';
+  const k = kind === 'post' ? 'post' : 'comment';
+  return isMine
+    ? `<p class="tiny">Hidden by moderation${reason}. Only you can see this.</p>`
+    : `<p class="tiny hidden-note">Hidden (only admins see this)${reason} <button type="button" class="link-btn" data-action="unhide-content" data-kind="${k}" data-id="${Number(item.id)}">Unhide</button></p>`;
+}
+// An admin shows a hidden post or comment again (POST /api/{posts|comments}/:id/hide { action: 'unhide' }). True on success.
+async function unhideContentById(kind, id) {
+  try {
+    await apiPost(`/api/${kind === 'post' ? 'posts' : 'comments'}/${Number(id)}/hide`, { action: 'unhide' });
+    toast('Shown again.');
+    return true;
+  } catch (err) { toastActionError(err); return false; }
+}
+// An admin hides someone else's post: a reason is required (the author is told). True when it was hidden.
+async function hidePostWithPrompt(postId) {
+  const reason = (prompt('Hide this post? Give a reason (the author is told; kept on the activity log):') || '').trim();
+  if (!reason) return false;
+  try {
+    await apiPost(`/api/posts/${Number(postId)}/hide`, { reason });
+    toast('Post hidden.');
+    return true;
+  } catch (err) { toastActionError(err); return false; }
+}
+// The home's owner (or an admin) hides someone's comment on the home's thread. The author is told the reason; an
+// owner may leave it blank (a short default is used), an admin must give one. True when it was hidden.
+async function hideCommentWithPrompt(commentId) {
+  const reason = prompt('Hide this comment? Add a short reason (the author is told):');
+  if (reason === null) return false;
+  try {
+    await apiPost(`/api/comments/${Number(commentId)}/hide`, { reason: reason.trim() });
+    toast('Comment hidden.');
+    return true;
+  } catch (err) { toastActionError(err); return false; }
 }
 
 // The server's UTC "YYYY-MM-DD HH:MM:SS" text (same as SQLite datetime('now')) as a Date, or null.
@@ -445,6 +526,122 @@ function contactErrorMessage(err, where = '') {
   const code = apiErrorCode(err);
   if (code === 'contact_quiet' && where === 'showing') return CONTACT_ERROR_COPY.contact_quiet_showing;
   return CONTACT_ERROR_COPY[code] || (err && err.message) || 'Something went wrong. Please try again.';
+}
+
+// A per-person limit (HTTP 429, code rate_limited): the toast shows the server's own words, a little longer.
+const RATE_LIMITED_COPY = "You're doing that a lot right now. Please take a short break and try again later.";
+function isRateLimitedError(err) {
+  return !!err && (apiErrorCode(err) === 'rate_limited' || err.status === 429);
+}
+function actionErrorMessage(err) {
+  if (isRateLimitedError(err)) return (err && err.message) || RATE_LIMITED_COPY;
+  return contactErrorMessage(err);
+}
+function toastActionError(err) {
+  toast(actionErrorMessage(err), { durationMs: isRateLimitedError(err) ? 7000 : 4000 });
+}
+
+/* ---------------- Shared wording (Rudy's "jury test": the site never vouches, ranks, verifies or advises) ---------------- */
+const HOME_TEXT_NOTE = 'Describe the home, not who should live there or who lives nearby.';
+const PRICE_BASIS_NOTE = 'Base your price on the home and comparable sales only.';
+const OFFER_TOOLS_NOTE = "Not a purchase agreement. A California home sale needs a written contract signed by both sides, usually prepared by your agents. Accepting here only tells the other side you'd like to move forward.";
+const FEE_NOTE = 'Each agent sets their own fees; commissions are negotiable and not set by law or by Amico Haus.';
+const OPERATOR_NOTE = 'Amico Haus is run by Rudy Flores, a Coldwell Banker West agent who may compete for the same homes.';
+const ESTIMATE_LABEL = 'Your estimate, from the numbers you entered';
+const MONEY_TOOL_NOTE = 'An estimate only, not tax, legal or financial advice. Confirm the numbers with your agent, your lender and a tax professional.';
+const PHOTO_RIGHTS_NOTE = 'By adding photos you confirm: I took these photos or have permission to use them.';
+const DUAL_AGENCY_NOTE = "One agent for both homes is dual agency and needs both owners' written consent. Each of you can choose your own agent.";
+const NO_DISPUTES_LINE = "Amico Haus doesn't decide disputes between homeowners and agents.";
+const PRE_LISTING_TEASER_NOTE = 'Pre-listings open to approved local agents. Thinking of selling?';
+const UNBLOCK_NOTE = "Unblocking lets them reach you again. Shared contact info, broker preview RSVPs, showing requests and interviews that ended with the block don't come back.";
+const DRE_COMPLAINT_URL = 'https://www.dre.ca.gov/consumers/filecomplaint.html';
+const SMALL_CLAIMS_URL = 'https://selfhelp.courts.ca.gov/small-claims-california';
+
+function offerToolsNoteHtml() {
+  return `<p class="tiny offer-tools-note">${escapeHtml(OFFER_TOOLS_NOTE)}</p>`;
+}
+
+// "DRE #01234567 on file": what cards, proposals and opinions say about a license (never "verified" or "checked").
+function licenseOnFileLabel(licenseNumber) {
+  const lic = String(licenseNumber ?? '').trim();
+  return lic ? `DRE #${lic} on file` : '';
+}
+function agentLicenseOnFileLine(licenseNumber, brokerageName) {
+  return [licenseOnFileLabel(licenseNumber), String(brokerageName ?? '').trim()].filter(Boolean).join(' · ');
+}
+// The DRE's public license lookup (same link as functions/_lib/agents.js dreLookupUrl).
+function dreLookupUrl(licenseNumber) {
+  return `https://www2.dre.ca.gov/PublicASP/pplinfo.asp?License_id=${encodeURIComponent(String(licenseNumber || ''))}`;
+}
+
+// Founding agents: "Among the first 3 approved agents in 91913; recognition only."
+function foundingCaption(zips) {
+  const list = (zips || []).map(z => String(z).trim()).filter(Boolean);
+  return list.length ? `Among the first 3 approved agents in ${list.join(', ')}; recognition only.` : '';
+}
+function foundingCaptionHtml(zips) {
+  const text = foundingCaption(zips);
+  return text ? `<p class="tiny founding-caption">${escapeHtml(text)}</p>` : '';
+}
+
+// A saved search's price range: "$500,000–$800,000", "under $800,000", "over $500,000", or nothing.
+function priceRangeLabel(min, max) {
+  const lo = Number(min) > 0 ? Number(min) : 0;
+  const hi = Number(max) > 0 ? Number(max) : 0;
+  if (lo && hi) return `${money(lo)}–${money(hi)}`;
+  if (hi) return `under ${money(hi)}`;
+  if (lo) return `over ${money(lo)}`;
+  return '';
+}
+// "Condo in Chula Vista, CA $500,000–$800,000" (plain text: escape it where it's used).
+function savedSearchLabel(s) {
+  const range = priceRangeLabel(s.price_min ?? s.priceMin, s.price_max ?? s.priceMax);
+  const type = s.property_type || s.propertyType || 'Any';
+  return `${type === 'Any' ? 'Any type' : type} in ${s.locations || ''}${range ? ` ${range}` : ''}`;
+}
+
+// Real alt text for a home's own photo: "Photo of this condo in Chula Vista".
+function homePhotoAlt(h) {
+  const type = String((h && (h.propertyType || h.property_type)) || 'home').trim().toLowerCase();
+  const city = String((h && h.city) || '').trim();
+  return `Photo of this ${type}${city ? ` in ${city}` : ''}`;
+}
+
+// "Blocked on Nov 4, 2026" for a server timestamp (Pacific time).
+function blockedOnLabel(createdAt) {
+  const d = sqlUtcToDate(createdAt);
+  return d ? `Blocked on ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/Los_Angeles' })}` : '';
+}
+function blockConfirmText(name) {
+  return `Block ${name || 'this person'}? They won't be able to send you proposals, price opinions, showing or interview requests, or messages, and won't see your homes. You can unblock anytime in Account › Blocked Users.`;
+}
+
+// Reports (POST /api/reports): a preset the server knows, or "Something else" with the person's own words.
+const REPORT_REASON_PRESETS = ['Rules problem', 'Fair housing concern'];
+function reportPayload(targetType, targetId, preset, details = '') {
+  const known = REPORT_REASON_PRESETS.includes(preset) ? preset : null;
+  const text = String(details || '').trim().slice(0, 500);
+  return known ? { targetType, targetId: Number(targetId), preset: known, reason: text } : { targetType, targetId: Number(targetId), reason: text };
+}
+// The short report form, under the thing being reported (cancel: false when it's always on screen).
+function inlineReportFormHtml(targetType, targetId, { presets = REPORT_REASON_PRESETS, other = true, cancel = true } = {}) {
+  const uid = `rpt-${String(targetType).replace(/[^a-z]/g, '')}-${Number(targetId)}`;
+  const options = presets.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('') + (other ? '<option value="">Something else (say what below)</option>' : '');
+  return `
+    <div class="inline-report" data-target-type="${escapeHtml(targetType)}" data-target-id="${Number(targetId)}">
+      <div class="field"><label for="${uid}-reason">What's the problem?</label><select id="${uid}-reason" class="report-reason">${options}</select></div>
+      <div class="field"><label for="${uid}-details">Details (optional for a preset)</label><textarea id="${uid}-details" class="report-details" maxlength="500"></textarea></div>
+      <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="send-report">Send report</button>${cancel ? '<button type="button" class="btn btn-ghost btn-sm" data-action="cancel-report">Cancel</button>' : ''}</div>
+    </div>`;
+}
+
+// For fee or service problems, where to go instead (Amico Haus doesn't decide disputes between homeowners and agents).
+function feeHelpHtml(agent) {
+  const a = agent || {};
+  const who = a.name ? `${a.name}'s` : "the agent's";
+  const at = a.brokerageName ? ` at ${a.brokerageName}` : '';
+  const lic = a.licenseNumber ? ` (DRE #${a.licenseNumber})` : '';
+  return `<div class="help-box"><p class="tiny"><strong>Fee or service problem?</strong> Contact ${escapeHtml(who)} managing broker${escapeHtml(at)}${escapeHtml(lic)}. You can also <a href="${DRE_COMPLAINT_URL}" target="_blank" rel="noopener noreferrer">file a complaint with the California DRE</a> or use <a href="${SMALL_CLAIMS_URL}" target="_blank" rel="noopener noreferrer">small claims court</a>. ${escapeHtml(NO_DISPUTES_LINE)}</p></div>`;
 }
 
 function timeAgo(isoString) {
@@ -590,7 +787,7 @@ function personHeadHtml({ avatar, nameHtml, sub = '', chips = [], aside = '' }) 
 
 function ratingChipHtml(rating, reviewCount) {
   return rating
-    ? `<span class="chip chip-star"><span class="chip-star-mark" aria-hidden="true">★</span>${escapeHtml(String(rating))} <span class="chip-k">· ${reviewCount} review${reviewCount === 1 ? '' : 's'}</span></span>`
+    ? `<span class="chip chip-star"><span class="chip-star-mark" aria-hidden="true">★</span>${escapeHtml(String(rating))} <span class="chip-k">· ${reviewCount} review${reviewCount === 1 ? '' : 's'}</span><span class="chip-k"> from ${reviewCount === 1 ? 'a homeowner' : 'homeowners'} who hired them here</span></span>`
     : chipHtml('No reviews yet', 'outline');
 }
 
@@ -615,7 +812,8 @@ function agentDetailsHtml(info) {
     chipBlockHtml('Specialties', (info.specialties || []).map(t => chipHtml(t, 'gold'))),
     chipBlockHtml('Speaks', (info.languages || []).map(t => chipHtml(t, 'outline'))),
     chipBlockHtml('Service area', (info.area || []).map(t => chipHtml(t))),
-    chipBlockHtml('Fees & packages', feeChips, { extraClass: 'pkg-block', hint: hasPackages ? 'Hover or tap a package to see what’s included.' : '' }),
+    // The fee line sits beside every agent's fees (each agent sets their own; commissions are negotiable).
+    chipBlockHtml('Fees & packages', feeChips, { extraClass: 'pkg-block', hint: `${hasPackages ? 'Hover or tap a package to see what’s included. ' : ''}${FEE_NOTE}` }),
   ].filter(Boolean);
   return parts.length ? `<div class="agent-details">${parts.join('')}</div>` : '';
 }
@@ -680,7 +878,8 @@ function recentlyViewedHref(kind, id) {
 })();
 
 // Mortgage affordability widget on detail pages (functions/_lib/mortgageCalc.js emits the markup) -- standard
-// fixed-rate amortization, computed live in the browser as the visitor adjusts down payment/rate/term.
+// fixed-rate amortization, computed live in the browser as the visitor adjusts down payment/rate/term. The site
+// never suggests a rate: until the visitor types one, the result stays "—".
 (function initMortgageCalculators() {
   document.querySelectorAll('.mortgage-calc').forEach(calc => {
     const price = Number(calc.dataset.price) || 0;
@@ -691,6 +890,7 @@ function recentlyViewedHref(kind, id) {
     if (!downPctEl || !rateEl || !termEl || !outEl) return;
 
     function recompute() {
+      if (String(rateEl.value).trim() === '') { outEl.textContent = '—'; return; }
       const downPct = Math.min(Math.max(Number(downPctEl.value) || 0, 0), 100);
       const rate = Math.max(Number(rateEl.value) || 0, 0);
       const years = Number(termEl.value) || 30;

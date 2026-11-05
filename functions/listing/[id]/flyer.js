@@ -1,6 +1,6 @@
 import { getSessionUser } from '../../_lib/auth.js';
 import { identityLine } from '../../_lib/contactPolicy.js';
-import { escapeHtml, parseJsonSafe, DEMO_EMAIL_PATTERN } from '../../_lib/util.js';
+import { escapeHtml, DEMO_EMAIL_PATTERN } from '../../_lib/util.js';
 import { propertyArtUrl } from '../../_lib/propertyArt.js';
 import { withSecurityHeaders } from '../../_lib/withSecurityHeaders.js';
 import { renderFlyerShell } from '../../_lib/flyerShell.js';
@@ -8,6 +8,17 @@ import { renderFlyerShell } from '../../_lib/flyerShell.js';
 function money(n) {
   n = Number(n) || 0;
   return '$' + n.toLocaleString('en-US');
+}
+
+// Rudy 11.04: a flyer is the owner's, so it says so, and says the presenting agent doesn't represent the home.
+const RUDY_DRE = '02257808';
+// An approved agent who posted it (e.g. for a client) is named in the identity line above, so the flyer never says
+// "Posted by the owner" for them.
+function presentedByLine(ownerLicense) {
+  const lic = String(ownerLicense || '').trim();
+  if (lic === RUDY_DRE) return 'Posted on Amico Haus by Rudy Flores, Coldwell Banker West, DRE #02257808';
+  if (lic) return 'Posted on Amico Haus by the agent named above · Amico Haus is presented by Rudy Flores, Coldwell Banker West, DRE #02257808, who does not represent this home';
+  return 'Posted by the owner on Amico Haus · presented by Rudy Flores, Coldwell Banker West, DRE #02257808, who does not represent this home';
 }
 
 export async function onRequestGet(context) {
@@ -37,25 +48,25 @@ async function renderFlyer(context) {
 
   const photo = await db.prepare('SELECT id FROM listing_photos WHERE listing_id = ? ORDER BY position ASC LIMIT 1').bind(id).first();
   const loc = `${listing.neighborhood ? escapeHtml(listing.neighborhood) + ', ' : ''}${escapeHtml(listing.city)}, ${escapeHtml(listing.state)} ${escapeHtml(listing.zip || '')}`;
-  const lifeEventTags = parseJsonSafe(listing.life_event_tags_json, []);
 
   const body = `
-    <img class="directory-thumb" src="${photo ? `/api/photos/${photo.id}` : propertyArtUrl(listing.property_type, listing.id)}" alt="${photo ? '' : 'Illustrative photo, not this home'}">
+    <img class="directory-thumb" src="${photo ? `/api/photos/${photo.id}` : propertyArtUrl(listing.property_type, listing.id)}" alt="${photo ? `Photo of the ${escapeHtml(listing.property_type)} in ${escapeHtml(listing.city)}` : 'Illustrative photo, not this home'}">
     ${photo ? '' : '<span class="photo-caption">Illustrative photo, not this home</span>'}
     <h1>${escapeHtml(listing.title || listing.property_type)}</h1>
     <p class="flyer-price">${listing.is_rental ? `${money(listing.rent_amount)}/mo` : money(listing.estimated_value)}</p>
+    <p class="tiny">${listing.is_rental ? "Owner's asking rent" : "Owner's estimated value (not an appraisal or list price)"}</p>
     <p><strong>${escapeHtml(listing.address || '')}</strong><br>${loc}</p>
     <div class="mini-two">
       <div class="mini-block"><span class="label">Property</span>${escapeHtml(listing.property_type)} · ${listing.beds}bd/${listing.baths}ba${listing.sqft ? ` · ${listing.sqft.toLocaleString('en-US')} sqft` : ''}</div>
       <div class="mini-block"><span class="label">Listed</span>${new Date(listing.created_at + 'Z').toLocaleDateString('en-US', { dateStyle: 'medium' })}</div>
     </div>
-    ${lifeEventTags.length ? `<p class="tiny">${lifeEventTags.map(k => `<span class="badge badge-gold">${escapeHtml(k)}</span>`).join(' ')}</p>` : ''}
     ${listing.description ? `<p>${escapeHtml(listing.description)}</p>` : ''}
     <hr>
     <p class="flyer-brand">
-      <strong>${escapeHtml(identityLine({ name: listing.owner_name, licenseNumber: String(listing.owner_license || '').trim(), brokerageName: String(listing.owner_brokerage || '').trim() }))}</strong>${listing.owner_phone ? ` · ${escapeHtml(listing.owner_phone)}` : ''}<br>
-      Presented on Amico Haus · amicohaus.com/listing/${id}<br>
-      Rudy Flores · Coldwell Banker West · DRE #02257808
+      <strong>${escapeHtml(identityLine({ name: listing.owner_name, licenseNumber: String(listing.owner_license || '').trim(), brokerageName: String(listing.owner_brokerage || '').trim() }, { onFile: true }))}</strong>${listing.owner_phone ? ` · ${escapeHtml(listing.owner_phone)}` : ''}<br>
+      amicohaus.com/listing/${id}<br>
+      ${escapeHtml(presentedByLine(listing.owner_license))}<br>
+      Equal Housing Opportunity
     </p>
   `;
 

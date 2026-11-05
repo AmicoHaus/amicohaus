@@ -6,12 +6,21 @@ const MAX_PHOTOS = 8;
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
+// Sign-in only, like the project pages (Rudy 11.04): an open project of an active poster, or the poster and admins.
 export async function onRequestGet(context) {
   const id = context.params.id;
-  const rows = await context.env.DB.prepare(
+  const user = await getSessionUser(context);
+  if (!user) return unauthorized();
+  const db = context.env.DB;
+  const project = await db.prepare(
+    'SELECT dev_projects.user_id, dev_projects.status, users.status AS owner_status FROM dev_projects JOIN users ON users.id = dev_projects.user_id WHERE dev_projects.id = ?'
+  ).bind(id).first();
+  const ownerOrAdmin = project && (project.user_id === user.id || user.role === 'admin');
+  if (!project || (!ownerOrAdmin && (project.status !== 'open' || project.owner_status !== 'active'))) return notFound('Project not found.');
+  const rows = await db.prepare(
     'SELECT id, position, created_at FROM dev_project_photos WHERE dev_project_id = ? ORDER BY position ASC'
   ).bind(id).all();
-  return json({ photos: rows.results });
+  return json({ photos: rows.results }, { headers: { 'Cache-Control': 'private, no-store' } });
 }
 
 export async function onRequestPost(context) {

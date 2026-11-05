@@ -1,20 +1,27 @@
 import { getSessionUser } from '../../../../_lib/auth.js';
 import { scrubImageMetadata } from '../../../../_lib/imageMetadata.js';
 import { json, badRequest, unauthorized, forbidden, notFound } from '../../../../_lib/util.js';
+import { preListingAccess, agentsOnly } from '../../../../_lib/visibility.js';
 
 const MAX_PHOTOS = 8;
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024; // 5MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
+// The same people who can open the pre-listing (see visibility.js).
 export async function onRequestGet(context) {
   const id = context.params.id;
   const user = await getSessionUser(context);
   if (!user) return unauthorized();
   const db = context.env.DB;
+  const preListing = await db.prepare('SELECT id, user_id, status FROM pre_listings WHERE id = ?').bind(id).first();
+  if (!preListing) return notFound('Pre-listing not found.');
+  const { access } = await preListingAccess(db, user, preListing);
+  if (access === 'agents_only') return agentsOnly();
+  if (access === 'hidden') return notFound('Pre-listing not found.');
   const rows = await db.prepare(
     'SELECT id, position, created_at FROM pre_listing_photos WHERE pre_listing_id = ? ORDER BY position ASC'
   ).bind(id).all();
-  return json({ photos: rows.results });
+  return json({ photos: rows.results }, { headers: { 'Cache-Control': 'private, no-store' } });
 }
 
 export async function onRequestPost(context) {

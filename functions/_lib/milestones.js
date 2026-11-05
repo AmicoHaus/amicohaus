@@ -1,10 +1,17 @@
-// Shared progress checklist for an awarded engagement — no real payment
-// moves through this, it's just a status tracker both the homeowner and the
-// awarded agent can update, standing in for actual escrow milestones until
-// there's real payment processing to hang them off of.
+// Shared progress checklist for an awarded engagement: a status tracker both the homeowner and the awarded agent
+// can update. No payment ever moves through Amico Haus. The default steps follow a normal listing (a salesperson is
+// paid through their broker, normally through escrow at closing), so nothing here suggests paying an agent directly
+// or in advance. migration_v43.sql renamed the old deposit / final-payment steps on existing checklists.
 import { clampString } from './util.js';
 
-const DEFAULT_LABELS = ['Deposit sent (off-platform)', 'Work in progress', 'Work completed', 'Final payment sent (off-platform)'];
+export const DEFAULT_MILESTONE_LABELS = [
+  "Listing agreement signed with the agent's brokerage",
+  'Home prepped and photographed',
+  'Listed',
+  'In escrow',
+  'Closed',
+];
+const DEFAULT_LABELS = DEFAULT_MILESTONE_LABELS;
 const MAX_MILESTONES = 20;
 
 export async function seedDefaultMilestones(db, requestType, requestId) {

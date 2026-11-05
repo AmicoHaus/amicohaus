@@ -6,6 +6,7 @@ import { isFavorited, fetchFavoriterIds } from '../../_lib/augmentedHomeFavorite
 import { notifyPriceDrop } from '../../_lib/marketplaceNotify.js';
 import { logMarketEventUnlessDemo } from '../../_lib/marketEvents.js';
 import { homeCostsFromRow } from '../../_lib/homeCosts.js';
+import { deleteR2Keys } from '../../_lib/r2Cleanup.js';
 
 export async function onRequestGet(context) {
   const id = context.params.id;
@@ -30,7 +31,8 @@ export async function onRequestGet(context) {
     address: isOwner ? row.address : undefined, neighborhood: row.neighborhood, city: row.city, state: row.state, zip: row.zip,
     propertyType: row.property_type, beds: row.beds, baths: row.baths, sqft: row.sqft, askingPrice: row.asking_price,
     adaptations: JSON.parse(row.adaptations_json || '[]'), adaptationNotes: row.adaptation_notes,
-    lifeEventTags: JSON.parse(row.life_event_tags_json || '[]'),
+    // Why the owner is moving (optional) is shown only to the owner (these listings have no matches).
+    lifeEventTags: isOwner ? JSON.parse(row.life_event_tags_json || '[]') : [],
     status: row.status, createdAt: row.created_at, photoIds: photos.map(p => p.id), costs: homeCostsFromRow(row),
     priceHistory: priceHistoryRows.results.map(r => ({ oldPrice: r.old_price, newPrice: r.new_price, changedAt: r.changed_at })),
     isFavorited: isOwner ? false : await isFavorited(db, user.id, id),
@@ -93,6 +95,9 @@ export async function onRequestDelete(context) {
   // An admin acting on someone else's content is on the admin activity log.
   if (existing.user_id !== user.id) await logAdminAction(db, user.id, 'delete_augmented_home', 'augmented_home', id);
 
+  // The photos live in storage, not just in the rows the delete cascades away: read first, removed after.
+  const photos = await db.prepare('SELECT r2_key FROM augmented_home_photos WHERE augmented_home_id = ?').bind(id).all();
   await db.prepare('DELETE FROM augmented_homes WHERE id = ?').bind(id).run();
+  await deleteR2Keys(context.env.PHOTOS, photos.results.map(r => r.r2_key));
   return json({ ok: true });
 }

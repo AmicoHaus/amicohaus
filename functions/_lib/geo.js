@@ -6,7 +6,7 @@
 // 20-mile service-area decision.
 export const SERVICE_RADIUS_MILES = 20;
 export const MAX_SERVICE_ZIPS = 4;
-// A "local specialist" is someone whose declared service zips all cluster
+// A "focused service area" (once called "local specialist") is one whose declared service zips all cluster
 // within this many miles of each other — the same fixed radius already used
 // for how far any one service zip reaches, reused here as the threshold for
 // "this is one coherent area" rather than several unrelated ones.

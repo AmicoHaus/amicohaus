@@ -7,6 +7,8 @@
   --card: #ffffff;
   --border: #e6e2d8;
   --gold: #a9793f;
+  /* Gold for TEXT: darker so it reads at 4.5:1 or better on white and cream (fills keep --gold). */
+  --gold-text: #8a5f2c;
   --gold-light: #cf9f5e;
   --success: #2f7a4f;
   --success-bg: #e7f3ea;
@@ -28,6 +30,7 @@
   --card: #17212a;
   --border: #2a3540;
   --gold: #d6ab6e;
+  --gold-text: #d6ab6e;
   --gold-light: #e9c68f;
   --success: #6fbf8c;
   --success-bg: #163524;
@@ -180,7 +183,7 @@ main { flex: 1; width: 100%; max-width: 1080px; margin: 0 auto; padding: 28px 24
 .btn-primary { background: var(--gold); color: #201404; }
 .btn-primary:hover { background: var(--gold-light); }
 .btn-ghost { background: transparent; color: var(--ink); border: 1.5px solid var(--border); }
-.btn-ghost:hover { border-color: var(--gold); color: var(--gold); }
+.btn-ghost:hover { border-color: var(--gold); color: var(--gold-text); }
 /* .btn-ghost defaults to dark text for use on light backgrounds — inside the
    navy topbar that reads as nearly invisible until :hover. Override for any
    ghost button living in the header (Log In, Calculator, Security, Log Out,
@@ -206,7 +209,7 @@ main { flex: 1; width: 100%; max-width: 1080px; margin: 0 auto; padding: 28px 24
   padding: 18px 20px;
   box-shadow: var(--shadow-sm);
 }
-.stat-tile .stat-value { font-family: Georgia, serif; font-size: 1.7rem; color: var(--gold); display: block; }
+.stat-tile .stat-value { font-family: Georgia, serif; font-size: 1.7rem; color: var(--gold-text); display: block; }
 .stat-tile .stat-label { font-size: 0.82rem; color: var(--muted); }
 
 /* How it works */
@@ -289,7 +292,7 @@ main { flex: 1; width: 100%; max-width: 1080px; margin: 0 auto; padding: 28px 24
   overflow: hidden;
 }
 #directoryMap .leaflet-popup-content { font-size: 0.85rem; line-height: 1.5; }
-#directoryMap .leaflet-popup-content a { color: var(--gold); font-weight: 600; }
+#directoryMap .leaflet-popup-content a { color: var(--gold-text); font-weight: 600; }
 
 .card {
   background: var(--card);
@@ -310,7 +313,7 @@ main { flex: 1; width: 100%; max-width: 1080px; margin: 0 auto; padding: 28px 24
 }
 .badge-active { background: var(--success-bg); color: var(--success); }
 .badge-paused { background: var(--danger-bg); color: var(--danger); }
-.badge-gold { background: rgba(169,121,63,0.15); color: var(--gold); }
+.badge-gold { background: rgba(169,121,63,0.15); color: var(--gold-text); }
 .badge-verified { background: var(--success-bg); color: var(--success); vertical-align: middle; }
 
 .mini-block { font-size: 0.85rem; }
@@ -359,7 +362,7 @@ main { flex: 1; width: 100%; max-width: 1080px; margin: 0 auto; padding: 28px 24
   cursor: help;
 }
 .match-pair { display: grid; grid-template-columns: 1fr auto 1fr; gap: 14px; align-items: center; }
-.swap-icon { font-size: 1.3rem; color: var(--gold); }
+.swap-icon { font-size: 1.3rem; color: var(--gold-text); }
 .side { border: 1px dashed var(--border); border-radius: var(--radius-sm); padding: 12px; }
 .side-thumb { width: 100%; height: 90px; object-fit: cover; border-radius: var(--radius-sm); margin-bottom: 8px; display: block; }
 .chain-thumb { width: 100%; height: 60px; object-fit: cover; border-radius: var(--radius-sm); margin-bottom: 6px; display: block; }
@@ -380,7 +383,7 @@ main { flex: 1; width: 100%; max-width: 1080px; margin: 0 auto; padding: 28px 24
 :root[data-theme="dark"] .chain-node { background: var(--navy-2); }
 .chain-node strong { display: block; font-size: 0.9rem; }
 .chain-node span { font-size: 0.76rem; color: var(--muted); }
-.chain-arrow { color: var(--gold); font-size: 1.2rem; }
+.chain-arrow { color: var(--gold-text); font-size: 1.2rem; }
 
 .empty-state {
   text-align: center; padding: 40px 20px; color: var(--muted);
@@ -453,7 +456,7 @@ main { flex: 1; width: 100%; max-width: 1080px; margin: 0 auto; padding: 28px 24
 }
 .auth-card h1 { text-align: center; }
 .auth-card .form-note { text-align: center; margin-top: 18px; }
-.auth-card .form-note a { color: var(--gold); }
+.auth-card .form-note a { color: var(--gold-text); }
 
 /* Social feed */
 .post-form { display: flex; gap: 10px; margin: 16px 0 20px; align-items: flex-start; }
@@ -501,7 +504,7 @@ main.prose h2 { margin-top: 28px; }
 
 /* Profile links */
 .profile-link { color: inherit; text-decoration: none; }
-.profile-link:hover { color: var(--gold); text-decoration: underline; }
+.profile-link:hover { color: var(--gold-text); text-decoration: underline; }
 
 #bioSection textarea {
   width: 100%; min-height: 90px; padding: 10px 14px; border: 1.5px solid var(--border);
@@ -520,7 +523,7 @@ main.prose h2 { margin-top: 28px; }
 .calc-row-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 10px; }
 .calc-row label { font-size: 0.85rem; font-weight: 600; color: var(--navy-2); }
 :root[data-theme="dark"] .calc-row label { color: var(--gold-light); }
-.calc-readout { font-family: Georgia, serif; font-weight: bold; color: var(--gold); font-size: 1.05rem; white-space: nowrap; }
+.calc-readout { font-family: Georgia, serif; font-weight: bold; color: var(--gold-text); font-size: 1.05rem; white-space: nowrap; }
 
 .calc-row input[type="range"] {
   -webkit-appearance: none; appearance: none; width: 100%; height: 6px; border-radius: 999px;
@@ -571,7 +574,7 @@ main.prose h2 { margin-top: 28px; }
   line-height: 1.2; text-decoration: none; cursor: pointer; white-space: nowrap;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
-.pill:hover { border-color: var(--gold); color: var(--gold); }
+.pill:hover { border-color: var(--gold); color: var(--gold-text); }
 .pill.active, .pill.active:hover { background: var(--gold); border-color: var(--gold); color: #1a1005; }
 .pill:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 .pill-nav-top {
@@ -686,11 +689,11 @@ html.demo-page .grid { grid-template-columns: repeat(auto-fill, minmax(min(280px
 }
 .chip-good { background: var(--success-bg); border-color: transparent; color: var(--success); }
 .chip-bad { background: var(--danger-bg); border-color: transparent; color: var(--danger); }
-.chip-gold { background: rgba(169, 121, 63, 0.15); border-color: transparent; color: var(--gold); }
+.chip-gold { background: rgba(169, 121, 63, 0.15); border-color: transparent; color: var(--gold-text); }
 .chip-outline { background: transparent; color: var(--muted); font-weight: 500; }
 .chip-stat .chip-k, .chip-star .chip-k { color: var(--muted); font-weight: 500; }
 .chip-stat .chip-v { font-weight: 700; }
-.chip-star-mark { color: var(--gold); }
+.chip-star-mark { color: var(--gold-text); }
 
 .agent-details { display: flex; flex-direction: column; gap: 10px; }
 .chip-block { display: flex; flex-direction: column; gap: 4px; }
@@ -797,11 +800,11 @@ main > .demo-section:first-of-type > [data-pills] { display: none; }
 @media (max-width: 420px) { .choice-row { grid-template-columns: 1fr; } }
 
 /* ---- Home page: agent-first story ---- */
-.platform-tagline { margin: 0 0 10px; font-size: 1.35rem; font-weight: 700; color: var(--gold); line-height: 1.35; }
+.platform-tagline { margin: 0 0 10px; font-size: 1.35rem; font-weight: 700; color: var(--gold-text); line-height: 1.35; }
 .platform-tagline .tagline-lead, .platform-tagline .tagline-sub { display: block; }
 .platform-tagline .tagline-sub { font-size: 1.05rem; font-weight: 600; color: var(--ink); }
-.footer-tagline { display: block; margin-bottom: 6px; font-weight: 600; color: var(--gold); }
-.eyebrow { margin: 0 0 8px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--gold); }
+.footer-tagline { display: block; margin-bottom: 6px; font-weight: 600; color: var(--gold-text); }
+.eyebrow { margin: 0 0 8px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--gold-text); }
 .hero .lede { font-size: 1.08rem; line-height: 1.6; }
 .trust-line { margin: 14px 0 0; font-size: 0.82rem; color: var(--muted); }
 .home-section { margin: 44px 0; }
@@ -811,7 +814,7 @@ main > .demo-section:first-of-type > [data-pills] { display: none; }
 .audience-card .btn { align-self: flex-start; }
 .feature-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
 .feature-list li { position: relative; padding-left: 24px; font-size: 0.92rem; line-height: 1.5; }
-.feature-list li::before { content: "✓"; position: absolute; left: 0; top: 0; color: var(--gold); font-weight: 700; }
+.feature-list li::before { content: "✓"; position: absolute; left: 0; top: 0; color: var(--gold-text); font-weight: 700; }
 .trade-callout { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px 26px; box-shadow: var(--shadow-sm); }
 .trade-callout h2 { margin-top: 0; font-size: 1.3rem; }
 .trade-callout p { max-width: 720px; }
@@ -823,7 +826,7 @@ main > .demo-section:first-of-type > [data-pills] { display: none; }
 
 /* Home page: the real numbers */
 .live-strip { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; margin-top: 18px; padding: 10px 14px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.9rem; }
-.live-label { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--gold); }
+.live-label { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--gold-text); }
 .live-item strong { font-family: Georgia, serif; font-size: 1.1rem; color: var(--ink); }
 .live-note { margin-left: auto; font-size: 0.78rem; color: var(--muted); }
 .agents-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 28px 20px; text-align: center; }
@@ -856,7 +859,7 @@ main > .demo-section:first-of-type > [data-pills] { display: none; }
 
 /* "Needs your attention" strip at the top of Agent Strategy. */
 .attention-strip { border-left: 4px solid var(--gold); background: var(--cream); font-size: 0.9rem; padding: 12px 16px; margin-bottom: 16px; }
-.attention-strip a { color: var(--gold); font-weight: 600; text-decoration: underline; }
+.attention-strip a { color: var(--gold-text); font-weight: 600; text-decoration: underline; }
 
 /* Unread-message count on the Messages tab itself — distinct from the general notification bell, which mixes
    in matches/likes/comments too. */
@@ -906,7 +909,7 @@ main > .demo-section:first-of-type > [data-pills] { display: none; }
   display: inline-block; font-size: 0.72rem; font-weight: 700; padding: 3px 9px; border-radius: 999px;
   background: var(--card); border: 1px solid currentColor;
 }
-.activity-ribbon.ticker-neutral { color: var(--gold); }
+.activity-ribbon.ticker-neutral { color: var(--gold-text); }
 .activity-ribbon.ticker-down { color: var(--danger); }
 .directory-thumb-wrap { position: relative; }
 .directory-thumb-wrap .activity-ribbon { position: absolute; top: 8px; left: 8px; background: var(--card); box-shadow: var(--shadow-sm); }
@@ -918,7 +921,7 @@ main > .demo-section:first-of-type > [data-pills] { display: none; }
 
 .card-social-proof { color: var(--muted); }
 
-.momentum-banner { margin: 0 0 14px; padding: 8px 14px; border-radius: var(--radius-sm); background: rgba(169,121,63,0.1); color: var(--gold); font-weight: 600; font-size: 0.88rem; }
+.momentum-banner { margin: 0 0 14px; padding: 8px 14px; border-radius: var(--radius-sm); background: rgba(169,121,63,0.1); color: var(--gold-text); font-weight: 600; font-size: 0.88rem; }
 
 .search-box { position: relative; }
 #globalSearchInput { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); font-size: 0.85rem; width: 160px; background: var(--card); color: inherit; }
@@ -1022,7 +1025,7 @@ main > .demo-section:first-of-type > [data-pills] { display: none; }
 .opinion-summary .label { display: block; font-weight: 500; }
 .opinion-card { margin-top: 10px; }
 .opinion-card h4 { margin: 0; }
-.opinion-price { margin: 6px 0; font-size: 1.15rem; font-weight: 700; color: var(--gold); }
+.opinion-price { margin: 6px 0; font-size: 1.15rem; font-weight: 700; color: var(--gold-text); }
 .comp-list { margin: 4px 0 8px; padding-left: 18px; font-size: 0.9rem; }
 .comp-list li { margin-bottom: 4px; }
 .comp-row { padding: 8px 0; border-top: 1px dashed var(--border); }
@@ -1087,7 +1090,7 @@ body.reel-open .toast { z-index: 1100; }
 .brag-list li { margin: 4px 0; }
 .brag-badge { display: block; max-width: 100%; height: auto; margin: 8px 0; }
 .star-choice { flex-wrap: wrap; }
-.star-choice .choice span { color: var(--gold); letter-spacing: 2px; }
+.star-choice .choice span { color: var(--gold-text); letter-spacing: 2px; }
 /* Farm Radar + Your week (agent-growth.js) */
 .duty-days { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 8px 0; }
 .on-duty-line { margin: 6px 0; }
@@ -1111,7 +1114,7 @@ body.reel-open .toast { z-index: 1100; }
 .control-section input:disabled + span { opacity: 0.6; }
 .card-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; flex: 0 1 auto; min-width: 0; }
 .card-badges .badge { white-space: nowrap; }
-.price-open { font-weight: 600; color: var(--gold); }
+.price-open { font-weight: 600; color: var(--gold-text); }
 .paused-note { margin: 8px 0 0; }
 .agent-id-line { margin: 2px 0 0; font-size: 0.8rem; color: var(--muted); }
 .agent-id-rest { font-size: 0.8rem; font-weight: 400; color: var(--muted); }
@@ -1127,10 +1130,34 @@ body.reel-open .toast { z-index: 1100; }
 .shared-contact-lines { list-style: none; padding: 0; margin: 6px 0 4px; display: grid; gap: 6px; }
 .shared-contact-lines .label { display: block; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
 .shared-contact-lines a { font-weight: 600; word-break: break-word; }
-.held-label { font-weight: 600; color: var(--gold); }
+.held-label { font-weight: 600; color: var(--gold-text); }
 .side.held { border-style: dotted; }
 .composer-off input { opacity: 0.6; }
 .proposals-paused-panel .card-head h3 { margin: 0; }
+
+/* Launch kit + safety fixes (L1): footer line, fair-housing and offer notes, blocks, reports, teasers. */
+.footer-legal { margin: 8px 0 0; font-size: 0.78rem; color: var(--muted); }
+.footer-legal a { color: inherit; text-decoration: underline; }
+.app-footer { text-align: center; padding: 16px 20px 24px; border-top: 1px solid var(--border); }
+.composer-note { margin: 4px 0 12px; font-size: 0.78rem; color: var(--muted); }
+.field .composer-note { margin: 4px 0 0; }
+.offer-tools-note { margin: 6px 0 8px; font-size: 0.78rem; color: var(--muted); border-left: 3px solid var(--border); padding-left: 8px; }
+.dual-agency-note, .operator-note, .founding-caption, .estimate-label { color: var(--muted); }
+.estimate-label { margin: 0 0 4px; font-weight: 600; }
+.money-tool-note { margin: 10px 0 0; color: var(--muted); }
+.home-costs-heading { display: block; margin: 10px 0 4px; }
+.thread-tools { margin: 0 0 8px; }
+.thread-tools .link-btn, .inline-note .link-btn { padding: 0; }
+.teaser-card .card-head h3 { margin: 0; }
+.teaser-note { margin: 6px 0 12px; }
+.agents-strip-note { margin: 0 0 8px; color: var(--muted); }
+.inline-report { margin: 10px 0 4px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--cream); text-align: left; color: var(--ink); }
+.inline-report .field { margin-bottom: 8px; }
+.inline-report textarea { min-height: 60px; }
+.rules-report .inline-report { background: transparent; border: none; padding: 0; }
+.help-box { margin: 10px 0 0; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--cream); border: 1px solid var(--border); }
+.help-box p { margin: 0; }
+.reel-report .inline-report { max-width: 420px; margin: 10px auto 0; }
 
 /* Phones. Kept at the END of the file on purpose: several rules it overrides (e.g. #globalSearchInput) appear
    after the main 720px block above, so source order matters here. */

@@ -32,6 +32,9 @@ const check = (label, ok, detail = '') => { if (!ok) failed++; realLog(`${ok ? '
 const sent = [];
 globalThis.fetch = async (url, opts) => { sent.push(JSON.parse(opts.body)); return new Response('{}', { status: 200 }); };
 const call = async (handler, method, path, who, params = {}, body) => {
+  // The withdraw-and-resend rounds below go past the per-home proposal limit (batch L1, rateLimits.js); the limits
+  // are covered by tools/abuse-test.mjs, so each call here starts with a clean action log.
+  sqlite.prepare('DELETE FROM user_action_log').run();
   const request = new Request(`https://amicohaus.com${path}`, { method, headers: { ...(who ? { Cookie: `ah_session=t${who}` } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) }, body: body !== undefined ? JSON.stringify(body) : undefined });
   const pending = [];
   const res = await handler({ request, env, params, waitUntil(p) { if (p && p.catch) pending.push(p.catch(() => {})); } });
@@ -197,10 +200,13 @@ r = await call(bids.onRequestPost, 'POST', '/x', 3, P10, bidBody);
 check("...but an invite from someone other than the owner doesn't count", r.status === 400 && r.json.code === 'proposals_paused');
 sqlite.prepare('DELETE FROM agent_invites WHERE request_id = 10').run();
 sqlite.prepare('DELETE FROM service_bids WHERE agent_user_id = 11').run();
-for (const who of [1, 3, 5]) {
+for (const who of [1, 3]) {
   r = await call(detail.onRequestGet, 'GET', '/x', who, P10);
   check(`viewer ${who} sees proposalsPaused in the detail`, r.json.preListing.proposalsPaused === true);
 }
+// Batch L1: only approved agents (and the owner/admins) open a pre-listing; a plain user gets 403 agents_only.
+r = await call(detail.onRequestGet, 'GET', '/x', 5, P10);
+check('a plain user (5) gets 403 agents_only on the detail', r.status === 403 && r.json.code === 'agents_only', JSON.stringify(r.json));
 r = await call(index.onRequestGet, 'GET', '/api/pre-listings', 3);
 check('...and in the browse list', r.json.preListings.find(p => p.id === 10).proposalsPaused === true);
 r = await call(detail.onRequestPut, 'PUT', '/x', 1, P10, { action: 'resume' });
@@ -312,7 +318,8 @@ const view = () => one("SELECT view_count FROM address_views WHERE pre_listing_i
 check('...and the look is logged via share', view() && view().view_count === 1);
 await call(detail.onRequestGet, 'GET', '/x', 2, P10);
 check('a second look counts up on the same row', view().view_count === 2 && one('SELECT COUNT(*) AS n FROM address_views').n === 1);
-for (const who of [3, 5, 6]) {
+// (5, a plain user, can't open the detail at all since batch L1; checked above.)
+for (const who of [3, 6]) {
   r = await call(detail.onRequestGet, 'GET', '/x', who, P10);
   const p = r.json.preListing;
   check(`viewer ${who} gets no address, no sharedContact and no owner lists`, p.address === undefined && p.sharedContact === undefined && p.contactShares === undefined && p.addressViews === undefined && !JSON.stringify(r.json).includes('456 Hidden') && !JSON.stringify(r.json).includes('619-555-0101'));

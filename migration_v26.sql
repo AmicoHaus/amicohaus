@@ -1,4 +1,4 @@
--- Agent teams/brokerages: a lightweight grouping of approved agents under one shared name (e.g. "McKelvey Team"),
+-- Agent teams/brokerages: a lightweight grouping of approved agents under one shared name (e.g. "Rivera Team"),
 -- shown on their directory cards and public profiles. An agent belongs to at most one team at a time (keeps v1
 -- simple — no sub-teams, no multi-team membership). The owner invites; an invited agent accepts or declines.
 CREATE TABLE IF NOT EXISTS agent_teams (

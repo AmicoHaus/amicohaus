@@ -3,6 +3,7 @@
 // agent, or the agent RSVPs to a broker preview the owner opened (sellerPrep.js fetchPreviews). Each time either
 // shows the address to an agent it's logged here, so the owner can see exactly who saw it and when. Rows go away
 // with the pre-listing (ON DELETE CASCADE).
+import { notBlockedSql } from './blocks.js';
 
 export const SHARE_NOT_ENGAGED = "You can share with agents who've sent you a proposal, opinion or request for this home.";
 
@@ -78,13 +79,14 @@ export async function fetchAddressViews(db, preListingId) {
 }
 
 // What an agent the owner shared with sees: the exact address, the owner's phone ('' if none) and email. Only
-// while the share stands and the home is still open or awarded; each look is logged for the owner.
+// while the share stands, the home is still open or awarded, and there's no block either way (a block also deletes
+// the share; this covers anything older); each look is logged for the owner.
 export async function fetchSharedContact(db, preListing, agentId) {
   if (preListing.status !== 'open' && preListing.status !== 'awarded') return null;
   const row = await db.prepare(
     `SELECT s.shared_at, users.display_name, users.phone, users.email
      FROM contact_shares s JOIN users ON users.id = s.owner_id
-     WHERE s.pre_listing_id = ? AND s.agent_id = ? AND s.owner_id = ?`
+     WHERE s.pre_listing_id = ?1 AND s.agent_id = ?2 AND s.owner_id = ?3 AND ${notBlockedSql('?2', '?3')}`
   ).bind(preListing.id, agentId, preListing.user_id).first();
   if (!row) return null;
   await logAddressView(db, preListing.id, agentId, 'share');

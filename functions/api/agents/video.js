@@ -1,5 +1,5 @@
 import { getSessionUser } from '../../_lib/auth.js';
-import { json, badRequest, unauthorized, notFound } from '../../_lib/util.js';
+import { json, badRequest, unauthorized, forbidden, notFound } from '../../_lib/util.js';
 import { scrubVideoUpload } from '../../_lib/videoMetadata.js';
 
 // Generous but bounded — big enough for ~4 minutes of reasonably compressed
@@ -19,8 +19,10 @@ export async function onRequestPut(context) {
   if (!user) return unauthorized();
 
   const db = context.env.DB;
-  const agent = await db.prepare('SELECT video_r2_key FROM agent_profiles WHERE user_id = ?').bind(user.id).first();
+  const agent = await db.prepare('SELECT status, video_r2_key FROM agent_profiles WHERE user_id = ?').bind(user.id).first();
   if (!agent) return badRequest('Apply to become an agent before adding an intro video.');
+  // Only an approved agent's media is ever shown publicly, so only an approved agent can add it (removing stays open).
+  if (agent.status !== 'approved') return forbidden('Your agent profile needs to be approved first.');
 
   const bucket = context.env.PHOTOS;
   if (!bucket) return json({ error: 'Video storage is not configured yet.' }, { status: 503 });

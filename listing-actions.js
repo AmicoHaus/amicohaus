@@ -5,16 +5,20 @@
 (function () {
   const listingId = window.location.pathname.split('/').filter(Boolean).pop();
 
-  // Same shape as main.js's renderComment(), duplicated here since this page doesn't load main.js.
+  // Same shape as main.js's renderComment(), duplicated here since this page doesn't load main.js. An approved
+  // agent's comment carries their identity line; a hidden one reaches only its author and admins; the home's owner
+  // (and admins) get a Hide button on other people's comments (canHide from the API).
   function renderComment(c) {
     return `
       <div class="side" data-comment-id="${c.id}">
-        <strong><a class="profile-link" href="/profile/${c.user_id}">${escapeHtml(c.author_name)}</a></strong> <span class="tiny">${timeAgo(c.created_at)}</span>
+        <strong><a class="profile-link" href="/profile/${c.user_id}">${escapeHtml(contentAuthorLabel(c.author_name, c.authorAgent))}</a></strong> <span class="tiny">${timeAgo(c.created_at)}</span>
+        ${hiddenContentNoteHtml(c, c.isMine, 'comment')}
         <p class="tiny">${escapeHtml(c.body)}</p>
         <button type="button" class="link-btn" data-action="like-comment" data-id="${c.id}">👍 ${c.like_count || 0}</button>
         ${c.isMine
           ? `<button type="button" class="link-btn danger" data-action="delete-comment" data-id="${c.id}">Delete</button>`
           : `<button type="button" class="link-btn" data-action="report-comment" data-id="${c.id}">Report</button>`}
+        ${c.canHide ? `<button type="button" class="link-btn" data-action="hide-comment" data-id="${c.id}">Hide</button>` : ''}
       </div>
     `;
   }
@@ -33,8 +37,12 @@
     const respondCounterBtn = e.target.closest('[data-action="respond-counter"]');
     const counterBackBtn = e.target.closest('[data-action="counter-back"]');
     const reportCommentBtn = e.target.closest('[data-action="report-comment"]');
+    const unhideBtn = e.target.closest('[data-action="unhide-content"]');
     const deleteCommentBtn = e.target.closest('[data-action="delete-comment"]');
     const likeCommentBtn = e.target.closest('[data-action="like-comment"]');
+    const hideCommentBtn = e.target.closest('[data-action="hide-comment"]');
+    const sendReportBtn = e.target.closest('[data-action="send-report"]');
+    const cancelReportBtn = e.target.closest('[data-action="cancel-report"]');
 
     if (rsvpBtn) {
       try {
@@ -90,13 +98,29 @@
         toast('Counter-offer sent.');
         window.location.reload();
       } catch (err) { toast(err.message); }
+    } else if (unhideBtn) {
+      // Admins only (the note is shown only to them): show a hidden comment again.
+      if (await unhideContentById(unhideBtn.dataset.kind, unhideBtn.dataset.id)) unhideBtn.closest('.hidden-note').remove();
     } else if (reportCommentBtn) {
-      const reason = prompt('Why are you reporting this comment?');
-      if (!reason || !reason.trim()) return;
+      // The same inline report form as the app (presets incl. "Fair housing concern", client.js).
+      const host = reportCommentBtn.closest('[data-comment-id]');
+      const open = host.querySelector(':scope > .inline-report');
+      if (open) { open.remove(); return; }
+      host.insertAdjacentHTML('beforeend', inlineReportFormHtml('comment', reportCommentBtn.dataset.id));
+    } else if (sendReportBtn) {
+      const box = sendReportBtn.closest('.inline-report');
+      const preset = box.querySelector('.report-reason').value;
+      const details = box.querySelector('.report-details').value.trim();
+      if (!preset && !details) { toast('Say what the problem is, then send.'); box.querySelector('.report-details').focus(); return; }
+      sendReportBtn.disabled = true;
       try {
-        await apiPost('/api/reports', { targetType: 'comment', targetId: Number(reportCommentBtn.dataset.id), reason: reason.trim() });
-        toast('Report submitted. Thank you.');
-      } catch (err) { toast(err.message); }
+        await apiPost('/api/reports', reportPayload(box.dataset.targetType, box.dataset.targetId, preset, details));
+        box.innerHTML = '<p class="tiny">Report sent. Thank you.</p>';
+      } catch (err) { sendReportBtn.disabled = false; toastActionError(err); }
+    } else if (cancelReportBtn) {
+      cancelReportBtn.closest('.inline-report').remove();
+    } else if (hideCommentBtn) {
+      if (await hideCommentWithPrompt(hideCommentBtn.dataset.id)) hideCommentBtn.closest('[data-comment-id]').remove();
     } else if (deleteCommentBtn) {
       if (!confirm('Delete this comment?')) return;
       try {
@@ -121,6 +145,6 @@
       await apiPost(`/api/posts/${postId}/comments`, { body: input.value.trim() });
       input.value = '';
       await refreshComments(postId);
-    } catch (err) { toast(err.message); }
+    } catch (err) { toastActionError(err); }
   });
 })();

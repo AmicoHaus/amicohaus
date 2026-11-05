@@ -3,15 +3,18 @@
 // listing, so there's nothing destructive to protect against there. This is
 // specifically for the truly irreversible case: deleting an actual property,
 // buyer profile, or rental.
+import { deleteR2Keys } from './r2Cleanup.js';
+
 const TRASH_RETENTION_DAYS = 7;
 
 export async function snapshotListingForTrash(db, id) {
   const listing = await db.prepare('SELECT * FROM listings WHERE id = ?').bind(id).first();
   if (!listing) return;
   const desiredCriteria = await db.prepare('SELECT * FROM desired_criteria WHERE listing_id = ?').bind(id).first();
-  // R2 objects are never deleted when a listing is (only the DB rows
-  // cascade), so saving just the photo metadata is enough to fully restore
-  // them later — the underlying image bytes are still sitting in the bucket.
+  // R2 objects aren't deleted when a listing goes to the trash (only the DB
+  // rows cascade), so saving just the photo metadata is enough to fully
+  // restore them later — the image bytes stay in the bucket until the trash
+  // entry itself is purged (purgeTrashRows below).
   const photos = await db.prepare(
     'SELECT r2_key, content_type, position FROM listing_photos WHERE listing_id = ? ORDER BY position ASC'
   ).bind(id).all();
@@ -20,12 +23,36 @@ export async function snapshotListingForTrash(db, id) {
   await db.prepare('INSERT INTO deleted_listings (user_id, snapshot) VALUES (?, ?)').bind(listing.user_id, JSON.stringify(snapshot)).run();
 }
 
-export async function purgeExpiredTrash(db) {
-  await db.prepare(`DELETE FROM deleted_listings WHERE deleted_at < datetime('now', '-${TRASH_RETENTION_DAYS} day')`).run();
+// Removes trash entries for good, photos included: the snapshot's photo keys are read before the rows go, then
+// deleted from storage. A key a live listing still uses is kept (a restore reuses the old keys, so never
+// prefix-delete listings/{id}/). where: the SQL condition picking the rows, with its params.
+async function purgeTrashRows(db, bucket, where, params) {
+  const rows = await db.prepare(`SELECT id, snapshot FROM deleted_listings WHERE ${where}`).bind(...params).all();
+  if (rows.results.length === 0) return;
+  const keys = rows.results.flatMap(r => {
+    try { return (JSON.parse(r.snapshot).photos || []).map(p => p.r2_key); } catch { return []; }
+  });
+  // By id, so a row can't slip past the key read (one that expired in between waits for the next purge).
+  await db.prepare('DELETE FROM deleted_listings WHERE id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(rows.results.map(r => r.id))).run();
+  if (!bucket || keys.length === 0) return;
+  const inUse = await db.prepare('SELECT r2_key FROM listing_photos WHERE r2_key IN (SELECT value FROM json_each(?))').bind(JSON.stringify(keys)).all();
+  const keep = new Set(inUse.results.map(r => r.r2_key));
+  await deleteR2Keys(bucket, keys.filter(k => !keep.has(k)));
 }
 
-export async function listTrash(db, userId) {
-  await purgeExpiredTrash(db);
+// bucket: the PHOTOS binding (context.env.PHOTOS).
+export async function purgeExpiredTrash(db, bucket) {
+  await purgeTrashRows(db, bucket, `deleted_at < datetime('now', '-${TRASH_RETENTION_DAYS} day')`, []);
+}
+
+// The lazy-jobs runner (functions/api/_middleware.js) passes the request context, so expired trash (with its address,
+// client name and photos) goes even when its owner never opens the trash again.
+export async function runPurgeExpiredTrash(context) {
+  await purgeExpiredTrash(context.env.DB, context.env.PHOTOS);
+}
+
+export async function listTrash(db, userId, bucket) {
+  await purgeExpiredTrash(db, bucket);
   const rows = await db.prepare(
     'SELECT id, snapshot, deleted_at FROM deleted_listings WHERE user_id = ? ORDER BY deleted_at DESC'
   ).bind(userId).all();
@@ -50,12 +77,14 @@ export async function restoreFromTrash(db, userId, trashId) {
   const result = await db.prepare(
     `INSERT INTO listings (user_id, title, description, address, neighborhood, client_name, city, state, property_type,
        beds, baths, sqft, estimated_value, price_tier, show_exact_address, external_links, is_buyer_only,
-       is_rental, rent_amount, min_lease_months, is_portfolio, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'active')`
+       is_rental, rent_amount, min_lease_months, is_portfolio, status, hidden_at, hidden_reason)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
   ).bind(
     userId, l.title, l.description, l.address, l.neighborhood, l.client_name,
     l.city, l.state, l.property_type, l.beds, l.baths, l.sqft, l.estimated_value, l.price_tier,
-    l.show_exact_address, l.external_links, l.is_buyer_only, l.is_rental, l.rent_amount, l.min_lease_months
+    0, l.external_links, l.is_buyer_only, l.is_rental, l.rent_amount, l.min_lease_months, // 0: the reveal box is gone
+    // A listing an admin paused (moderation) comes back still paused, so delete + restore can't undo the pause.
+    l.hidden_at ? 'paused' : 'active', l.hidden_at || null, l.hidden_at ? (l.hidden_reason || null) : null
   ).run();
   const newId = result.meta.last_row_id;
 
@@ -78,6 +107,6 @@ export async function restoreFromTrash(db, userId, trashId) {
   return { id: newId };
 }
 
-export async function purgeOneFromTrash(db, userId, trashId) {
-  await db.prepare('DELETE FROM deleted_listings WHERE id = ? AND user_id = ?').bind(trashId, userId).run();
+export async function purgeOneFromTrash(db, userId, trashId, bucket) {
+  await purgeTrashRows(db, bucket, 'id = ? AND user_id = ?', [trashId, userId]);
 }

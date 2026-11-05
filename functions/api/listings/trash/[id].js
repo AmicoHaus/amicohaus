@@ -17,11 +17,11 @@ export async function onRequestPost(context) {
   return json({ id: result.id });
 }
 
-// Permanently removes one trash entry early, without restoring it.
+// Permanently removes one trash entry early, without restoring it (its photos too).
 export async function onRequestDelete(context) {
   const user = await getSessionUser(context);
   if (!user) return unauthorized();
 
-  await purgeOneFromTrash(context.env.DB, user.id, context.params.id);
+  await purgeOneFromTrash(context.env.DB, user.id, context.params.id, context.env.PHOTOS);
   return json({ ok: true });
 }

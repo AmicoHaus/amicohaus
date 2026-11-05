@@ -5,7 +5,7 @@
 // without one is both a bad experience and a compliance problem), and a Cron Trigger in wrangler.toml to
 // actually run it. Both are a deliberate decision for the site owner, not something to switch on quietly.
 import { escapeHtml, DEMO_EMAIL_PATTERN } from './util.js';
-import { fetchMarketTrends } from './marketEvents.js';
+import { fetchMarketTrends, cleanMarketEvent } from './marketEvents.js';
 
 function money(n) {
   n = Number(n) || 0;
@@ -27,9 +27,10 @@ async function fetchAlertMatchesThisWeek(db, userId) {
     if (alert.city) { conditions.push('LOWER(city) = LOWER(?)'); params.push(alert.city); }
     if (alert.state) { conditions.push('LOWER(state) = LOWER(?)'); params.push(alert.state); }
     const rows = await db.prepare(
-      `SELECT headline, created_at FROM market_events WHERE ${conditions.join(' AND ')} ORDER BY created_at DESC LIMIT 5`
+      `SELECT event_type, entity_kind, city, headline, amount, created_at FROM market_events WHERE ${conditions.join(' AND ')} ORDER BY created_at DESC LIMIT 5`
     ).bind(...params).all();
-    if (rows.results.length) matches.push({ label: alert.label, events: rows.results });
+    // Older offer rows said "Deal closed ... $X"; cleanMarketEvent gives every row today's wording.
+    if (rows.results.length) matches.push({ label: alert.label, events: rows.results.map(r => ({ headline: cleanMarketEvent(r).headline, created_at: r.created_at })) });
   }
   return matches;
 }
@@ -50,7 +51,8 @@ export async function buildWeeklyDigest(db, user) {
   const platformLines = [
     counts.new_listing ? `${counts.new_listing} new listing${counts.new_listing === 1 ? '' : 's'}` : null,
     counts.price_drop ? `${counts.price_drop} price drop${counts.price_drop === 1 ? '' : 's'}` : null,
-    counts.offer_accepted ? `${counts.offer_accepted} deal${counts.offer_accepted === 1 ? '' : 's'} closed` : null,
+    // An accepted offer here is the owner saying they'd like to move forward, not a closed sale.
+    counts.offer_accepted ? `${counts.offer_accepted} offer${counts.offer_accepted === 1 ? '' : 's'} accepted (not closed sales)` : null,
     counts.open_house_scheduled ? `${counts.open_house_scheduled} open house${counts.open_house_scheduled === 1 ? '' : 's'} scheduled` : null,
   ].filter(Boolean);
   const topCity = (trends.topCities7d || [])[0];

@@ -42,7 +42,8 @@ export async function onRequestGet(context) {
     const limit = Math.min(Number(url.searchParams.get('limit')) || 60, 60);
     const offset = Math.max(Number(url.searchParams.get('offset')) || 0, 0);
     const wantedFeatures = url.searchParams.getAll('feature').filter(Boolean).slice(0, 30);
-    const conditions = [`green_homes.status = 'active'`];
+    // A suspended owner's homes drop out of the browse, the same as their public pages and photos.
+    const conditions = [`green_homes.status = 'active'`, `users.status = 'active'`];
     const params = [];
     if (city) { conditions.push('green_homes.city LIKE ?'); params.push(`%${city}%`); }
     if (state) { conditions.push('green_homes.state LIKE ?'); params.push(`%${state}%`); }
@@ -80,7 +81,7 @@ export async function onRequestGet(context) {
       recentActivity: recentActivityByHome.get(r.id) || null,
       favoriteCount: favoriteCountByHome.get(r.id) || 0,
       commentCount: commentCountByHome.get(r.id) || 0,
-      greenFeatures, lifeEventTags: JSON.parse(r.life_event_tags_json || '[]'),
+      greenFeatures, lifeEventTags: r.user_id === user.id ? JSON.parse(r.life_event_tags_json || '[]') : [], // owner only
       status: r.status, createdAt: r.created_at, photoIds: photoIdsByHome.get(r.id) || [],
       isFavorited: favoritesMode ? true : myFavoriteIds.has(r.id),
     });

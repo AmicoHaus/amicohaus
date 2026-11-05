@@ -1,5 +1,6 @@
 import { json } from '../../_lib/util.js';
 import { hashPassword, hashToken, createSession, sessionCookieHeader, publicUser } from '../../_lib/auth.js';
+import { alertNewSignup } from '../../_lib/adminAlerts.js';
 
 // The page an emailed sign-up link opens. It does two things, split so a mail
 // scanner that merely fetches the link can't use it up:
@@ -70,6 +71,8 @@ export async function onRequestPost(context) {
      WHERE id = ? AND verify_token = ? AND email_confirmation_pending = 1`
   ).bind(await hashPassword(password), user.id, tokenHash).run();
   if (!claimed.meta.changes) return failure('That link is invalid or has already been used.', 'invalid');
+  // Only here, once per account: the link is claimed atomically above, so a double-tap can't alert twice.
+  alertNewSignup(context, user);
 
   const { token: sessionToken, expiresAt } = await createSession(db, user.id);
   return json(

@@ -106,12 +106,19 @@
     const el = document.getElementById('blockedList');
     try {
       const { blocked } = await apiGet('/api/blocks');
-      el.innerHTML = blocked.length ? blocked.map(b => `
+      // An agent shows with their DRE number and brokerage, so it's clear who it is.
+      el.innerHTML = blocked.length ? blocked.map(b => {
+        const creds = b.licenseNumber || b.brokerageName ? agentCredentialsLine(b.licenseNumber, b.brokerageName) : '';
+        const when = blockedOnLabel(b.createdAt || b.created_at);
+        return `
         <div class="side">
           <strong>${escapeHtml(b.display_name)}</strong>
-          <button class="link-btn" data-action="unblock" data-id="${b.blocked_id}">Unblock</button>
+          ${creds ? `<span class="tiny agent-id-line">${escapeHtml(creds)}</span>` : ''}
+          ${when ? `<span class="tiny">${escapeHtml(when)}</span>` : ''}
+          <button class="link-btn" data-action="unblock" data-id="${Number(b.blocked_id)}" data-name="${escapeHtml(b.display_name)}">Unblock</button>
         </div>
-      `).join('') : '<span class="tiny">You haven\'t blocked anyone.</span>';
+      `;
+      }).join('') : '<span class="tiny">You haven\'t blocked anyone.</span>';
     } catch (err) {
       el.innerHTML = `<span class="tiny">${escapeHtml(err.message)}</span>`;
     }
@@ -119,8 +126,12 @@
   document.getElementById('blockedList').addEventListener('click', async (e) => {
     const btn = e.target.closest('[data-action="unblock"]');
     if (!btn) return;
-    await apiDelete(`/api/blocks/${btn.dataset.id}`);
-    loadBlocked();
+    btn.disabled = true;
+    try {
+      await apiDelete(`/api/blocks/${encodeURIComponent(btn.dataset.id)}`);
+      toast(`Unblocked ${btn.dataset.name || 'them'}.`);
+      loadBlocked();
+    } catch (err) { btn.disabled = false; toastActionError(err); }
   });
   loadBlocked();
 
@@ -137,7 +148,7 @@
     const input = document.getElementById('referralLink');
     try {
       await navigator.clipboard.writeText(input.value);
-      toast('Referral link copied.');
+      toast('Invite link copied.');
     } catch {
       input.select();
       toast('Select and copy the link above.');

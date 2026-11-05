@@ -8,8 +8,9 @@ export async function onRequestPost(context) {
   if (!user) return unauthorized();
 
   const db = context.env.DB;
-  const post = await db.prepare('SELECT id, user_id FROM posts WHERE id = ?').bind(postId).first();
-  if (!post) return notFound('Post not found.');
+  const post = await db.prepare('SELECT id, user_id, hidden_at FROM posts WHERE id = ?').bind(postId).first();
+  // A hidden post (moderation.js) is gone for everyone but its author and admins.
+  if (!post || (post.hidden_at && post.user_id !== user.id && user.role !== 'admin')) return notFound('Post not found.');
 
   if (post.user_id !== user.id && await isEitherBlocked(db, user.id, post.user_id)) {
     return forbidden('You cannot like this post.');

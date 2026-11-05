@@ -1,6 +1,5 @@
 import { clampString, priceTierFor } from './util.js';
 import { syncGroupMemberships } from './groups.js';
-import { notifySavedSearches } from './savedSearches.js';
 import { validLifeEventKeys } from './lifeEvents.js';
 
 export const PROPERTY_TYPES = ['Single Family Home', 'Condo', 'Townhouse', 'Penthouse', 'Ranch / Land', 'Multi-Family', 'Investment Property'];
@@ -83,7 +82,9 @@ export function validateListingInput(body) {
         city, state, propertyType, beds, baths,
         sqft: body.sqft ? num(body.sqft, { min: 0, max: 200000 }) : null,
         estimatedValue,
-        showExactAddress: !!body.showExactAddress,
+        // The old "reveal exact address once matched" box is gone (it never revealed anything): a street address is
+        // only ever shown to its owner and admins, so this is always off.
+        showExactAddress: false,
         externalLinks: sanitizeExternalLinks(body.externalLinks),
         rentAmount, minLeaseMonths,
         // No "what would make you move" side for a rental — these fields
@@ -148,7 +149,7 @@ export function validateListingInput(body) {
       city, state, propertyType, beds, baths,
       sqft: body.sqft ? num(body.sqft, { min: 0, max: 200000 }) : null,
       estimatedValue,
-      showExactAddress: !!body.showExactAddress,
+      showExactAddress: false, // see the rental branch above
       externalLinks: sanitizeExternalLinks(body.externalLinks),
       locations, desiredType, priceMin, priceMax, minBeds, minBaths,
       mustHaves: desiredValidated.data.mustHaves,
@@ -233,12 +234,7 @@ export async function insertListing(db, userId, d) {
   }
 
   await syncGroupMemberships(db, userId, { city: d.city, state: d.state, estimatedValue: d.estimatedValue });
-  // A buyer-only profile has no home, and a rental isn't itself a match for
-  // anyone's "I want to trade for a home" saved search — skip the "new
-  // listing matches your saved search" notification for both.
-  if (!d.isBuyerOnly && !d.isRental) {
-    await notifySavedSearches(db, { user_id: userId, city: d.city, state: d.state, property_type: d.propertyType, estimated_value: d.estimatedValue });
-  }
-
+  // Saved-search alerts are sent by the callers in the background (context.waitUntil), not here: a scan of everyone's
+  // searches inside the create request is what used to make big uploads time out.
   return listingId;
 }

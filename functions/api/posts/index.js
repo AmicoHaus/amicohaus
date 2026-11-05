@@ -1,5 +1,6 @@
 import { getSessionUser } from '../../_lib/auth.js';
 import { json, badRequest, unauthorized, clampString, DEMO_EMAIL_PATTERN } from '../../_lib/util.js';
+import { authorAgentJoin, AUTHOR_AGENT_COLUMNS, moderationFields } from '../../_lib/moderation.js';
 
 export async function onRequestGet(context) {
   const db = context.env.DB;
@@ -18,27 +19,36 @@ export async function onRequestGet(context) {
        )`
     : '';
   const blockParams = viewer ? [viewer.id, viewer.id] : [];
+  // A hidden post (moderation.js) shows only to its author and admins.
+  const hiddenClause = 'AND (posts.hidden_at IS NULL OR posts.user_id = ? OR ? = 1)';
+  const hiddenParams = [viewer ? viewer.id : 0, viewer && viewer.role === 'admin' ? 1 : 0];
 
-  const baseSelect = `SELECT posts.id, posts.user_id, posts.body, posts.created_at, posts.listing_id, users.display_name AS author_name,
+  const baseSelect = `SELECT posts.id, posts.user_id, posts.body, posts.created_at, posts.listing_id, posts.hidden_at, posts.hidden_reason,
+            users.display_name AS author_name, ${AUTHOR_AGENT_COLUMNS},
             (SELECT COUNT(*) FROM post_likes WHERE post_likes.post_id = posts.id) AS like_count,
-            (SELECT COUNT(*) FROM comments WHERE comments.post_id = posts.id) AS comment_count
-     FROM posts JOIN users ON users.id = posts.user_id`;
+            (SELECT COUNT(*) FROM comments WHERE comments.post_id = posts.id AND comments.hidden_at IS NULL) AS comment_count
+     FROM posts JOIN users ON users.id = posts.user_id ${authorAgentJoin('posts.user_id')}`;
 
   // Seeded demo accounts (no password, can never reply) are excluded from
   // every real-facing feed — they only ever show up on the public /demo
   // showcase page, which queries them separately (api/demo-overview.js).
   const query = groupId
-    ? db.prepare(`${baseSelect} WHERE posts.group_id = ? AND users.email NOT LIKE ? ${blockClause} ORDER BY posts.created_at DESC LIMIT ?`)
-        .bind(groupId, DEMO_EMAIL_PATTERN, ...blockParams, limit)
+    ? db.prepare(`${baseSelect} WHERE posts.group_id = ? AND users.email NOT LIKE ? ${blockClause} ${hiddenClause} ORDER BY posts.created_at DESC LIMIT ?`)
+        .bind(groupId, DEMO_EMAIL_PATTERN, ...blockParams, ...hiddenParams, limit)
     // Deal-thread anchor posts (listing_id/augmented_home_id/green_home_id/dev_project_id set) are reachable
     // only through their entity's own thread view, never the general feed -- exclude them here.
     : db.prepare(`${baseSelect} WHERE posts.group_id IS NULL AND posts.listing_id IS NULL
           AND posts.augmented_home_id IS NULL AND posts.green_home_id IS NULL AND posts.dev_project_id IS NULL
-          AND users.email NOT LIKE ? ${blockClause} ORDER BY posts.created_at DESC LIMIT ?`)
-        .bind(DEMO_EMAIL_PATTERN, ...blockParams, limit);
+          AND users.email NOT LIKE ? ${blockClause} ${hiddenClause} ORDER BY posts.created_at DESC LIMIT ?`)
+        .bind(DEMO_EMAIL_PATTERN, ...blockParams, ...hiddenParams, limit);
 
   const rows = await query.all();
-  return json({ posts: rows.results });
+  const posts = rows.results.map(r => ({
+    id: r.id, user_id: r.user_id, body: r.body, created_at: r.created_at, listing_id: r.listing_id,
+    author_name: r.author_name, like_count: r.like_count, comment_count: r.comment_count,
+    ...moderationFields(r, viewer),
+  }));
+  return json({ posts });
 }
 
 export async function onRequestPost(context) {

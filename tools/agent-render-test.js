@@ -77,7 +77,9 @@ check('singular review', t.ratingChipHtml(4.5, 1).includes('1 review<'));
 // Proposal card
 const bid = { id: 5, agentUserId: 42, agentName: 'Ana <b>Ortiz</b>', brokerageName: 'Bay & Co', yearsExperience: 11, rating: 4.7, reviewCount: 12, isVerified: true, topRated: true, licenseVerified: true, status: 'pending', isStale: true, winRate: 0.4, avgResponseHours: 5, homesSoldLastYear: 20, avgDaysOnMarket: 30, hasVideo: true, message: '<script>x</script>Happy to help', commissionPct: 2.5, flatFee: 950, services: [{ type: 'photography', fee: 100 }], openHouseDays: ['sun'] };
 const bidHtml = t.renderBidCard(bid, true);
-check('bid card renders', bidHtml.includes('Accept This Proposal') && bidHtml.includes('Win rate'));
+// Batch L1 (#10, #15): no win rate, no Top Rated and no Verified badge on proposals; the license reads "on file".
+check('bid card renders', bidHtml.includes('Accept This Proposal') && !/win rate/i.test(bidHtml) && !bidHtml.includes('Top Rated') && !bidHtml.includes('Verified by Amico Haus'), bidHtml.slice(0, 300));
+check('...and a license number reads "DRE #… on file"', t.renderBidCard({ ...bid, licenseNumber: '01234567' }, true).includes('DRE #01234567 on file'));
 check('bid card keeps the proposal fee', bidHtml.includes('$950 flat') && bidHtml.includes('2.5% commission'));
 check('bid card escapes name and message', !bidHtml.includes('<b>Ortiz') && !bidHtml.includes('<script>x'));
 const bareBid = t.renderBidCard({ ...bid, winRate: null, avgResponseHours: null, homesSoldLastYear: null, avgDaysOnMarket: null, licenseVerified: false, rating: null, reviewCount: 0, yearsExperience: null, brokerageName: null, isStale: false, hasVideo: false, openHouseDays: [] }, false);
@@ -97,7 +99,9 @@ check('highest rated puts 3+ reviews ahead of a single 5-star', ids(t.filteredPr
 check('most hired sorts by hires', ids(t.filteredProposals(bids, { sort: 'mostHired' })).startsWith('3,4'), ids(t.filteredProposals(bids, { sort: 'mostHired' })));
 check('flat-fee filter keeps flat fees and the accepted proposal', ids(t.filteredProposals(bids, { feeType: 'flat' })) === '4,2,1', ids(t.filteredProposals(bids, { feeType: 'flat' })));
 check('must-include filter', ids(t.filteredProposals(bids, { mustInclude: 'drone' })) === '3,1', ids(t.filteredProposals(bids, { mustInclude: 'drone' })));
-check('license-verified + hide-declined never drop the accepted proposal', ids(t.filteredProposals(bids, { licenseOnly: true, hideDeclined: true })) === '3,1', ids(t.filteredProposals(bids, { licenseOnly: true, hideDeclined: true })));
+// Batch L1: the "License checked on the DRE only" filter is gone (the site doesn't vouch for license status), so
+// licenseOnly is ignored; hide-declined still never drops the accepted proposal.
+check('hide-declined never drops the accepted proposal (and licenseOnly no longer filters)', ids(t.filteredProposals(bids, { licenseOnly: true, hideDeclined: true })) === '4,3,1', ids(t.filteredProposals(bids, { licenseOnly: true, hideDeclined: true })));
 const section3 = t.renderProposalsSection(bids, 'pre-listing-9');
 const section2 = t.renderProposalsSection(bids.slice(0, 2), 'pre-listing-9');
 check('controls appear with 3+ proposals only', section3.includes('proposalSort') && !section2.includes('proposalSort'));

@@ -1,6 +1,6 @@
 import { getSessionUser } from '../../../_lib/auth.js';
 import { scrubImageMetadata } from '../../../_lib/imageMetadata.js';
-import { json, badRequest, unauthorized } from '../../../_lib/util.js';
+import { json, badRequest, unauthorized, forbidden } from '../../../_lib/util.js';
 
 const MAX_PHOTOS = 12;
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024; // 5MB
@@ -13,6 +13,9 @@ export async function onRequestPost(context) {
   const db = context.env.DB;
   const agent = await db.prepare('SELECT status FROM agent_profiles WHERE user_id = ?').bind(user.id).first();
   if (!agent) return badRequest('Apply to become an agent before adding portfolio photos.');
+  // Only an approved agent's photos are ever shown publicly (agent-photos/[id].js), so only an approved agent can
+  // add them.
+  if (agent.status !== 'approved') return forbidden('Your agent profile needs to be approved first.');
 
   const bucket = context.env.PHOTOS;
   if (!bucket) return json({ error: 'Photo storage is not configured yet.' }, { status: 503 });

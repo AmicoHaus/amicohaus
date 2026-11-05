@@ -1,17 +1,25 @@
 # Amico Haus
 
-> Amico Haus: the real estate marketplace of tomorrow! Everything that's missing from the real estate market for the homeowner! Amico Haus is a pre-listing showcase called Agent Strategy: a homeowner posts their home before listing it, local real estate agent experts evaluate the asking price (too high, about right, or too low — an opinion, not an appraisal) and present their strategy for selling it (fee, included services, turnaround), and the homeowner compares and chooses. The evaluation is mutual: agents assess the home, the homeowner assesses each agent, and both review each other afterward. Agents apply and are reviewed by an admin (license numbers are self-reported, not independently verified); homeowners can also invite an agent they already know. No payments run through the platform. Amico Haus also lets homeowners trade homes instead of listing them, matching them into mutual swaps and three-or-more-party "daisy chains".
+> Amico Haus: the real estate marketplace of tomorrow! Everything that's missing from the real estate market for the homeowner! Amico Haus is a pre-listing showcase called Agent Strategy: a homeowner posts their home before listing it, approved local real estate agents evaluate the asking price (too high, about right, or too low — an opinion, not an appraisal) and present their strategy for selling it (fee, included services, turnaround), and the homeowner compares and chooses. It's free for homeowners. Agents apply for free and an admin approves them; license numbers are looked up on the California DRE's public lookup before approval; check current status there. Homeowners can also invite an agent they already know. No payments run through the platform. Amico Haus also lets homeowners trade homes instead of listing them, matching them into mutual swaps and three-or-more-party "daisy chains". Presented by Rudy Flores, Realtor® (DRE #02257808), Coldwell Banker West. Equal Housing Opportunity.
 
-Each user creates a profile describing their current home (location, type, price, beds/baths, optional links to Airbnb/Zillow listings) and what would make them move (target locations, property type, price range, minimum beds/baths). Only city/neighborhood is public; the exact address stays private until a match is confirmed.
+Each user creates a profile describing their current home (location, type, price, beds/baths, optional links to Airbnb/Zillow listings) and what would make them move (target locations, property type, price range, minimum beds/baths). Only city/neighborhood is public; the exact street address is never shown to other members.
+
+## Where it's live
+
+- **Launch area**: San Diego County, starting with Chula Vista (ZIPs 91910, 91911, 91913, 91914, 91915) and Bonita (91902).
+- **Founding agents**: the first 3 approved agents in each launch ZIP. It's recognition only: no agent is promised leads, clients or business, and founding agents get alerts at the same moment as every other agent.
 
 ## Key concepts (Agent Strategy)
 
-- **Pre-listing showcase**: a homeowner's home shown to agents before it is listed — basic home details, photos, asking price and optional preferences (local specialist, language, minimum experience). The street address stays private.
+- **Pre-listing showcase**: a homeowner's home shown to approved local agents before it is listed — basic home details, photos, asking price and optional preferences (language, minimum experience). Other members see only a short preview (city, ZIP, home type, beds/baths, price). The street address stays private.
 - **Price evaluation**: approved agents vote whether the asking price looks too high, too low, or about right.
-- **Strategy (proposal)**: an agent's plan for the home — fee, included services, turnaround and a message. The homeowner sees every proposal; an agent sees only their own.
-- **Vetted agent**: an agent whose application (brokerage, license number, experience) an admin has reviewed. License numbers are self-reported and not independently verified.
-- **Agent profile**: service packages (Basic / Standard / Premium), case studies, an optional video, service area, specialties, languages, response time and win rate.
-- **Progress checklist and reviews**: once a proposal is accepted, both sides share a checklist and can review each other; either side can report a problem to an admin.
+- **Sealed price opinions**: an agent can suggest a list price, backed by recent sales; agents never see each other's numbers.
+- **Strategy (proposal)**: an agent's plan for the home — fee, included services, turnaround and a message. The homeowner sees every proposal; an agent sees only their own. Each agent sets their own fees; commissions are negotiable and not set by law or by Amico Haus.
+- **Decision Night**: a homeowner can have every proposal open at once at a time they pick.
+- **Approved agent**: an agent whose application (license number, brokerage, service area) an admin approved after looking up the license on the California DRE's public license lookup. Approval is not an endorsement or a guarantee; check an agent's current license status on the DRE's lookup.
+- **Agent profile**: service packages (Basic / Standard / Premium), case studies, an optional video, service area, specialties, languages and response time.
+- **You're in Control (contact controls)**: homeowners pick how agents can reach them (Open, Weekly or Quiet), set quiet hours, pause new proposals, and share their phone, email and exact address with one agent at a time ("Share my contact info"), with a "Who saw my address" list. Any member can block another.
+- **Progress checklist and reviews**: once a proposal is accepted, a shared checklist tracks the work and the homeowner can review the agent they hired. Amico Haus doesn't decide disputes between homeowners and agents; members can report a rules problem.
 
 ## Key concepts (home trading)
 
@@ -21,12 +29,17 @@ Each user creates a profile describing their current home (location, type, price
 - **Match score**: a 0–100 fit score weighing location, property type, price band, and bed/bath minimums; location and price act as near-hard requirements.
 - **Daisy chain**: a closed cycle of 3+ users whose wants and haves interlock, enabling a multi-party simultaneous trade that no single listing search could surface.
 - **Directory**: a public, no-login-required browse of active listings.
+- **FinderMine**: members post projects looking for a builder, partner or co-buyer, and people reach the poster through Amico Haus messages. Project pages need an account.
 
 ## Pages
 
 - [Amico Haus](https://amicohaus.com/): landing page, how it works, live counts, real agents as an admin approves them, and a live directory of listings. Sample data is kept separate, on the demo page.
 - [Demo](https://amicohaus.com/demo): a walkthrough of agent interactions (sample agents, a pre-listing from start to finish), then sample listings, matches and daisy chains.
-- [Sign up](https://amicohaus.com/signup.html) / [Log in](https://amicohaus.com/login.html): account creation.
+- [For agents](https://amicohaus.com/for-agents): why local agents join, how approval works, and founding agents.
+- [Unlock your ZIP](https://amicohaus.com/unlock-your-zip): a live ZIP-by-ZIP board for the launch ZIPs (open pre-listings, buyers watching each city, agents serving each ZIP, founding spots).
+- [What's new](https://amicohaus.com/whats-new): what has shipped recently.
+- [Sign up](https://amicohaus.com/signup) / [Log in](https://amicohaus.com/login): account creation.
+- [Accessibility](https://amicohaus.com/accessibility), [Terms](https://amicohaus.com/terms), [Privacy](https://amicohaus.com/privacy).
 - The main app (agents hub, pre-listings and proposals, listing management, groups, matches, messages) requires an account.
 
 ## Origin

@@ -1,19 +1,20 @@
 import { getSessionUser } from '../../../_lib/auth.js';
 import { json, badRequest, unauthorized, forbidden, notFound } from '../../../_lib/util.js';
-import { isApprovedAgent } from '../../../_lib/agents.js';
+import { preListingAccess, agentsOnly } from '../../../_lib/visibility.js';
 import { scrubVideoUpload } from '../../../_lib/videoMetadata.js';
 
 // A short phone video walkthrough of the home, so agents can weigh in on the price without a visit. One per
 // pre-listing; streamed straight to R2 (no buffering, same as an agent's intro video, see agents/video.js) with the
 // phone's recorded location removed on the way (videoMetadata.js), and the 2-minute length cap is checked in the
 // browser before upload since a Worker can't read a video's duration. Only
-// the owner and approved agents can watch it: it shows the inside of a home that isn't on the market yet.
+// the owner, admins and the approved agents who can open the pre-listing can watch it (see visibility.js): it shows
+// the inside of a home that isn't on the market yet.
 // Cloudflare refuses request bodies over 100MB on this plan, so the limit sits just under that.
 const MAX_VIDEO_BYTES = 95 * 1024 * 1024; // 95MB
 const ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/quicktime'];
 
 async function loadPreListing(db, id) {
-  return db.prepare('SELECT user_id, status, video_r2_key, video_content_type FROM pre_listings WHERE id = ?').bind(id).first();
+  return db.prepare('SELECT id, user_id, status, video_r2_key, video_content_type FROM pre_listings WHERE id = ?').bind(id).first();
 }
 
 export async function onRequestPut(context) {
@@ -63,7 +64,9 @@ export async function onRequestGet(context) {
   const db = context.env.DB;
   const preListing = await loadPreListing(db, context.params.id);
   if (!preListing || !preListing.video_r2_key) return notFound('No video for this pre-listing.');
-  if (preListing.user_id !== user.id && !(await isApprovedAgent(db, user.id))) return forbidden();
+  const { access } = await preListingAccess(db, user, preListing);
+  if (access === 'agents_only') return agentsOnly();
+  if (access === 'hidden') return notFound('No video for this pre-listing.');
 
   const bucket = context.env.PHOTOS;
   const head = bucket ? await bucket.head(preListing.video_r2_key) : null;

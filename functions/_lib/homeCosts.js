@@ -61,12 +61,17 @@ export function homeCostsFromRow(row) {
 
 const RULE_LABELS = { allowed: 'allowed', no_short_term: 'allowed, no short-term (30 days or less)', limited: 'limited (see HOA rules)' };
 
-// Plain-text lines for server-rendered pages (escaped by the caller's template).
+// Every number here is what the owner typed, so pages show it as the owner's, under this heading, with the confirm
+// line below it (Rudy 11.04): the site never states a home's costs as fact.
+export const HOME_COSTS_HEADING = 'Costs (from the owner)';
+export const HOME_COSTS_CONFIRM_LINE = "Confirm on the property tax bill and in the seller's Mello-Roos and HOA disclosures.";
+
+// Plain-text lines for server-rendered pages (escaped by the caller's template), shown under HOME_COSTS_HEADING.
 export function homeCostsLines(costs) {
   const lines = [];
-  if (costs.melloRoosAnnual === 0) lines.push('No Mello-Roos');
+  if (costs.melloRoosAnnual === 0) lines.push('Owner says: no Mello-Roos');
   else if (costs.melloRoosAnnual) lines.push(`Mello-Roos about $${costs.melloRoosAnnual.toLocaleString('en-US')}/yr`);
-  if (costs.hoaMonthly === 0) lines.push('No HOA');
+  if (costs.hoaMonthly === 0) lines.push('Owner says: no HOA');
   else if (costs.hoaMonthly) {
     const inc = costs.hoaDetails.includes.map(k => HOA_INCLUDES[k]).filter(Boolean);
     lines.push(`HOA $${costs.hoaMonthly.toLocaleString('en-US')}/mo${inc.length ? ` (includes ${inc.join(', ').toLowerCase()})` : ''}`);

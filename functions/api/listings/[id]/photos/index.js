@@ -2,18 +2,28 @@ import { getSessionUser } from '../../../../_lib/auth.js';
 import { scrubImageMetadata } from '../../../../_lib/imageMetadata.js';
 import { logAdminAction } from '../../../../_lib/audit.js';
 import { json, badRequest, unauthorized, forbidden, notFound } from '../../../../_lib/util.js';
+import { mediaCacheControl } from '../../../../_lib/visibility.js';
 
 const MAX_PHOTOS_PER_LISTING = 8;
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024; // 5MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
+// Public while the listing is (the same rule as the photo files, functions/api/photos/[id].js); otherwise only the
+// owner and admins see the list.
 export async function onRequestGet(context) {
   const listingId = context.params.id;
   const db = context.env.DB;
+  const listing = await db.prepare(
+    'SELECT listings.user_id, listings.status, users.status AS owner_status FROM listings JOIN users ON users.id = listings.user_id WHERE listings.id = ?'
+  ).bind(listingId).first();
+  if (!listing) return notFound('Listing not found.');
+  const isPublic = listing.status === 'active' && listing.owner_status === 'active';
+  const cacheControl = await mediaCacheControl(context, isPublic, listing.user_id, 'no-cache');
+  if (!cacheControl) return notFound('Listing not found.');
   const rows = await db.prepare(
     'SELECT id, position, created_at FROM listing_photos WHERE listing_id = ? ORDER BY position ASC'
   ).bind(listingId).all();
-  return json({ photos: rows.results });
+  return json({ photos: rows.results }, { headers: { 'Cache-Control': cacheControl } });
 }
 
 export async function onRequestPost(context) {

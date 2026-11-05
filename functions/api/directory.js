@@ -4,8 +4,7 @@ import { fetchPortfolioMembers } from '../_lib/portfolios.js';
 import { fetchRecentActivityBatch } from '../_lib/marketEvents.js';
 import { fetchListingFavoriteCountBatch } from '../_lib/priceSeries.js';
 import { fetchCommentCountBatch } from '../_lib/dealThreads.js';
-
-const PROPERTY_TYPES = ['Single Family Home', 'Condo', 'Townhouse', 'Penthouse', 'Ranch / Land', 'Multi-Family', 'Investment Property'];
+import { PROPERTY_TYPES } from '../_lib/listings.js';
 const SORTS = {
   newest: 'listings.created_at DESC',
   price_asc: 'listings.estimated_value ASC',
@@ -13,9 +12,8 @@ const SORTS = {
 };
 
 // Public, no-login-required browse of active listings. Only ever exposes the
-// city/neighborhood-level fields — never the street address — regardless of
-// each listing's own show_exact_address preference (that only applies once a
-// match is confirmed and the two agents/users are actually introduced).
+// city/neighborhood-level fields, never the street address. The owner's "why I'm
+// moving" tags aren't sent either: they're only for the owner and their matches.
 export async function onRequestGet(context) {
   const db = context.env.DB;
   const viewer = await getSessionUser(context);
@@ -40,13 +38,13 @@ export async function onRequestGet(context) {
   // First-time/primary-buyer profiles have no home to show off — they only
   // ever surface as a one-directional match on a seller's own Matches tab.
   // Seeded demo accounts (no password, can never reply) are excluded so real
-  // users never browse into — or try to message — one. Rentals ARE shown
-  // here (unlike buyer-only) — an ultra-luxury rental is a real property
-  // someone can browse and reach out about. A bundled member listing is only
+  // users never browse into — or try to message — one, and so are suspended
+  // owners' listings. Rentals ARE shown here (unlike buyer-only) — a rental is
+  // a real property someone can browse and reach out about. A bundled member listing is only
   // tradeable through its portfolio now, so it's hidden here too — only the
   // portfolio itself (which lists its members) is browsable.
   const conditions = [
-    `listings.status = 'active'`, `listings.is_buyer_only = 0`, `users.email NOT LIKE ?`,
+    `listings.status = 'active'`, `listings.is_buyer_only = 0`, `users.email NOT LIKE ?`, `users.status = 'active'`,
     `listings.id NOT IN (SELECT member_listing_id FROM portfolio_members)`,
   ];
   const params = [DEMO_EMAIL_PATTERN];
@@ -85,7 +83,7 @@ export async function onRequestGet(context) {
     `SELECT listings.id, listings.title, listings.neighborhood, listings.city, listings.state,
             listings.property_type, listings.beds, listings.baths, listings.sqft, listings.estimated_value, listings.price_tier,
             listings.external_links, listings.is_rental, listings.rent_amount, listings.min_lease_months, listings.is_portfolio,
-            listings.life_event_tags_json, listings.created_at, listings.mello_roos_annual, listings.hoa_monthly,
+            listings.created_at, listings.mello_roos_annual, listings.hoa_monthly,
             users.display_name AS owner_name,
             desired_criteria.locations, desired_criteria.property_type AS desired_type,
             desired_criteria.price_min, desired_criteria.price_max,
@@ -113,7 +111,6 @@ export async function onRequestGet(context) {
 
   const listings = rows.results.map(r => ({
     ...r, external_links: parseJsonSafe(r.external_links, []),
-    life_event_tags: parseJsonSafe(r.life_event_tags_json, []),
     portfolio_members: r.is_portfolio ? (membersByPortfolio.get(r.id) || []) : undefined,
     recent_activity: recentActivityById.get(r.id) || null,
     favorite_count: favoriteCountById.get(r.id) || 0,

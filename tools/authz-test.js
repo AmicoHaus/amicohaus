@@ -153,7 +153,7 @@ const denied = r => r.status >= 400 && r.status < 500;
   const bDb = sql(`SELECT role, is_verified FROM users WHERE id = ${B.id}`)[0];
   record('privilege', 'attacker row in DB is role=user, unverified', bDb.role === 'user' && !bDb.is_verified, JSON.stringify(bDb));
 
-  sql(`INSERT INTO agent_profiles (user_id, status, brokerage_name, license_number, years_experience, bio) VALUES (${G.id}, 'approved', 'Authz Realty One', '09999901', 5, 'bio'), (${H.id}, 'approved', 'Authz Realty Two', 'TESTLIC-2', 6, 'bio')`);
+  sql(`INSERT INTO agent_profiles (user_id, status, brokerage_name, license_number, years_experience, bio) VALUES (${G.id}, 'approved', 'Authz Realty One', '09999901', 5, 'bio'), (${H.id}, 'approved', 'Authz Realty One', 'TESTLIC-2', 6, 'bio')`); // same brokerage as G: teams are same-brokerage only (L1)
 
   const listingBody = (over) => ({ title: 'AUTHZ Home', city: 'San Diego', state: 'CA', propertyType: 'Single Family Home', beds: 3, baths: 2, estimatedValue: 600000,
     address: MARK.address, clientName: MARK.clientName, description: 'authz test', locations: 'Sacramento, CA', desiredType: 'Condo', priceMin: 500000, priceMax: 700000,
@@ -193,6 +193,12 @@ const denied = r => r.status >= 400 && r.status < 500;
 
   const tx = await A.call('POST', '/api/transactions', { listingIdA: LA, listingIdB: LC, note: 'authz swap' });
   const T = tx.json && tx.json.id;
+  // Batch L1: agents can't see or bid on a trade until the other partner (C) confirms it.
+  let TX_EARLY = null, TX_CONFIRM = null;
+  if (T) {
+    TX_EARLY = (await G.call('POST', `/api/transactions/${T}/bids`, { message: 'AUTHZ early', commissionPct: 2, flatFee: 500, services: [{ type: 'photography' }], turnaroundDays: 3 })).status;
+    TX_CONFIRM = (await C.call('POST', `/api/transactions/${T}/confirm`, {})).status;
+  }
   console.log('resources', { P, CM, K, SS, AL, PL, PLPHOTO, T, txStatus: tx.status, txErr: tx.status !== 201 ? tx.text.slice(0, 120) : '' });
 
   const bidBody = { message: 'AUTHZ bid', commissionPct: 2, flatFee: 500, services: [{ type: 'photography' }], turnaroundDays: 3 };
@@ -213,6 +219,8 @@ const denied = r => r.status >= 400 && r.status < 500;
   const TGBID = (tbids.find(b => b.agentUserId === G.id) || {}).id;
   const THBID = (tbids.find(b => b.agentUserId === H.id) || {}).id;
   console.log('bid ids', { GBID, HBID, TGBID, THBID, TG, TH });
+  record('transaction', "an agent can't bid on a trade before the other partner confirms it (404)", TX_EARLY === 404, `status ${TX_EARLY}`);
+  record('transaction', 'the other partner can confirm the trade request', TX_CONFIRM === 200, `status ${TX_CONFIRM}`);
 
   // Award G on the pre-listing so milestones exist.
   const acc = await A.call('PUT', `/api/pre-listings/${PL}/bids/${GBID}`, { action: 'accept' });
@@ -311,10 +319,14 @@ const denied = r => r.status >= 400 && r.status < 500;
   const alStill = await A.call('GET', '/api/agent-search-alerts');
   record('saved-searches', 'B cannot delete A\'s agent alert', (alStill.json.alerts || []).some(a => a.id === AL), '');
 
+  // Pre-listings are shared only with approved agents (batch L1): B browses a teaser and can't open one.
+  const TEASER_KEYS = ['id', 'city', 'state', 'zip', 'propertyType', 'beds', 'baths', 'askingPrice', 'priceOpen', 'proposalsPaused', 'createdAt', 'teaser'];
+  const bBrowse = await B.call('GET', '/api/pre-listings');
+  const bRow = ((bBrowse.json && bBrowse.json.preListings) || []).find(x => x.id === PL2);
+  record('pre-listing', 'a signed-in non-agent browsing gets a teaser only (no owner, photos or votes), never cached', bBrowse.status === 200 && !!bRow && bRow.teaser === true && Object.keys(bRow).every(k => TEASER_KEYS.includes(k)) && !bBrowse.text.includes('"photoIds"') && !bBrowse.text.includes('"votes"') && !bBrowse.text.includes('"owner"') && bBrowse.headers.get('cache-control') === 'private, no-store', `status ${bBrowse.status} row=${JSON.stringify(bRow)}`);
   const bPl = await B.call('GET', `/api/pre-listings/${PL}`);
-  const bp = bPl.json && bPl.json.preListing || {};
-  record('pre-listing', 'B can browse a pre-listing but not its address or lockbox notes', bPl.status === 200 && !('address' in bp) && bp.specialInstructions === undefined && !bPl.text.includes(MARK.preAddress) && !bPl.text.includes(MARK.lockbox), `status ${bPl.status} keys=${Object.keys(bp).join(',').slice(0, 120)}`);
-  record('pre-listing', 'B sees no proposals', bPl.json && bPl.json.bids === null, JSON.stringify(bPl.json && bPl.json.bids).slice(0, 80));
+  record('pre-listing', 'a signed-in non-agent gets 403 agents_only on the detail (no address, notes for agents or proposals)', bPl.status === 403 && bPl.json && bPl.json.code === 'agents_only' && !bPl.text.includes(MARK.preAddress) && !bPl.text.includes(MARK.lockbox) && !bPl.text.includes('AUTHZ bid'), `status ${bPl.status} ${bPl.text.slice(0, 120)}`);
+  await chk('pre-listing', 'a non-agent gets no vote tally', 'GET', `/api/pre-listings/${PL2}/votes`);
   await chk('pre-listing', 'cannot edit', 'PUT', `/api/pre-listings/${PL}`, { action: 'close' });
   await chk('pre-listing', 'cannot delete', 'DELETE', `/api/pre-listings/${PL}`);
   await chk('pre-listing', 'cannot accept a proposal', 'PUT', `/api/pre-listings/${PL}/bids/${HBID}`, { action: 'accept' });
@@ -345,11 +357,13 @@ const denied = r => r.status >= 400 && r.status < 500;
   await chk('pre-listing', 'cannot leave a review', 'POST', `/api/pre-listings/${PL}/review`, { rating: 1, comment: 'x' });
   await chk('pre-listing', 'cannot review the homeowner', 'POST', `/api/pre-listings/${PL}/review-homeowner`, { rating: 1, comment: 'x' });
   const bPhoto = await B.call('GET', `/api/pre-listing-photos/${PLPHOTO}`);
-  record('pre-listing', 'signed-in user can load a pre-listing photo (in-app use)', bPhoto.status === 200, `status ${bPhoto.status}`);
+  record('pre-listing', 'a signed-in non-agent cannot load a pre-listing photo (approved agents only)', denied(bPhoto), `status ${bPhoto.status}`);
+  await chk('pre-listing', '...nor its photo list', 'GET', `/api/pre-listings/${PL}/photos`);
 
   if (T) {
     const bTx = await B.call('GET', `/api/transactions/${T}`);
-    record('transaction', 'B sees no proposals on someone else\'s trade', bTx.json && bTx.json.bids === null && bTx.json.isParty === false, JSON.stringify(bTx.json && { bids: bTx.json.bids, isParty: bTx.json.isParty }));
+    // Since L1 a signed-in non-agent who isn't a partner gets 403 agents_only (no trade details at all).
+    record('transaction', 'B sees no proposals on someone else\'s trade', (bTx.status === 403 && bTx.json && bTx.json.code === 'agents_only') || (bTx.json && bTx.json.bids === null && bTx.json.isParty === false), `status ${bTx.status} ` + JSON.stringify(bTx.json && { bids: bTx.json.bids, isParty: bTx.json.isParty, code: bTx.json.code }));
     await chk('transaction', 'cannot accept a proposal', 'PUT', `/api/transactions/${T}/bids/${THBID}`, { action: 'accept' });
     await chk('transaction', 'cannot withdraw another agent\'s proposal', 'PUT', `/api/transactions/${T}/bids/${TGBID}`, { action: 'withdraw' });
     await chk('transaction', 'non-agent cannot bid', 'POST', `/api/transactions/${T}/bids`, bidBody);
@@ -365,7 +379,8 @@ const denied = r => r.status >= 400 && r.status < 500;
   console.log('\n== other approved agent (H) ==');
   const hPl = await H.call('GET', `/api/pre-listings/${PL}`);
   const hp = hPl.json && hPl.json.preListing || {};
-  record('agent', 'agent sees lockbox notes but never the street address', hp.specialInstructions === MARK.lockbox && !('address' in hp) && !hPl.text.includes(MARK.preAddress), `keys=${Object.keys(hp).join(',').slice(0, 100)}`);
+  // PL is awarded to G by now; H took part (a proposal), so H can still open it.
+  record('agent', 'an agent who took part can open an awarded pre-listing, but gets no notes for agents (not hired, no shared contact) and never the street address', hPl.status === 200 && hp.specialInstructions === undefined && !hPl.text.includes(MARK.lockbox) && !('address' in hp) && !hPl.text.includes(MARK.preAddress), `status ${hPl.status} keys=${Object.keys(hp).join(',').slice(0, 100)}`);
   record('agent', 'agent sees only their own proposal, not competitors\'', hPl.json.bids === null && hPl.json.myBid && hPl.json.myBid.id === HBID && !hPl.text.includes('"AUTHZ bid"'), JSON.stringify(hPl.json.myBid).slice(0, 100));
   const hchk = async (label, method, url, body) => { const r = await H.call(method, url, body); record('agent', label, denied(r), `status ${r.status} ${r.text.slice(0, 90)}`); };
   await hchk('cannot accept a proposal on a pre-listing they don\'t own', 'PUT', `/api/pre-listings/${PL}/bids/${HBID}`, { action: 'accept' });
@@ -392,6 +407,7 @@ const denied = r => r.status >= 400 && r.status < 500;
   sql(`UPDATE agent_profiles SET service_zips_json = '[]' WHERE user_id = ${G.id}`);
   const gPl = await G.call('GET', `/api/pre-listings/${PL}`);
   record('agent', 'awarded agent still cannot see the street address', !('address' in (gPl.json.preListing || {})) && !gPl.text.includes(MARK.preAddress), '');
+  record('agent', 'the hired agent gets the notes for agents', (gPl.json.preListing || {}).specialInstructions === MARK.lockbox, `keys=${Object.keys(gPl.json.preListing || {}).join(',').slice(0, 100)}`);
   const gAccept = await G.call('PUT', `/api/pre-listings/${PL}/bids/${HBID}`, { action: 'accept' });
   record('agent', 'an agent cannot accept proposals on the homeowner\'s behalf', denied(gAccept) || gAccept.status === 400, `status ${gAccept.status}`);
   const gMs = await G.call('GET', `/api/pre-listings/${PL}/milestones`);
@@ -424,11 +440,16 @@ const denied = r => r.status >= 400 && r.status < 500;
     ['run the seed tool', 'POST', `/api/admin/seed`, { count: 1 }],
     ['read the audit log', 'GET', `/api/admin/audit-log`], ['read the admin overview', 'GET', `/api/admin/overview`],
     ['list agent applications', 'GET', `/api/admin/agent-applications`], ['list reports', 'GET', `/api/admin/reports`], ['list disputes', 'GET', `/api/admin/disputes`],
-  ]) { const r = await B.call(method, url, body); record('admin', `ordinary user cannot ${label}`, r.status === 403, `status ${r.status}`); }
+  ]) {
+    const r = await B.call(method, url, body);
+    // Disputes are read-only history since L1: resolving answers 410 for everyone, admins included.
+    const refused = r.status === 403 || (label === 'resolve a dispute' && r.status === 410);
+    record('admin', `ordinary user cannot ${label}`, refused, `status ${r.status}`);
+  }
   await B.call('PUT', '/api/me', { role: 'admin', isVerified: true, is_verified: 1, email: 'x@example.com', displayName: 'Authz attacker' });
   const bNow = sql(`SELECT role, is_verified, email FROM users WHERE id = ${B.id}`)[0];
   record('privilege', 'PUT /api/me cannot change role, verification or email', bNow.role === 'user' && !bNow.is_verified && bNow.email === B.email, JSON.stringify(bNow));
-  const apply = await B.call('POST', '/api/agents/apply', { brokerageName: 'Attacker Realty', licenseNumber: '09999900', yearsExperience: 3, bio: 'x', defaultCommissionPct: 2,
+  const apply = await B.call('POST', '/api/agents/apply', { acceptRules: true, brokerageName: 'Attacker Realty', licenseNumber: '09999900', yearsExperience: 3, bio: 'x', defaultCommissionPct: 2,
     services: [{ type: 'photography' }], serviceZips: ['92104'], status: 'approved', licenseVerified: true, license_verified: 1, isApproved: true });
   const bAgent = sql(`SELECT status, license_verified FROM agent_profiles WHERE user_id = ${B.id}`)[0] || {};
   record('privilege', 'applying as an agent cannot self-approve or self-verify', apply.status === 201 && bAgent.status === 'pending' && !bAgent.license_verified, JSON.stringify(bAgent) + ` apply=${apply.status} ${apply.status !== 201 ? apply.text.slice(0, 100) : ''}`);
@@ -437,7 +458,7 @@ const denied = r => r.status >= 400 && r.status < 500;
 
   // An approved agent changing their license number must lose the admin's "verified" badge.
   sql(`UPDATE agent_profiles SET license_verified = 1, license_verified_by = ${H.id} WHERE user_id = ${G.id}`);
-  const editBody = (lic) => ({ brokerageName: 'Authz Realty One', licenseNumber: lic, yearsExperience: 5, bio: 'bio', defaultCommissionPct: 2, services: [{ type: 'photography' }], serviceZips: ['92104'] });
+  const editBody = (lic) => ({ acceptRules: true, brokerageName: 'Authz Realty One', licenseNumber: lic, yearsExperience: 5, bio: 'bio', defaultCommissionPct: 2, services: [{ type: 'photography' }], serviceZips: ['92104'] });
   await G.call('POST', '/api/agents/apply', editBody('9999901'));
   const same = sql(`SELECT status, license_verified FROM agent_profiles WHERE user_id = ${G.id}`)[0];
   record('agent', 'editing a profile without touching the license number keeps "verified"', same.status === 'approved' && same.license_verified === 1, JSON.stringify(same));
@@ -519,8 +540,9 @@ const denied = r => r.status >= 400 && r.status < 500;
   record('owner', "a decided showing can't be decided again", denied(reAccept), `status ${reAccept.status}`);
 
   // ---------- agent teams (G and H, the two approved agents already set up above) ----------
+  // A team name must include a member's surname (B&P 10159.6); G signs up as "Authz agent1", whose surname reads as "agent".
   console.log('\n== agent teams ==');
-  const teamCreate = await G.call('POST', '/api/agent-teams', { name: 'AUTHZ Team' });
+  const teamCreate = await G.call('POST', '/api/agent-teams', { name: 'AUTHZ Agent Team' });
   record('team', 'an approved agent can create a team', teamCreate.status === 201, `status ${teamCreate.status} ${teamCreate.text.slice(0, 100)}`);
   const TEAMID = teamCreate.json && (teamCreate.json.id ?? teamCreate.json.teamId);
   const bCreate = await B.call('POST', '/api/agent-teams', { name: 'Should fail' });
@@ -532,13 +554,13 @@ const denied = r => r.status >= 400 && r.status < 500;
   const bAcceptForH = await B.call('PUT', `/api/agent-teams/${TEAMID}/members/${H.id}`, { action: 'accept' });
   record('team', "nobody but the invitee can accept H's invite", denied(bAcceptForH), `status ${bAcceptForH.status}`);
   const hBeforeAccept = await H.call('GET', '/api/agent-teams/me');
-  record('team', 'the invited agent sees the pending invite with the team name', hBeforeAccept.json.myStatus === 'invited' && hBeforeAccept.json.team.name === 'AUTHZ Team', JSON.stringify(hBeforeAccept.json));
+  record('team', 'the invited agent sees the pending invite with the team name', hBeforeAccept.json.myStatus === 'invited' && hBeforeAccept.json.team.name === 'AUTHZ Agent Team', JSON.stringify(hBeforeAccept.json));
   const hAccept = await H.call('PUT', `/api/agent-teams/${TEAMID}/members/${H.id}`, { action: 'accept' });
   record('team', 'the invited agent can accept', hAccept.status === 200, `status ${hAccept.status}`);
   const dirAfterJoin = await A.call('GET', '/api/agents/directory');
   const gEntry = dirAfterJoin.json.agents.find(a => a.userId === G.id);
   const hEntry = dirAfterJoin.json.agents.find(a => a.userId === H.id);
-  record('team', "both members' directory entries show the team name", gEntry && gEntry.teamName === 'AUTHZ Team' && hEntry && hEntry.teamName === 'AUTHZ Team', JSON.stringify({ g: gEntry && gEntry.teamName, h: hEntry && hEntry.teamName }));
+  record('team', "both members' directory entries show the team name", gEntry && gEntry.teamName === 'AUTHZ Agent Team' && hEntry && hEntry.teamName === 'AUTHZ Agent Team', JSON.stringify({ g: gEntry && gEntry.teamName, h: hEntry && hEntry.teamName }));
   const hRemovesG = await H.call('PUT', `/api/agent-teams/${TEAMID}/members/${G.id}`, { action: 'remove' });
   record('team', "a regular member (not the owner) can't remove anyone", denied(hRemovesG), `status ${hRemovesG.status}`);
   const gRemovesH = await G.call('PUT', `/api/agent-teams/${TEAMID}/members/${H.id}`, { action: 'remove' });
@@ -652,6 +674,27 @@ const denied = r => r.status >= 400 && r.status < 500;
     record('control', `anonymous ${method} /api/contact-settings is refused`, r.status === 401, `status ${r.status}`);
   }
 
+  // ---------- blocks on pre-listings (batch L1) ----------
+  // A blocks H: H gets the same 404 as a home that doesn't exist (never "you're blocked"), A's proposal list leaves
+  // H out, and unblocking brings H's proposal back (it was never deleted).
+  console.log('\n== pre-listing blocks ==');
+  const aBidAgents = async () => ((((await A.call('GET', `/api/pre-listings/${plOpen}`)).json || {}).bids) || []).map(b => b.agentUserId);
+  const bidsBeforeBlock = await aBidAgents();
+  const blockH = await A.call('POST', '/api/blocks', { userId: H.id });
+  const hBlockedView = await H.call('GET', `/api/pre-listings/${plOpen}`);
+  record('blocks', 'an agent the owner blocked gets a 404 on the pre-listing, with nothing about a block', bidsBeforeBlock.includes(H.id) && blockH.status < 300 && hBlockedView.status === 404 && !/block/i.test(hBlockedView.text), `block ${blockH.status} view ${hBlockedView.status} ${hBlockedView.text.slice(0, 80)}`);
+  const hBlockedBid = await H.call('POST', `/api/pre-listings/${plOpen}/bids`, { ...bidBody, message: 'AUTHZ blocked bid' });
+  record('blocks', '...and a 404 on a proposal', hBlockedBid.status === 404 && !/block/i.test(hBlockedBid.text), `status ${hBlockedBid.status} ${hBlockedBid.text.slice(0, 80)}`);
+  const hBlockedBrowse = ((await H.call('GET', '/api/pre-listings')).json || {}).preListings || [];
+  record('blocks', "...and the home drops out of the agent's browse list", !hBlockedBrowse.some(x => x.id === plOpen), '');
+  const bidsWhileBlocked = await aBidAgents();
+  record('blocks', "the owner's proposal list leaves the blocked agent out", !bidsWhileBlocked.includes(H.id), JSON.stringify(bidsWhileBlocked));
+  const unblockH = await A.call('DELETE', `/api/blocks/${H.id}`);
+  const bidsAfterUnblock = await aBidAgents();
+  const hBackView = await H.call('GET', `/api/pre-listings/${plOpen}`);
+  const hBidRow = sql(`SELECT message FROM service_bids WHERE request_type = 'pre_listing' AND request_id = ${plOpen} AND agent_user_id = ${H.id}`)[0] || {};
+  record('blocks', 'unblocking brings the proposal back (unchanged) and the agent can open the home again', unblockH.status === 200 && bidsAfterUnblock.includes(H.id) && hBackView.status === 200 && hBidRow.message === 'AUTHZ bid', `unblock ${unblockH.status} bids=${JSON.stringify(bidsAfterUnblock)} view ${hBackView.status} msg=${hBidRow.message}`);
+
   const e1 = await A.call('PUT', `/api/pre-listings/${PL2}`, { ...PL2_BODY, title: 'AUTHZ Pre 2 edited', beds: 4 });
   const row1 = sql(`SELECT title, beds, asking_price FROM pre_listings WHERE id = ${PL2}`)[0];
   record('owner', 'the owner can edit their open pre-listing', e1.status === 200 && row1.title === 'AUTHZ Pre 2 edited' && row1.beds === 4, `status ${e1.status} row=${JSON.stringify(row1)}`);
@@ -695,6 +738,10 @@ const denied = r => r.status >= 400 && r.status < 500;
   record('owner', 'a closed pre-listing takes no more votes or proposals', hVoteClosed.status === 400 && hBidClosed.status === 400 && (await tally()).total === 0, `vote ${hVoteClosed.status} bid ${hBidClosed.status}`);
   const close2 = await A.call('PUT', `/api/pre-listings/${PL2}`, { action: 'close' });
   const editClosed = await A.call('PUT', `/api/pre-listings/${PL2}`, { ...PL2_BODY, title: 'reopened?' });
+  // H's vote on PL2 was cleared by the price change above and H never sent a proposal there, so once PL2 is closed it
+  // is gone for H (only agents who took part keep access to a pre-listing that isn't open).
+  const hClosedView = await H.call('GET', `/api/pre-listings/${PL2}`);
+  record('agent', "an approved agent who didn't take part in a closed pre-listing gets a 404", hClosedView.status === 404, `status ${hClosedView.status}`);
   record('owner', 'a closed pre-listing cannot be closed again or edited', close2.status === 400 && editClosed.status === 400 && sql(`SELECT title FROM pre_listings WHERE id = ${PL2}`)[0].title === 'AUTHZ Pre 2', `close ${close2.status} edit ${editClosed.status}`);
 
   // ---------- AugmentedHomes ----------
@@ -724,7 +771,8 @@ const denied = r => r.status >= 400 && r.status < 500;
   record('augmented', 'owner can edit price and life-event tags', augEdit.status === 200, JSON.stringify(augEdit));
   const augGet1 = (await A.call('GET', `/api/augmented-homes/${AUG}`)).json.home;
   record('augmented', 'price change is logged in priceHistory', augGet1.priceHistory.length === 1 && augGet1.priceHistory[0].oldPrice === 625000 && augGet1.priceHistory[0].newPrice === 600000, JSON.stringify(augGet1.priceHistory));
-  record('augmented', 'a bogus life-event key is filtered, a valid one kept', JSON.stringify(augGet1.lifeEventTags) === JSON.stringify(['downsizing']), JSON.stringify(augGet1.lifeEventTags));
+  // Since L1 the old key 'downsizing' is stored under its neutral replacement 'less_space' ("Need less space").
+  record('augmented', 'a bogus life-event key is filtered, a valid one kept', JSON.stringify(augGet1.lifeEventTags) === JSON.stringify(['less_space']), JSON.stringify(augGet1.lifeEventTags));
 
   const augPublicPage = await anon.call('GET', `/augmented-home/${AUG}`);
   record('augmented', 'the public share page is visible while active, anonymously', augPublicPage.status === 200 && augPublicPage.text.includes('AUTHZ Adapted Home'), `status ${augPublicPage.status}`);
@@ -923,30 +971,21 @@ const denied = r => r.status >= 400 && r.status < 500;
   const projBadType = await C.call('POST', '/api/dev-projects', { ...projBody, projectType: 'not-a-real-type' });
   record('findermine', 'an invalid project type is refused', projBadType.status === 400, `status ${projBadType.status}`);
   const projAsOwner = (await C.call('GET', `/api/dev-projects/${PROJ}`)).json || {};
-  record('findermine', 'the owner sees the private address and the (empty) interested-investor list', projAsOwner.isOwner === true && projAsOwner.project.address === MARK.projAddress && Array.isArray(projAsOwner.interestedInvestors), JSON.stringify(projAsOwner.project && Object.keys(projAsOwner.project)));
+  record('findermine', 'the owner sees the private address', projAsOwner.isOwner === true && projAsOwner.project.address === MARK.projAddress, JSON.stringify(projAsOwner.project && Object.keys(projAsOwner.project)));
+  record('findermine', 'no investment terms are stored or returned (minimum investment, target return, investor list)', !('minInvestment' in projAsOwner.project) && !('targetReturn' in projAsOwner.project) && !('interestedInvestors' in projAsOwner) && !('interestCount' in projAsOwner.project) && (sql(`SELECT min_investment AS m, target_return AS t FROM dev_projects WHERE id = ${PROJ}`)[0] || {}).m === 0, JSON.stringify(Object.keys(projAsOwner.project || {})));
   const projAsB = await B.call('GET', `/api/dev-projects/${PROJ}`);
   const projB = projAsB.json || {};
-  record('findermine', 'a non-owner never sees the address or the interested-investor list', projAsB.status === 200 && projB.project.address === undefined && projB.interestedInvestors === null && !projAsB.text.includes(MARK.projAddress), `keys=${Object.keys(projB.project || {}).join(',')}`);
-  record('findermine', "a non-owner's own interest state starts false", projB.amInterested === false, JSON.stringify(projB.amInterested));
-  await chk('findermine', "a non-owner can't change the project status", 'PUT', `/api/dev-projects/${PROJ}`, { action: 'set-status', status: 'funded' });
+  record('findermine', 'a non-owner never sees the address', projAsB.status === 200 && projB.project.address === undefined && !('amInterested' in projB) && !projAsB.text.includes(MARK.projAddress), `keys=${Object.keys(projB.project || {}).join(',')}`);
+  await chk('findermine', "a non-owner can't change the project status", 'PUT', `/api/dev-projects/${PROJ}`, { action: 'set-status', status: 'closed' });
   await chk('findermine', "a non-owner can't delete the project", 'DELETE', `/api/dev-projects/${PROJ}`);
   const interestOn = await B.call('POST', `/api/dev-projects/${PROJ}/interest`, { note: 'AUTHZ interested' });
-  record('findermine', 'expressing interest succeeds and is reflected back', interestOn.json && interestOn.json.interested === true, JSON.stringify(interestOn.json));
-  const cNotifInterest = sql(`SELECT body FROM notifications WHERE user_id = ${C.id} AND body LIKE '%interested in your FinderMine project%'`);
-  record('findermine', 'the project owner is notified of the new interest', cNotifInterest.length > 0, JSON.stringify(cNotifInterest));
-  const projAfterInterest = (await C.call('GET', `/api/dev-projects/${PROJ}`)).json;
-  record('findermine', "the owner's investor list shows the interested user, by name", projAfterInterest.interestedInvestors.length === 1 && projAfterInterest.interestedInvestors[0].user_id === B.id, JSON.stringify(projAfterInterest.interestedInvestors));
-  const projAsBAfter = (await B.call('GET', `/api/dev-projects/${PROJ}`)).json;
-  record('findermine', "the interested user's own view now shows amInterested true", projAsBAfter.amInterested === true, JSON.stringify(projAsBAfter.amInterested));
-  const interestOff = await B.call('POST', `/api/dev-projects/${PROJ}/interest`, {});
-  record('findermine', 'withdrawing interest flips it back off', interestOff.json && interestOff.json.interested === false, JSON.stringify(interestOff.json));
-  const projAfterWithdraw = (await C.call('GET', `/api/dev-projects/${PROJ}`)).json;
-  record('findermine', 'withdrawn interest disappears from the owner\'s investor list too', projAfterWithdraw.interestedInvestors.length === 0, JSON.stringify(projAfterWithdraw.interestedInvestors));
+  record('findermine', '"Express Interest" is gone (410)', interestOn.status === 410 && interestOn.json && interestOn.json.code === 'gone', `status ${interestOn.status}`);
   const projPublicPage = await anon.call('GET', `/project/${PROJ}`);
-  record('findermine', 'the public share page is visible while open, anonymously', projPublicPage.status === 200 && projPublicPage.text.includes('AUTHZ Dev Project'), `status ${projPublicPage.status}`);
-  record('findermine', "the public share page never leaks the street address", !projPublicPage.text.includes(MARK.projAddress), '');
-  const projPublic404 = await anon.call('GET', '/project/999999999');
-  record('findermine', 'the public share page 404s for a bogus id', projPublic404.status === 404, `status ${projPublic404.status}`);
+  record('findermine', 'the project page is sign-in only: anonymous visitors get a noindex sign-in page', projPublicPage.status === 200 && !projPublicPage.text.includes('AUTHZ Dev Project') && /noindex/i.test(projPublicPage.text + (projPublicPage.headers && projPublicPage.headers.get ? (projPublicPage.headers.get('x-robots-tag') || '') : '')), `status ${projPublicPage.status}`);
+  const projSignedInPage = await B.call('GET', `/project/${PROJ}`);
+  record('findermine', 'a signed-in member sees the project page, with no street address or investment terms', projSignedInPage.status === 200 && projSignedInPage.text.includes('AUTHZ Dev Project') && !projSignedInPage.text.includes(MARK.projAddress) && !/14% IRR|Min\. investment|Target return/i.test(projSignedInPage.text), `status ${projSignedInPage.status}`);
+  const projPublic404 = await B.call('GET', '/project/999999999');
+  record('findermine', 'the project page 404s for a bogus id', projPublic404.status === 404, `status ${projPublic404.status}`);
 
   // ---------- FinderMine: favorites + needs-alerts ----------
   const projFavOn = await B.call('PUT', `/api/dev-projects/${PROJ}/favorite`, {});
@@ -971,12 +1010,14 @@ const denied = r => r.status >= 400 && r.status < 500;
   const projAlertsAfterOwn = (await H.call('GET', '/api/dev-project-needs-alerts')).json.alerts;
   record('findermine', "the alert's own owner can delete it", !projAlertsAfterOwn.some(a => a.id === PROJ_ALERT), JSON.stringify(projAlertsAfterOwn.map(a => a.id)));
 
-  const projStatus = await C.call('PUT', `/api/dev-projects/${PROJ}`, { action: 'set-status', status: 'funded' });
-  record('findermine', 'the owner can mark their own project funded', projStatus.status === 200 && sql(`SELECT status FROM dev_projects WHERE id = ${PROJ}`)[0].status === 'funded', `status ${projStatus.status}`);
+  const projFunded = await C.call('PUT', `/api/dev-projects/${PROJ}`, { action: 'set-status', status: 'funded' });
+  record('findermine', '"funded" is no longer a status', projFunded.status === 400, `status ${projFunded.status}`);
+  const projStatus = await C.call('PUT', `/api/dev-projects/${PROJ}`, { action: 'set-status', status: 'closed' });
+  record('findermine', 'the owner can close their own project', projStatus.status === 200 && sql(`SELECT status FROM dev_projects WHERE id = ${PROJ}`)[0].status === 'closed', `status ${projStatus.status}`);
   const projBrowseAfter = (await B.call('GET', '/api/dev-projects')).json.projects;
-  record('findermine', 'a funded project drops out of the open browse list', !projBrowseAfter.some(p => p.id === PROJ), JSON.stringify(projBrowseAfter.map(p => p.id)));
-  const projPublicAfter = await anon.call('GET', `/project/${PROJ}`);
-  record('findermine', 'a no-longer-open project drops off its public share page too', projPublicAfter.status === 404, `status ${projPublicAfter.status}`);
+  record('findermine', 'a closed project drops out of the open browse list', !projBrowseAfter.some(p => p.id === PROJ), JSON.stringify(projBrowseAfter.map(p => p.id)));
+  const projPublicAfter = await B.call('GET', `/project/${PROJ}`);
+  record('findermine', 'a no-longer-open project drops off its page too', projPublicAfter.status === 404, `status ${projPublicAfter.status}`);
 
   // ---------- public profile pages (server-rendered, functions/profile/[id].js) ----------
   console.log('\n== public profile pages ==');
@@ -1140,8 +1181,11 @@ const denied = r => r.status >= 400 && r.status < 500;
   const commentB = await B.call('POST', `/api/posts/${THREAD_POST}/comments`, { body: MARK.comment + '-thread' });
   record('deal-thread', 'a signed-in user can post a comment on the deal thread', commentB.status === 201, `status ${commentB.status}`);
   const THREAD_COMMENT = commentB.json && commentB.json.id;
+  // A home's discussion is for signed-in members only (Batch L1), on its page and through this API.
   const threadCommentsAnon = await anon.call('GET', `/api/posts/${THREAD_POST}/comments`);
-  record('deal-thread', 'anonymous can read the comment back', threadCommentsAnon.status === 200 && threadCommentsAnon.json.comments.some(c => c.id === THREAD_COMMENT), JSON.stringify(threadCommentsAnon.json));
+  record('deal-thread', 'anonymous cannot read a deal-thread discussion (401)', threadCommentsAnon.status === 401, `status ${threadCommentsAnon.status}`);
+  const threadCommentsB = await B.call('GET', `/api/posts/${THREAD_POST}/comments`);
+  record('deal-thread', 'a signed-in user can read the comment back', threadCommentsB.status === 200 && threadCommentsB.json.comments.some(c => c.id === THREAD_COMMENT), JSON.stringify(threadCommentsB.json));
   // A already blocked C (see the "blocks" section above) -- a deal-thread comment is a comment like any other,
   // so that same existing block-enforcement must carry over to the new entity-linked posts without new logic:
   // C can't even post on A's thread (comments.js refuses the party, same as it would on any other post of A's).
@@ -1165,7 +1209,7 @@ const denied = r => r.status >= 400 && r.status < 500;
   await new Promise(r => setTimeout(r, 300));
   const bNotifLike = sql(`SELECT body FROM notifications WHERE user_id = ${B.id} AND body LIKE '%liked your comment%'`);
   record('comment-likes', 'the comment author is notified of the like', bNotifLike.length > 0, JSON.stringify(bNotifLike));
-  const commentsWithLike = await anon.call('GET', `/api/posts/${THREAD_POST}/comments`);
+  const commentsWithLike = await B.call('GET', `/api/posts/${THREAD_POST}/comments`);
   const likedComment = commentsWithLike.json.comments.find(c => c.id === THREAD_COMMENT);
   record('comment-likes', 'the comments list carries an accurate like_count', likedComment && likedComment.like_count === 1, JSON.stringify(likedComment));
   const unlikeH = await H.call('POST', `/api/comments/${THREAD_COMMENT}/like`, {});
@@ -1253,15 +1297,12 @@ const denied = r => r.status >= 400 && r.status < 500;
   record('search', 'a real query finds the matching AugmentedHomes listing across verticals', searchHit.status === 200 && searchHit.json.results.some(r => r.kind === 'augmented_home' && r.id === AUG2), JSON.stringify(searchHit.json.results.map(r => `${r.kind}:${r.id}`)));
   record('search', "search results never include the private street address", !searchHit.text.includes(MARK.augAddress), '');
 
-  // ---------- verified-buyer badge on offers ----------
+  // ---------- no "verified" badge beside buyers on offers (batch L1, #10) ----------
   sql(`UPDATE users SET is_verified = 1 WHERE id = ${B.id}`);
   const offersVerifiedCheck = await A.call('GET', `/api/listings/${LA}/offers`);
   const bOfferRow = offersVerifiedCheck.json && offersVerifiedCheck.json.offers.find(o => o.buyerUserId === B.id);
-  record('offers', "a verified buyer's offer is flagged buyerVerified for the owner", !!bOfferRow && bOfferRow.buyerVerified === true, JSON.stringify(bOfferRow && bOfferRow.buyerVerified));
+  record('offers', "even a flagged buyer's offer carries no buyerVerified badge field", !!bOfferRow && !('buyerVerified' in bOfferRow), JSON.stringify(bOfferRow && Object.keys(bOfferRow)));
   sql(`UPDATE users SET is_verified = 0 WHERE id = ${B.id}`);
-  const offersUnverifiedCheck = await A.call('GET', `/api/listings/${LA}/offers`);
-  const bOfferRow2 = offersUnverifiedCheck.json && offersUnverifiedCheck.json.offers.find(o => o.buyerUserId === B.id);
-  record('offers', "an unverified buyer's offer is not flagged buyerVerified", !!bOfferRow2 && bOfferRow2.buyerVerified === false, JSON.stringify(bOfferRow2 && bOfferRow2.buyerVerified));
 
   // ---------- market pulse CSV export ----------
   const csvAnon = await anon.call('GET', '/api/market-events/export.csv');
@@ -1307,7 +1348,8 @@ const denied = r => r.status >= 400 && r.status < 500;
   const ldPage = await anon.call('GET', `/listing/${LA}`);
   const ldMatch = /<script type="application\/ld\+json">([\s\S]*?)<\/script>/.exec(ldPage.text);
   let ld = null; try { ld = ldMatch && JSON.parse(ldMatch[1]); } catch { /* invalid JSON-LD */ }
-  record('structured-data', 'the public listing page carries valid RealEstateListing JSON-LD with a price', !!ld && ld['@type'] === 'RealEstateListing' && !!ld.offers && ld.offers.price > 0, ldMatch ? ldMatch[1].slice(0, 120) : 'no JSON-LD found');
+  // Since L1 a trade listing's number (the owner's own estimate, not a list price) is never published as an offer price.
+  record('structured-data', 'the public listing page carries valid RealEstateListing JSON-LD without the owner\'s estimate as a price', !!ld && ld['@type'] === 'RealEstateListing' && !(ld.offers && ld.offers.price), ldMatch ? ldMatch[1].slice(0, 160) : 'no JSON-LD found');
   record('structured-data', "the JSON-LD never includes the street address, only city/state", !!ld && !JSON.stringify(ld).includes(MARK.address) && !ld.about.address.streetAddress, '');
 
   // ---------- link previews (what iMessage/Facebook/LinkedIn show when a listing link is shared) ----------

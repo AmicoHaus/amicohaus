@@ -2,6 +2,7 @@ import { getSessionUser } from '../../../../_lib/auth.js';
 import { json, badRequest, unauthorized, forbidden, notFound } from '../../../../_lib/util.js';
 import { validateOfferInput, insertOffer, fetchOffersForOwner, fetchMyOffer } from '../../../../_lib/listingOffers.js';
 import { notifyNewOffer } from '../../../../_lib/marketplaceNotify.js';
+import { isEitherBlocked } from '../../../../_lib/blocks.js';
 
 // The owner sees every offer; a buyer sees only their own (never a competitor's price) -- same shape as the
 // pre-listing proposal marketplace's bids.
@@ -31,6 +32,8 @@ export async function onRequestPost(context) {
   const listing = await db.prepare('SELECT user_id, status, is_rental, is_buyer_only FROM listings WHERE id = ?').bind(id).first();
   if (!listing) return notFound('Listing not found.');
   if (listing.user_id === user.id) return badRequest("You can't make an offer on your own listing.");
+  // A block either way: the same answer as if the home weren't there (blocks.js).
+  if (await isEitherBlocked(db, user.id, listing.user_id)) return notFound('Listing not found.');
   if (listing.status !== 'active') return badRequest('This listing is no longer active.');
   if (listing.is_rental || listing.is_buyer_only) return badRequest('Offers only apply to a home listed for sale or trade.');
 

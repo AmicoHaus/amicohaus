@@ -48,8 +48,7 @@ export async function fetchZipBoard(db) {
   const waiting = byZip(waitingRows), agents = byZip(agentRows), founding = byZip(foundingRows);
 
   // Buyers watching each city: real people whose saved search or trade wish list names it exactly.
-  const buyersByCity = new Map();
-  for (const city of new Set(Object.values(LAUNCH_ZIPS))) buyersByCity.set(city, await countBuyersNamingCity(db, city));
+  const buyersByCity = await countBuyersNamingCities(db, [...new Set(Object.values(LAUNCH_ZIPS))]);
 
   const onDuty = new Map();
   for (const zip of zips) onDuty.set(zip, await countAgentsOnDuty(db, zip));
@@ -65,24 +64,41 @@ export async function fetchZipBoard(db) {
   }));
 }
 
-async function countBuyersNamingCity(db, city) {
-  const buyers = new Set();
+// city -> how many real people name it. The rows are read once and counted for every city (not re-read per city).
+async function countBuyersNamingCities(db, cities) {
+  const buyers = new Map(cities.map(c => [c, new Set()]));
   const searches = await db.prepare(
     `SELECT s.user_id, s.locations FROM saved_searches s JOIN users ON users.id = s.user_id
      WHERE users.status = 'active' AND users.email NOT LIKE ? LIMIT 5000`
   ).bind(DEMO_EMAIL_PATTERN).all();
-  for (const s of searches.results) if (namesCity(s.locations, city)) buyers.add(s.user_id);
   const wishes = await db.prepare(
     `SELECT l.user_id, d.locations FROM desired_criteria d JOIN listings l ON l.id = d.listing_id JOIN users ON users.id = l.user_id
      WHERE l.status = 'active' AND users.status = 'active' AND users.email NOT LIKE ? LIMIT 5000`
   ).bind(DEMO_EMAIL_PATTERN).all();
-  for (const w of wishes.results) if (namesCity(w.locations, city)) buyers.add(w.user_id);
-  return buyers.size;
+  for (const row of [...searches.results, ...wishes.results]) {
+    for (const city of cities) if (namesCity(row.locations, city)) buyers.get(city).add(row.user_id);
+  }
+  return new Map(cities.map(c => [c, buyers.get(c).size]));
 }
 
-// When an admin approves an agent, the agent takes any open founding spot in their launch service ZIPs. First come,
-// first served. Each insert counts the live holders inside the same statement, so two approvals at once can't both
-// take the last spot. Returns the ZIPs newly granted, for the approval message.
+// What a founding spot means, for chips, tooltips and messages: "Among the first 3 approved agents in 91913;
+// recognition only."
+export function foundingCaption(zips) {
+  return `Among the first ${FOUNDING_SPOTS} approved agents in ${[].concat(zips).join(', ')}; recognition only.`;
+}
+
+// The line added to an agent's approval (or founding) message when they take spots. Founding is recognition only:
+// same-moment alerts, no head start, no leads or business promised.
+export function foundingGrantedLine(zips) {
+  return zips.length
+    ? ` You're also a founding agent in ${zips.join(', ')}, one of the first ${FOUNDING_SPOTS} approved agents there. It's recognition only: you get alerts at the same moment as everyone else, and no leads, clients or business are promised. When a homeowner there posts a pre-listing, aim to send your price opinion within 48 hours.`
+    : '';
+}
+
+// When an admin approves an agent (or an approved agent adds a launch ZIP, or is reinstated), the agent takes any open
+// founding spot in their launch service ZIPs. First come, first served. Each insert counts the live holders inside the
+// same statement, so two approvals at once can't both take the last spot. Returns the ZIPs newly granted, for the
+// message.
 export async function grantFoundingSpots(db, agentUserId) {
   const profile = await db.prepare(
     "SELECT ap.service_zips_json FROM agent_profiles ap JOIN users u ON u.id = ap.user_id WHERE ap.user_id = ? AND ap.status = 'approved' AND u.status = 'active' AND u.email NOT LIKE ?"
@@ -92,6 +108,15 @@ export async function grantFoundingSpots(db, agentUserId) {
   try { zips = JSON.parse(profile.service_zips_json || '[]'); } catch { zips = []; }
   const granted = [];
   for (const zip of [...new Set(zips.map(String))].filter(z => Object.hasOwn(LAUNCH_ZIPS, z))) {
+    // A spot held by someone who no longer qualifies (suspended outside the app, no longer approved, no longer serving
+    // the ZIP) is let go before anyone takes the open spot. Otherwise, if they came back, their old row would sort
+    // first again and silently push out the agent who took the spot: a returning agent goes to the back of the line.
+    await db.prepare(
+      `DELETE FROM founding_agents WHERE zip = ?1 AND agent_user_id NOT IN (
+         SELECT ap.user_id FROM agent_profiles ap JOIN users u ON u.id = ap.user_id
+         WHERE ap.status = 'approved' AND u.status = 'active' AND u.email NOT LIKE '${DEMO_EMAIL_PATTERN}'
+           AND EXISTS (SELECT 1 FROM json_each(ap.service_zips_json) sz WHERE CAST(sz.value AS TEXT) = ?1))`
+    ).bind(zip).run();
     const r = await db.prepare(
       `INSERT OR IGNORE INTO founding_agents (zip, agent_user_id)
        SELECT ?1, ?2 WHERE (SELECT COUNT(*) FROM (${LIVE_FOUNDERS_SQL}) WHERE zip = ?1) < ${FOUNDING_SPOTS}`
@@ -101,8 +126,9 @@ export async function grantFoundingSpots(db, agentUserId) {
   return granted;
 }
 
-// A founding spot ends when the agent stops serving that ZIP (or is no longer approved), so the next approved agent
-// there can take it. Called after a profile edit and when an approval is withdrawn.
+// A founding spot ends when the agent stops serving that ZIP (or is no longer approved, or is suspended), so the next
+// approved agent there can take it. Called after a profile edit ({all: false}), and with {all: true} when an approval
+// is withdrawn or the account is suspended (a reinstated agent then goes to the back of the line).
 export async function releaseFoundingSpots(db, agentUserId, { all = false } = {}) {
   if (all) {
     await db.prepare('DELETE FROM founding_agents WHERE agent_user_id = ?').bind(agentUserId).run();

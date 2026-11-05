@@ -138,16 +138,25 @@ r = await call(profilePage.onRequestGet, 'GET', '/profile/9', null, null, { id: 
 check('/profile/:id suspended agent: 404', r.status === 404 && !shows(r.text, 9));
 r = await call(profilePage.onRequestGet, 'GET', '/profile/7', null, null, { id: '7' });
 check('/profile/:id agent profile: indexable (no noindex), no private phone', r.status === 200 && !/noindex/.test(r.text) && !shows(r.text, 7) && /Gus Agent/.test(r.text));
-check('...and it shows their DRE number with the brokerage', /DRE #01234567 · Bay Realty/.test(r.text), (r.text.match(/DRE #[^<]{0,40}/) || [''])[0]);
+// License wording (batch L1): "DRE license #… on file" with a link to check current status; the brokerage sits in
+// the header line right above it.
+check('...and it shows their DRE number with the brokerage', /DRE license #01234567 on file/.test(r.text) && /Check current status/.test(r.text) && /Bay Realty/.test(r.text), (r.text.match(/DRE [^<]{0,60}/) || [''])[0]);
 r = await call(profilePage.onRequestGet, 'GET', '/profile/7', 7, null, { id: '7' });
 check('/profile/:id an agent viewing their own page: phone not shown while it is private', !shows(r.text, 7));
 r = await call(profilePage.onRequestGet, 'GET', '/profile/10', null, null, { id: '10' });
 check('/profile/:id an agent who turned on "Show my phone number": shown', r.status === 200 && shows(r.text, 10));
 
 // --- /listing/:id, /augmented-home/:id, /green-home/:id, /project/:id ---
+// FinderMine project pages are sign-in only (batch L1, Rudy's decision 1): an anonymous visitor gets a noindex
+// sign-in page, so the checks that need a page with an owner on it run as a signed-in stranger (2) there.
+const anonOr = (name) => (name === 'project' ? 2 : null);
 for (const [name, page] of Object.entries(pages)) {
   r = await call(page.onRequestGet, 'GET', `/${name}/30`, null, null, { id: '30' });
-  check(`/${name}/:id anonymous: no owner phone, "Sign up to message" instead`, r.status === 200 && !shows(r.text, 1) && /Sign up to message Ana Owner directly through Amico Haus/.test(r.text), `status ${r.status}`);
+  if (name === 'project') {
+    check('/project/:id anonymous: a noindex sign-in page, no owner name or phone', r.status === 200 && !shows(r.text, 1) && !/Ana Owner/.test(r.text) && /Log in or create a free account/.test(r.text) && /noindex/i.test(r.headers.get('x-robots-tag') || r.text), `status ${r.status}`);
+  } else {
+    check(`/${name}/:id anonymous: no owner phone, "Sign up to message" instead`, r.status === 200 && !shows(r.text, 1) && /Sign up to message Ana Owner directly through Amico Haus/.test(r.text), `status ${r.status}`);
+  }
   r = await call(page.onRequestGet, 'GET', `/${name}/30`, 4, null, { id: '30' });
   check(`/${name}/:id an agent without a share: no owner phone, "Message" instead`, r.status === 200 && !shows(r.text, 1) && /Message Ana Owner directly through Amico Haus/.test(r.text));
   r = await call(page.onRequestGet, 'GET', `/${name}/30`, 8, null, { id: '30' });
@@ -156,9 +165,9 @@ for (const [name, page] of Object.entries(pages)) {
   check(`/${name}/:id the agent the owner shared with: sees it`, shows(r.text, 1));
   r = await call(page.onRequestGet, 'GET', `/${name}/30`, 1, null, { id: '30' });
   check(`/${name}/:id the owner: sees their own`, shows(r.text, 1));
-  r = await call(page.onRequestGet, 'GET', `/${name}/31`, null, null, { id: '31' });
+  r = await call(page.onRequestGet, 'GET', `/${name}/31`, anonOr(name), null, { id: '31' });
   check(`/${name}/:id an owner with phone_public = 1: shown as a call link`, r.status === 200 && shows(r.text, 5) && /href="tel:/.test(r.text));
-  r = await call(page.onRequestGet, 'GET', `/${name}/32`, null, null, { id: '32' });
+  r = await call(page.onRequestGet, 'GET', `/${name}/32`, anonOr(name), null, { id: '32' });
   check(`/${name}/:id a suspended owner: 404`, r.status === 404 && !shows(r.text, 6), `status ${r.status}`);
 }
 r = await call(pages.listing.onRequestGet, 'GET', '/listing/33', null, null, { id: '33' });
@@ -170,14 +179,14 @@ sqlite.prepare("INSERT INTO listings (id, user_id, title, city, state, property_
 sqlite.prepare("INSERT INTO augmented_homes (id, user_id, title, city, state, property_type, beds, baths, asking_price) VALUES (34, 7, 'Step-free home', 'Chula Vista', 'CA', 'House', 3, 2, 750000)").run();
 sqlite.prepare("INSERT INTO green_homes (id, user_id, title, city, state, property_type, beds, baths, asking_price) VALUES (34, 7, 'Solar home', 'Chula Vista', 'CA', 'House', 3, 2, 750000)").run();
 sqlite.prepare("INSERT INTO dev_projects (id, user_id, title, city, state, project_type) VALUES (34, 7, 'Duplex build', 'Chula Vista', 'CA', 'new_construction')").run();
-const GUS_LINE = 'Gus Agent · DRE #01234567 · Bay Realty';
+const GUS_LINE = 'Gus Agent · DRE #01234567 on file · Bay Realty'; // "on file" wording (batch L1)
 for (const [name, page] of Object.entries(pages)) {
-  r = await call(page.onRequestGet, 'GET', `/${name}/34`, null, null, { id: '34' });
+  r = await call(page.onRequestGet, 'GET', `/${name}/34`, anonOr(name), null, { id: '34' });
   const byLine = (r.text.match(/(?:Listed|Posted) by <a[^>]*>([^<]*)<\/a>/) || [])[1] || '';
   const contactCard = (r.text.match(/<h2>Contact Gus Agent<\/h2>[\s\S]{0,400}/) || [''])[0];
   check(`/${name}/:id an agent's home: "Listed by" carries their DRE number and brokerage`, r.status === 200 && byLine === GUS_LINE, `status ${r.status} "${byLine}"`);
   check(`/${name}/:id ...and so does the Contact card`, contactCard.includes(`<p class="tiny">${GUS_LINE}</p>`), contactCard.slice(0, 200));
-  r = await call(page.onRequestGet, 'GET', `/${name}/30`, null, null, { id: '30' });
+  r = await call(page.onRequestGet, 'GET', `/${name}/30`, anonOr(name), null, { id: '30' });
   check(`/${name}/:id a homeowner's home keeps the plain name (no DRE line)`, /(?:Listed|Posted) by <a[^>]*>Ana Owner<\/a>/.test(r.text) && !/Ana Owner · DRE/.test(r.text));
 }
 sqlite.prepare("UPDATE agent_profiles SET status = 'pending' WHERE user_id = 10").run();

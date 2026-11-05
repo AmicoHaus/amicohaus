@@ -20,7 +20,7 @@ function profileListingCard(l) {
   const loc = `${l.neighborhood ? escapeHtml(l.neighborhood) + ', ' : ''}${escapeHtml(l.city)}, ${escapeHtml(l.state)}`;
   return `
     <div class="card">
-      <img class="directory-thumb" src="${l.photo_id ? `/api/photos/${l.photo_id}` : propertyArtUrl(l.property_type, l.id)}" alt="${l.photo_id ? '' : 'Illustrative photo, not this home'}" loading="lazy">
+      <img class="directory-thumb" src="${l.photo_id ? `/api/photos/${l.photo_id}` : propertyArtUrl(l.property_type, l.id)}" alt="${escapeHtml(l.photo_id ? homePhotoAlt({ propertyType: l.property_type, city: l.city }) : 'Illustrative photo, not this home')}" loading="lazy">
       ${l.photo_id ? '' : '<span class="photo-caption">Illustrative photo</span>'}
       <div class="card-head">
         <h3><a class="profile-link" href="/listing/${l.id}">${escapeHtml(l.title || l.property_type)}</a></h3>
@@ -105,12 +105,12 @@ async function loadProfile(userId) {
       <div class="card">
         <div class="card-head">
           <div>
-            <h1>${escapeHtml(user.displayName)} ${user.isVerified ? '<span class="badge badge-verified" title="Verified by Amico Haus">✓ Verified</span>' : ''}</h1>
+            <h1>${escapeHtml(user.displayName)}</h1>
             ${joined ? `<p class="tiny">Member since ${joined}</p>` : ''}
           </div>
           ${isMine ? '<button type="button" class="btn btn-ghost btn-sm" id="editBioBtn">Edit Profile</button>' : ''}
           ${me && !isMine ? '<button type="button" class="btn btn-primary btn-sm" id="messageUserBtn">Message</button>' : ''}
-          ${isAdmin ? `<button type="button" class="btn btn-ghost btn-sm" id="toggleVerifiedBtn" data-action="${user.isVerified ? 'unverify' : 'verify'}">${user.isVerified ? 'Remove Verification' : 'Mark as Verified'}</button>` : ''}
+          ${isAdmin ? `<button type="button" class="btn btn-ghost btn-sm" id="toggleVerifiedBtn" data-action="${user.isVerified ? 'unverify' : 'verify'}">${user.isVerified ? 'Clear verified flag (admins only)' : 'Set verified flag (admins only)'}</button>` : ''}
         </div>
         <div id="bioSection">
           <p>${user.bio ? escapeHtml(user.bio) : '<span class="tiny">No bio yet.</span>'}</p>

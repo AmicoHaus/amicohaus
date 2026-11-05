@@ -3,6 +3,7 @@ import { json, badRequest, unauthorized, forbidden, notFound } from '../../../..
 import { SHARE_NOT_ENGAGED, isActiveApprovedAgent, hasEngagedWithPreListing, shareContact } from '../../../../_lib/addressViews.js';
 import { notifyContactShared } from '../../../../_lib/marketplaceNotify.js';
 import { releaseHeldMessages } from '../../../../_lib/contactPolicy.js';
+import { isEitherBlocked, hasBlocked } from '../../../../_lib/blocks.js';
 
 // "Share my contact info with this agent": the owner picks one agent who has already sent them something for this
 // home, and that agent then sees the exact address, phone number and email on the pre-listing. Owner only.
@@ -22,6 +23,7 @@ export async function onRequestPost(context) {
   const agentId = Number(body.agentId);
   if (!Number.isInteger(agentId) || agentId <= 0 || agentId === user.id) return badRequest(SHARE_NOT_ENGAGED);
   if (!(await isActiveApprovedAgent(db, agentId)) || !(await hasEngagedWithPreListing(db, preListing.id, agentId))) return badRequest(SHARE_NOT_ENGAGED);
+  if (await isEitherBlocked(db, user.id, agentId)) return badRequest((await hasBlocked(db, user.id, agentId)) ? 'Unblock this agent first.' : SHARE_NOT_ENGAGED);
 
   const share = await shareContact(db, preListing.id, user.id, agentId);
   // Sharing makes this agent exempt from the owner's contact dial, so a message of theirs still waiting for the

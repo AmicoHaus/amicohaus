@@ -13,9 +13,12 @@ export async function onRequestGet(context) {
 
   const db = context.env.DB;
   const [signupRows, listingRows] = await Promise.all([
+    // A signup counts once the email is confirmed (a pending account that never confirms is deleted after 7 days),
+    // and never for the test suite's @resend.dev accounts.
     db.prepare(
       `SELECT DATE(created_at) AS day, COUNT(*) AS n FROM users
-       WHERE email NOT LIKE ? AND created_at > datetime('now', '-30 days')
+       WHERE email NOT LIKE ? AND lower(email) NOT LIKE '%@resend.dev' AND email_confirmation_pending = 0
+         AND created_at > datetime('now', '-30 days')
        GROUP BY day ORDER BY day`
     ).bind(DEMO_EMAIL_PATTERN).all(),
     db.prepare(

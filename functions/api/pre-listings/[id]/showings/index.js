@@ -4,6 +4,9 @@ import { isApprovedAgent } from '../../../../_lib/agents.js';
 import { proposeShowing, fetchShowings } from '../../../../_lib/showings.js';
 import { notifyNewShowingRequest } from '../../../../_lib/marketplaceNotify.js';
 import { contactDecision, SHOWING_QUIET_ERROR } from '../../../../_lib/contactPolicy.js';
+import { isEitherBlocked } from '../../../../_lib/blocks.js';
+import { ownerIsActive } from '../../../../_lib/visibility.js';
+import { claimUserAction, rateLimited } from '../../../../_lib/rateLimits.js';
 
 export async function onRequestGet(context) {
   const id = context.params.id;
@@ -16,6 +19,7 @@ export async function onRequestGet(context) {
 
   const isOwner = preListing.user_id === user.id;
   if (!isOwner && !(await isApprovedAgent(db, user.id))) return forbidden();
+  if (!isOwner && await isEitherBlocked(db, user.id, preListing.user_id)) return notFound('Pre-listing not found.');
 
   const showings = await fetchShowings(db, id, isOwner ? {} : { forAgentUserId: user.id });
   return json({ showings });
@@ -30,7 +34,9 @@ export async function onRequestPost(context) {
   if (!(await isApprovedAgent(db, user.id))) return forbidden('Only approved agents can request a showing.');
 
   const preListing = await db.prepare('SELECT user_id FROM pre_listings WHERE id = ?').bind(id).first();
-  if (!preListing) return notFound('Pre-listing not found.');
+  // A block either way, or a suspended owner, looks the same as a home that isn't there, even for an agent the
+  // contact dial exempts.
+  if (!preListing || !(await ownerIsActive(db, preListing.user_id)) || await isEitherBlocked(db, user.id, preListing.user_id)) return notFound('Pre-listing not found.');
   if (preListing.user_id === user.id) return forbidden("You can't request a showing of your own pre-listing.");
 
   let body;
@@ -43,7 +49,10 @@ export async function onRequestPost(context) {
     return json({ error: SHOWING_QUIET_ERROR, code: 'contact_quiet' }, { status: 403 });
   }
 
-  const result = await proposeShowing(db, id, user.id, body);
+  const result = await proposeShowing(db, id, user.id, body, {
+    beforeWrite: () => claimUserAction(db, 'showing_request', user.id, `pre_listing:${Number(id)}`),
+  });
+  if (result.rateLimited) return rateLimited();
   if (result.error) return result.code ? json({ error: result.error, code: result.code }, { status: 400 }) : badRequest(result.error);
   context.waitUntil(notifyNewShowingRequest(context, id, preListing.user_id, user.id, body.proposedAt));
   return json({ id: result.id }, { status: 201 });

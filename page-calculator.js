@@ -1,15 +1,8 @@
-/* Amico Haus — trade-for-lease slide-rule calculator.
-   Simple illustrative math, no compounding/inflation: net sale proceeds
-   divided by annual rent gives the exact-math low end of the range.
-   A lump-sum prepayment of years of rent is worth more to a landlord than
-   the same total collected month by month — no vacancy risk, no collections
-   risk, cash in hand today — so the high end of the range adds 15% more
-   time in exchange for paying it all upfront. Same LUMP_SUM_BONUS_PCT as
-   the server's RENTAL_LUMP_SUM_BONUS_PCT (functions/_lib/util.js) — kept in
-   sync manually since this runs as a static client-side script with no
-   shared module boundary with the Cloudflare Functions backend. */
-
-const LUMP_SUM_BONUS_PCT = 0.15;
+/* Amico Haus — rent calculator ("What could your home fund instead?").
+   Rough math from the owner's own numbers, no compounding or inflation: what's left from the sale (value, less the
+   owner's own selling-cost guess and loan payoff) divided by a year of rent. The site adds nothing on top (no
+   "extra time for paying as a lump sum") and suggests no numbers as facts: every default is a slider the owner
+   moves to their own guess. */
 
 function formatYears(years) {
   if (years <= 0) return '0 months';
@@ -20,26 +13,32 @@ function formatYears(years) {
   return `${whole} year${whole === 1 ? '' : 's'}, ${months} month${months === 1 ? '' : 's'}`;
 }
 
+// What's left from the sale, and how many years of rent it covers (0 when nothing is left or there's no rent).
+function rentMath({ homeValue, sellingCostsPct, loanPayoff, monthlyRent }) {
+  const value = Math.max(0, Number(homeValue) || 0);
+  const pct = Math.min(Math.max(Number(sellingCostsPct) || 0, 0), 100);
+  const left = value * (1 - pct / 100) - Math.max(0, Number(loanPayoff) || 0);
+  const annualRent = Math.max(0, Number(monthlyRent) || 0) * 12;
+  return { left, years: annualRent > 0 && left > 0 ? left / annualRent : 0 };
+}
+
 function recalc() {
   const homeValue = Number(document.getElementById('homeValue').value);
   const sellingCostsPct = Number(document.getElementById('sellingCosts').value);
+  const loanPayoff = Number(document.getElementById('loanPayoff').value);
   const monthlyRent = Number(document.getElementById('monthlyRent').value);
 
   document.getElementById('homeValueReadout').textContent = money(homeValue);
   document.getElementById('sellingCostsReadout').textContent = `${sellingCostsPct}%`;
+  document.getElementById('loanPayoffReadout').textContent = money(loanPayoff);
   document.getElementById('monthlyRentReadout').textContent = `${money(monthlyRent)}/mo`;
 
-  const netProceeds = homeValue * (1 - sellingCostsPct / 100);
-  const annualRent = monthlyRent * 12;
-  const yearsLow = annualRent > 0 ? netProceeds / annualRent : 0;
-  const yearsHigh = yearsLow * (1 + LUMP_SUM_BONUS_PCT);
-
-  document.getElementById('yearsResult').textContent = yearsLow > 0
-    ? `${formatYears(yearsLow)} – ${formatYears(yearsHigh)}`
-    : '—';
-  document.getElementById('rentLabel').textContent = `of ${money(monthlyRent)}/mo living, before rent increases — low end is the exact math, high end is for paying it all as a lump sum upfront`;
-  document.getElementById('netProceedsOut').textContent = money(Math.round(netProceeds));
-  document.getElementById('bonusTimeOut').textContent = yearsLow > 0 ? `+${formatYears(yearsHigh - yearsLow)}` : '—';
+  const { left, years } = rentMath({ homeValue, sellingCostsPct, loanPayoff, monthlyRent });
+  document.getElementById('yearsResult').textContent = years > 0 ? formatYears(years) : '—';
+  document.getElementById('rentLabel').textContent = left > 0
+    ? `of rent at ${money(monthlyRent)}/mo, before any rent increases`
+    : 'Nothing would be left after your selling costs and loan payoff.';
+  document.getElementById('netProceedsOut').textContent = left < 0 ? `-${money(Math.round(-left))}` : money(Math.round(left));
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -49,7 +48,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       `<span class="tiny">Hi, ${escapeHtml(user.displayName)}</span> <a class="btn btn-primary btn-sm" href="/app">Go to App</a>`;
   }
 
-  ['homeValue', 'sellingCosts', 'monthlyRent'].forEach(id => {
+  ['homeValue', 'sellingCosts', 'loanPayoff', 'monthlyRent'].forEach(id => {
     document.getElementById(id).addEventListener('input', recalc);
   });
 

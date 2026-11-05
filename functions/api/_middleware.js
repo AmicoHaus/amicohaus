@@ -4,6 +4,8 @@ import { runDueDecisionNights } from '../_lib/decisionNight.js';
 import { runDueHeldEmails } from '../_lib/agentDuty.js';
 import { runDueScorecards } from '../_lib/scorecard.js';
 import { runDueWeeklyMessages } from '../_lib/contactPolicy.js';
+import { runPruneActionLogs } from '../_lib/rateLimits.js';
+import { runPurgeExpiredTrash } from '../_lib/trash.js';
 
 // Runs in front of every /api route only (Pages scopes a middleware file to its
 // own directory), so static pages and images never pass through it.
@@ -22,7 +24,9 @@ function maybeRunDueJobs(context) {
   // One after another (the email provider allows about 2 a second, and the background work about 30 seconds).
   context.waitUntil((async () => {
     // The weekly agent-message delivery runs right after held emails (its emails can be held by quiet hours too).
-    for (const job of [runDueDecisionNights, runDueHeldEmails, runDueWeeklyMessages, runDueScorecards]) {
+    // Then listings past their 7 days in the trash go for good (trash.js). Last: old per-person action and sign-in
+    // attempt rows are pruned (rateLimits.js). Neither sends anything.
+    for (const job of [runDueDecisionNights, runDueHeldEmails, runDueWeeklyMessages, runDueScorecards, runPurgeExpiredTrash, runPruneActionLogs]) {
       if (Date.now() - now > 22000) break;
       try { await job(context); } catch (err) { console.log(`[due jobs failed] ${err && err.message}`); }
     }

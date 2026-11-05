@@ -20,6 +20,14 @@ const SPECIALTY_TAG_LABELS = {
 
 const PACKAGE_TIER_LABELS = { basic: 'Basic', standard: 'Standard', premium: 'Premium' };
 
+// How a team name reads: "<name> Team", unless it already ends in Team, Group or Associates (same rule as
+// functions/_lib/agentTeams.js teamDisplayName).
+function teamDisplayName(name) {
+  const clean = String(name || '').trim();
+  if (!clean) return '';
+  return /(^|\s)(team|group|associates)$/i.test(clean) ? clean : `${clean} Team`;
+}
+
 // Days round UP so the label never promises faster than the "Usually sends a proposal within N days" filter allows:
 // 30 hours reads "~2d", not "~1d", since the 1-day filter excludes it.
 function formatResponseHours(hours) {
@@ -41,12 +49,13 @@ function packagesForPills(packages) {
 function directoryAgentInfo(a) {
   const respLabel = formatResponseHours(a.avgResponseHours);
   const range = a.commissionRange;
+  // "Focused service area": how close together the agent's own ZIPs are, a plain fact, not a claim about skill.
+  const focused = a.focusedServiceArea ?? a.isLocalSpecialist;
   return {
     status: [
       { text: a.acceptingClients ? 'Accepting new clients' : 'Not accepting new clients', tone: a.acceptingClients ? 'good' : 'bad' },
-      a.isLocalSpecialist && { text: 'Local specialist', tone: 'gold' },
+      focused && { text: 'Focused service area', tone: 'gold' },
       a.isPlatformOperator && { text: 'Platform operator: runs Amico Haus' },
-      a.licenseVerified && { text: 'License checked on DRE', tone: 'good' },
       (a.foundingZips || []).length > 0 && { text: `Founding agent · ${a.foundingZips.join(', ')}`, tone: 'good' },
       a.carriesEoInsurance && { text: 'E&O insured (self-reported)', tone: 'good' },
       a.isNewToAmicoHaus && { text: 'New to Amico Haus' },
@@ -70,7 +79,7 @@ function directoryAgentInfo(a) {
     languages: a.languages && a.languages.length > 1 ? a.languages : [],
     area: [
       a.distanceMiles !== null && a.distanceMiles !== undefined ? `${a.distanceMiles} mi away` : null,
-      a.serviceAreaSpreadMiles !== null && a.serviceAreaSpreadMiles !== undefined && !a.isLocalSpecialist ? `Spans about ${Math.round(a.serviceAreaSpreadMiles)} mi` : null,
+      a.serviceAreaSpreadMiles !== null && a.serviceAreaSpreadMiles !== undefined && !focused ? `Spans about ${Math.round(a.serviceAreaSpreadMiles)} mi` : null,
     ].filter(Boolean),
     commission: range ? (range.min === range.max ? `${range.min}%` : `${range.min}–${range.max}%`) : null,
     packages: packagesForPills(a.packages),
@@ -84,11 +93,13 @@ function directoryAgentCardHtml(a, { favorite = false, message = false } = {}) {
     <div class="card">
       ${personHeadHtml({
         avatar: avatarHtml(a.displayName, { seed: a.userId, size: 'lg' }),
-        nameHtml: `<a class="profile-link" href="/profile/${a.userId}">${escapeHtml(a.displayName)}</a>${a.isVerified ? ' <span class="badge badge-verified">✓</span>' : ''}${a.topRated ? ' <span class="badge badge-gold">🏆 Top Rated</span>' : ''}`,
-        sub: [a.brokerageName, a.teamName ? `${a.teamName} Team` : ''].filter(Boolean).join(' · '),
+        // No "verified" or "top rated" badges: the site never vouches for or ranks agents. The license reads "on file".
+        nameHtml: `<a class="profile-link" href="/profile/${a.userId}">${escapeHtml(a.displayName)}</a>`,
+        sub: [licenseOnFileLabel(a.licenseNumber), a.brokerageName, a.teamDisplayName || teamDisplayName(a.teamName)].filter(Boolean).join(' · '),
         chips: [ratingChipHtml(a.rating, a.reviewCount), a.yearsExperience ? chipHtml(`${a.yearsExperience} yrs experience`, 'outline') : ''].filter(Boolean),
       })}
       ${agentDetailsHtml(directoryAgentInfo(a))}
+      ${foundingCaptionHtml(a.foundingZips)}
       ${favorite || message ? `<div class="card-actions">
         ${message ? `<button class="btn btn-ghost btn-sm" data-action="message-user" data-id="${a.userId}" data-name="${escapeHtml(a.displayName)}">Message</button>` : ''}
         ${favorite ? `<button class="btn btn-ghost btn-sm" data-action="toggle-favorite-agent" data-agent-id="${a.userId}">☆ Favorite</button>` : ''}

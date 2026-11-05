@@ -12,6 +12,8 @@ import { fetchFoundingZips } from './zipBoard.js';
 import { countFinalistHomes, DEBRIEF_REASONS } from './decisionNight.js';
 import { fetchPastClientSummary } from './pastClientReviews.js';
 import { priceIsOpen, shownAskingPrice } from './preListings.js';
+import { notBlockedByOwnersSql } from './blocks.js';
+import { REMOVE_ACTION, RESTORE_ACTION } from './agentReviewAdmin.js';
 
 // A pending proposal that's sat untouched this long gets flagged so the
 // homeowner sees a nudge — same idea as matches.js's "gone quiet" flag for
@@ -53,10 +55,13 @@ function validateBidInput(body) {
 // to pending, rather than piling up duplicate rows. isNew: a first proposal, or one sent again after it was
 // withdrawn or declined (an edit of a live proposal isn't new). previousStatus: the row's status before this call
 // (null on a true first proposal).
-export async function upsertBid(db, requestType, requestId, agentUserId, body) {
+// beforeWrite: an optional async check run after the input is valid and before anything is saved (the route's
+// per-person limit, rateLimits.js); when it returns false nothing is saved and the result is { rateLimited: true }.
+export async function upsertBid(db, requestType, requestId, agentUserId, body, { beforeWrite = null } = {}) {
   const validated = validateBidInput(body);
   if (validated.error) return validated;
   const d = validated.data;
+  if (beforeWrite && !(await beforeWrite())) return { rateLimited: true };
   const before = await db.prepare('SELECT status FROM service_bids WHERE request_type = ? AND request_id = ? AND agent_user_id = ?')
     .bind(requestType, requestId, agentUserId).first();
 
@@ -80,7 +85,7 @@ export async function withdrawBid(db, bidId, agentUserId) {
 
 function mapBidRow(r, stats, dueAt = null) {
   return {
-    id: r.id, agentUserId: r.agent_user_id, agentName: r.agent_name, isVerified: !!r.is_verified,
+    id: r.id, agentUserId: r.agent_user_id, agentName: r.agent_name,
     brokerageName: r.brokerage_name, yearsExperience: r.years_experience, hasVideo: !!r.video_r2_key,
     rating: r.agent_rating, reviewCount: r.agent_review_count,
     avgDaysOnMarket: r.avg_days_on_market, homesSoldLastYear: r.homes_sold_last_year,
@@ -88,7 +93,8 @@ function mapBidRow(r, stats, dueAt = null) {
     licenseVerified: !!r.license_verified, licenseNumber: r.license_number || '',
     // The admin account that runs Amico Haus, when it competes as an agent: always labeled (Fair Play rules).
     isPlatformOperator: r.agent_role === 'admin',
-    winRate: stats.winRate, topRated: stats.topRated, avgResponseHours: stats.avgResponseHours,
+    // Plain counts only: no win rate, no "Top Rated" and no "Verified" badge (the site doesn't score, rank or vouch for agents).
+    avgResponseHours: stats.avgResponseHours,
     hiresOnPlatform: stats.acceptedBids, isNewToAmicoHaus: stats.isNewAgent, finalistCount: stats.finalistCount,
     hasPitchVideo: !!r.pitch_video_r2_key, pitchVersion: r.pitch_video_r2_key ? r.pitch_video_r2_key.slice(-8) : null,
     ownerPick: r.owner_pick || null,
@@ -102,7 +108,7 @@ function mapBidRow(r, stats, dueAt = null) {
 // dueAt: the pre-listing's Decision Night, if any (proposals aren't "pending a while" before it).
 export async function fetchBids(db, requestType, requestId, { dueAt = null } = {}) {
   const rows = await db.prepare(
-    `SELECT service_bids.*, users.display_name AS agent_name, users.is_verified, users.role AS agent_role,
+    `SELECT service_bids.*, users.display_name AS agent_name, users.role AS agent_role,
             agent_profiles.brokerage_name, agent_profiles.years_experience, agent_profiles.video_r2_key, agent_profiles.license_number,
             agent_profiles.avg_days_on_market, agent_profiles.homes_sold_last_year, agent_profiles.open_house_days_json,
             agent_profiles.license_verified, agent_profiles.reviewed_at AS agent_approved_at,
@@ -115,18 +121,17 @@ export async function fetchBids(db, requestType, requestId, { dueAt = null } = {
        -- A suspended agent's proposals drop out of the comparison, except one the homeowner already accepted:
        -- that engagement (milestones, reviews, disputes) still has to be reachable.
        AND (users.status = 'active' OR service_bids.status = 'accepted')
+       -- An agent blocked by (or blocking) the homeowner drops out the same way; the proposal stays stored, so
+       -- unblocking brings it back. One already accepted stays, for the same reason as above.
+       AND (service_bids.status = 'accepted' OR ${notBlockedByOwnersSql(requestType, 'service_bids.request_id', 'service_bids.agent_user_id')})
      ORDER BY service_bids.created_at DESC`
   ).bind(requestType, requestId).all();
 
-  // Win rate / response time / Top Rated pulled from the single shared
-  // fetchAgentStats (below) rather than duplicated as SQL subqueries here,
-  // so there's one source of truth for what "Top Rated" means.
+  // Response time and hire counts come from the single shared fetchAgentStats (below) rather than SQL subqueries
+  // here, so there's one source of truth for them.
   const founding = await fetchFoundingZips(db, rows.results.map(r => r.agent_user_id));
   return Promise.all(rows.results.map(async r => ({
-    ...mapBidRow(r, await fetchAgentStats(db, r.agent_user_id, {
-      rating: { avgRating: r.agent_rating, reviewCount: r.agent_review_count },
-      approvedAt: r.agent_approved_at || null,
-    }), dueAt),
+    ...mapBidRow(r, await fetchAgentStats(db, r.agent_user_id, { approvedAt: r.agent_approved_at || null }), dueAt),
     foundingZips: founding.get(r.agent_user_id) || [],
     pastClients: await fetchPastClientSummary(db, r.agent_user_id),
   })));
@@ -239,6 +244,21 @@ export async function submitReview(db, agentUserId, reviewerUserId, requestType,
   if (validated.error) return validated;
   const d = validated.data;
 
+  // A review an admin removed (agentReviewAdmin.js) can't simply be posted again: the removal would have no lasting
+  // effect, and a later restore would clash with the new one. Until it's restored, the reviewer is told why.
+  const removed = await db.prepare(
+    `SELECT 1 FROM admin_audit_log l
+     WHERE l.action = ?4 AND l.target_type = 'agent_review'
+       AND json_extract(l.details, '$.review.request_type') = ?1 AND json_extract(l.details, '$.review.request_id') = ?2
+       AND json_extract(l.details, '$.review.reviewer_user_id') = ?3
+       AND NOT EXISTS (SELECT 1 FROM admin_audit_log r WHERE r.action = ?5 AND r.target_type = 'agent_review'
+                       AND r.target_id = l.target_id AND r.id > l.id)
+     LIMIT 1`
+  ).bind(requestType, Number(requestId), reviewerUserId, REMOVE_ACTION, RESTORE_ACTION).first();
+  if (removed) {
+    return { error: "Your review of this hire was removed, so a new one can't be posted. Ask us through /contact if you think that was a mistake." };
+  }
+
   try {
     await db.prepare(
       `INSERT INTO agent_reviews (agent_user_id, reviewer_user_id, request_type, request_id, rating, comment)
@@ -266,62 +286,13 @@ export async function fetchAgentRatingSummary(db, agentUserId) {
   return { avgRating: row.avg_rating, reviewCount: row.n };
 }
 
-// The reciprocal side — an awarded agent rating the homeowner(s) they worked
-// with. For a transaction (two homeowners on one engagement), one review row
-// is written per homeowner since they're rated independently; a pre-listing
-// only ever has the one.
-async function reviewableHomeowners(db, requestType, requestId, agentUserId) {
-  const row = requestType === 'pre_listing'
-    ? await db.prepare('SELECT user_id AS a, NULL AS b, awarded_bid_id FROM pre_listings WHERE id = ?').bind(requestId).first()
-    : await db.prepare('SELECT user_a_id AS a, user_b_id AS b, awarded_bid_id FROM transaction_requests WHERE id = ?').bind(requestId).first();
-  if (!row || !row.awarded_bid_id) return [];
-  const bid = await db.prepare('SELECT agent_user_id FROM service_bids WHERE id = ?').bind(row.awarded_bid_id).first();
-  if (!bid || bid.agent_user_id !== agentUserId) return [];
-  return [row.a, row.b].filter(Boolean);
-}
-
-export async function canReviewHomeowners(db, requestType, requestId, agentUserId) {
-  const homeowners = await reviewableHomeowners(db, requestType, requestId, agentUserId);
-  return homeowners.length > 0;
-}
-
-export async function submitHomeownerReview(db, agentUserId, requestType, requestId, body) {
-  const homeowners = await reviewableHomeowners(db, requestType, requestId, agentUserId);
-  if (homeowners.length === 0) return { error: 'Not eligible to review on this request.' };
-
-  const validated = validateReviewInput(body);
-  if (validated.error) return validated;
-  const d = validated.data;
-
-  try {
-    await db.batch(homeowners.map(homeownerUserId =>
-      db.prepare(
-        `INSERT INTO homeowner_reviews (homeowner_user_id, reviewer_user_id, request_type, request_id, rating, comment)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      ).bind(homeownerUserId, agentUserId, requestType, requestId, d.rating, d.comment)
-    ));
-  } catch {
-    return { error: "You've already reviewed this." };
-  }
-  return { ok: true };
-}
-
-export async function fetchHomeownerRatingSummary(db, homeownerUserId) {
-  const row = await db.prepare(
-    'SELECT ROUND(AVG(rating), 1) AS avg_rating, COUNT(*) AS n FROM homeowner_reviews WHERE homeowner_user_id = ?'
-  ).bind(homeownerUserId).first();
-  return { avgRating: row.avg_rating, reviewCount: row.n };
-}
-
-// Win rate (accepted / non-withdrawn proposals) and typical proposal speed
-// (how long after a request opened the agent typically got their proposal
-// in) — computed fresh each time rather than stored, same reasoning as
-// matches.js never persisting match scores. "Top Rated" is a simple
-// threshold on top of these plus the existing review average, not a stored
-// flag, so it can never drift out of sync with the underlying numbers.
+// Plain counts (proposals sent, accepted, decided) and typical proposal speed (how long after a request opened the
+// agent typically got their proposal in), computed fresh each time rather than stored, same reasoning as matches.js
+// never persisting match scores. No win rate and no "Top Rated" badge (Rudy 11.04): the site doesn't score or rank
+// agents, it only states plain facts like "Proposal accepted 2 times here".
 const NEW_AGENT_DAYS = 60;
 
-// options.rating: a fetchAgentRatingSummary() result the caller already has, to skip re-querying it.
+// options.rating is no longer used (it fed the removed Top Rated badge); callers may still pass it.
 // options.approvedAt: the agent's agent_profiles.reviewed_at, if the caller already has it (saves a query).
 export async function fetchAgentStats(db, agentUserId, options = {}) {
   const approvedAt = options.approvedAt !== undefined ? options.approvedAt
@@ -339,10 +310,8 @@ export async function fetchAgentStats(db, agentUserId, options = {}) {
   const bids = bidRows.results;
   const totalBids = bids.length;
   const acceptedBids = bids.filter(b => b.status === 'accepted').length;
-  // Only decided bids (accepted/declined) count toward win rate — a
-  // still-pending proposal isn't a loss yet.
+  // Decided = accepted or declined (a still-pending proposal isn't decided yet).
   const decidedBids = bids.filter(b => b.status === 'accepted' || b.status === 'declined').length;
-  const winRate = decidedBids > 0 ? acceptedBids / decidedBids : null;
 
   const preListingIds = bids.filter(b => b.request_type === 'pre_listing').map(b => b.request_id);
   const transactionIds = bids.filter(b => b.request_type === 'transaction').map(b => b.request_id);
@@ -377,14 +346,11 @@ export async function fetchAgentStats(db, agentUserId, options = {}) {
   const avgResponseHours = responseHours.length === 0 ? null
     : responseHours.length % 2 ? responseHours[mid] : (responseHours[mid - 1] + responseHours[mid]) / 2;
 
-  const rating = options.rating || await fetchAgentRatingSummary(db, agentUserId);
-  const topRated = rating.avgRating !== null && rating.avgRating >= 4.5 && rating.reviewCount >= 3 && winRate !== null && winRate >= 0.3;
-
   // Tenure, not track record: an agent who's been approved for months but never picked is not "new".
   const isNewAgent = !!approvedAt && Date.now() - new Date(approvedAt + 'Z').getTime() < NEW_AGENT_DAYS * 86400000;
 
   // Homes where the homeowner interviewed or shortlisted them (see decisionNight.js).
   const finalistCount = await countFinalistHomes(db, agentUserId);
 
-  return { totalBids, acceptedBids, decidedBids, winRate, avgResponseHours, topRated, isNewAgent, finalistCount };
+  return { totalBids, acceptedBids, decidedBids, avgResponseHours, isNewAgent, finalistCount };
 }

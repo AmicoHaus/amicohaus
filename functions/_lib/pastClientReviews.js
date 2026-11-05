@@ -1,11 +1,18 @@
 // Bring Your Reviews: an approved agent shares a link with past clients from a period they choose, so a new profile
 // doesn't start at zero. These reviews are always labeled "Past client, before Amico Haus" and kept apart from
-// reviews of agents hired on Amico Haus (agent_reviews), which are the only ones counted toward Top Rated.
+// reviews of agents hired on Amico Haus (agent_reviews). Nothing here ranks agents.
 //
 // FTC Consumer Reviews Rule / Endorsement Guides: the agent attests they invite every client from the period (not
 // only happy ones), nothing is offered for a review, and the agent can never hide or delete one. Only an admin can
 // remove a review that breaks the rules, and that's on the admin activity log.
+//
+// The street address is optional (Rudy 11.04; city, year and side are required). It's kept private and used only if
+// a review is reported as fake, never to contact anyone about real estate: the admin list shows it, and the
+// reviewer's email, only once that review has been reported by someone who isn't an admin (the "Report" link on
+// the agent's profile; admin/past-client-reviews/index.js).
 import { clampString, DEMO_EMAIL_PATTERN } from './util.js';
+
+export const PAST_CLIENT_ADDRESS_NOTE = 'Kept private. Amico Haus uses it only if a review is reported as fake, and never to contact you about real estate.';
 
 export const PAST_CLIENT_SIDES = { sold: 'Sold a home', bought: 'Bought a home', both: 'Sold and bought' };
 const EARLIEST_YEAR = 1980;
@@ -36,7 +43,8 @@ export function validatePastClientReview(body, period) {
   const saleCity = clampString(body.saleCity, 80);
   const saleAddress = clampString(body.saleAddress, 200);
   if (!saleCity) return { error: 'Enter the city of the home.' };
-  if (saleAddress.length < 5) return { error: "Enter the home's street address. It stays private: only Amico Haus sees it." };
+  // Optional; a typed address that's too short to be one is refused rather than stored half-filled.
+  if (saleAddress && saleAddress.length < 5) return { error: `That street address looks incomplete. You can also leave it blank. ${PAST_CLIENT_ADDRESS_NOTE}` };
   const comment = clampString(body.comment, 1500);
   return { data: { rating, clientSide: body.clientSide, saleYear, saleCity, saleAddress, comment } };
 }
@@ -52,17 +60,19 @@ export async function findInvite(db, token) {
   ).bind(token, DEMO_EMAIL_PATTERN).first();
 }
 
-// Published reviews for a profile (never the street address), newest first.
+// Published reviews for a profile (never the street address), newest first. reviewerUserId keeps the "Report"
+// link off the reviewer's own review; the link reports the review itself (POST /api/reports, targetType
+// 'past_client_review').
 export async function fetchPastClientReviews(db, agentUserId, { limit = 50 } = {}) {
   const rows = await db.prepare(
-    `SELECT r.id, r.rating, r.comment, r.client_side, r.sale_year, r.sale_city, r.created_at, users.display_name AS reviewer_name
+    `SELECT r.id, r.reviewer_user_id, r.rating, r.comment, r.client_side, r.sale_year, r.sale_city, r.created_at, users.display_name AS reviewer_name
      FROM past_client_reviews r JOIN users ON users.id = r.reviewer_user_id
      WHERE r.agent_user_id = ? AND r.status = 'published'
      ORDER BY r.created_at DESC LIMIT ?`
   ).bind(agentUserId, limit).all();
   return rows.results.map(r => ({
     id: r.id, rating: r.rating, comment: r.comment, clientSide: r.client_side, saleYear: r.sale_year, saleCity: r.sale_city,
-    createdAt: r.created_at, reviewerName: r.reviewer_name,
+    createdAt: r.created_at, reviewerName: r.reviewer_name, reviewerUserId: r.reviewer_user_id,
   }));
 }
 

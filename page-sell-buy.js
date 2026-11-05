@@ -26,14 +26,16 @@
     const sellFirstLeft = fromSale + savings - down;
     const buyFirstGap = Math.max(down - savings, 0);
     const saleLabel = costsGiven ? 'From your sale' : 'From your sale, before selling costs';
+    // Every result is the owner's own estimate from what they typed, never advice or a site-supplied number.
+    const estimateLine = `<p class="tiny estimate-label">${escapeHtml(ESTIMATE_LABEL)}</p>`;
     // When the sale wouldn't cover what's owed, there's no equity to talk about; say so plainly instead.
     if (fromSale <= 0) {
-      out.innerHTML = `
+      out.innerHTML = `${estimateLine}
         <div class="opinion-summary"><div><span class="label">${saleLabel}</span>${dollars(fromSale)}</div><div><span class="label">Down payment</span>${dollars(down)}</div><div><span class="label">Your savings</span>${dollars(savings)}</div></div>
         <p>Your sale may not cover what you owe on your home. Your agent and a lender can walk you through your options before you plan the next purchase.</p>`;
       return;
     }
-    out.innerHTML = `
+    out.innerHTML = `${estimateLine}
       <div class="opinion-summary">
         <div><span class="label">${saleLabel}</span>${dollars(fromSale)}</div>
         <div><span class="label">Down payment</span>${dollars(down)}</div>
@@ -46,7 +48,7 @@
       <p><strong>If you buy first:</strong> ${buyFirstGap === 0
         ? "your savings may already cover the down payment without your sale money; a lender can confirm what you'd qualify for."
         : `you'd need about ${dollars(buyFirstGap)} for the down payment before your sale closes. That could come from your home's equity (a lender can tell you about a home equity line or bridge loan), or you could make your offer contingent on your sale.`}</p>
-      <p class="tiny">Estimates only: a lender will add closing costs on the purchase and confirm what you qualify for.</p>`;
+      <p class="tiny">A lender will add closing costs on the purchase and confirm what you qualify for.</p>`;
   }
 
   form.addEventListener('input', render);

@@ -2,7 +2,8 @@
 // listings get included automatically. Demo listings are deliberately
 // excluded (@demo.amicohaus.local) since indexing fake "for sale" homes
 // would be actively misleading, not just unhelpful. A suspended account's pages
-// return 404, so they're left out too.
+// return 404, so they're left out too. FinderMine project pages (/project/:id)
+// are sign-in only and noindex, so they're never listed here.
 import { withSecurityHeaders } from './_lib/withSecurityHeaders.js';
 
 const STATIC_URLS = [
@@ -13,10 +14,12 @@ const STATIC_URLS = [
   { loc: 'https://amicohaus.com/assumable-loans', freq: 'monthly', priority: '0.7' },
   { loc: 'https://amicohaus.com/sell-or-buy-first', freq: 'monthly', priority: '0.7' },
   { loc: 'https://amicohaus.com/unlock-your-zip', freq: 'daily', priority: '0.8' },
+  { loc: 'https://amicohaus.com/for-agents', freq: 'monthly', priority: '0.8' },
   { loc: 'https://amicohaus.com/whats-new', freq: 'weekly', priority: '0.5' },
   { loc: 'https://amicohaus.com/contact', freq: 'monthly', priority: '0.6' },
   { loc: 'https://amicohaus.com/terms', freq: 'yearly', priority: '0.3' },
   { loc: 'https://amicohaus.com/privacy', freq: 'yearly', priority: '0.3' },
+  { loc: 'https://amicohaus.com/accessibility', freq: 'yearly', priority: '0.3' },
 ];
 
 export async function onRequestGet(context) {
@@ -54,15 +57,6 @@ async function renderSitemap(context) {
     loc: `https://amicohaus.com/green-home/${h.id}`, freq: 'weekly', priority: '0.6',
   }));
 
-  const projects = await db.prepare(
-    `SELECT dev_projects.id FROM dev_projects JOIN users ON users.id = dev_projects.user_id
-     WHERE dev_projects.status = 'open' AND users.email NOT LIKE '%@demo.amicohaus.local' AND users.status = 'active'
-     ORDER BY dev_projects.created_at DESC LIMIT 5000`
-  ).all();
-  const projectUrls = projects.results.map(p => ({
-    loc: `https://amicohaus.com/project/${p.id}`, freq: 'weekly', priority: '0.5',
-  }));
-
   // Only approved agents, not every signed-up user — an agent's profile is a page they want found (it's their
   // brand, same reasoning a listing gets a public page); a homeowner's generic bio/listings profile isn't
   // actively promoted the same way, even though it stays crawlable if linked to from somewhere.
@@ -74,7 +68,7 @@ async function renderSitemap(context) {
     loc: `https://amicohaus.com/profile/${a.user_id}`, freq: 'monthly', priority: '0.5',
   }));
 
-  const all = [...STATIC_URLS, ...listingUrls, ...augmentedHomeUrls, ...greenHomeUrls, ...projectUrls, ...agentUrls];
+  const all = [...STATIC_URLS, ...listingUrls, ...augmentedHomeUrls, ...greenHomeUrls, ...agentUrls];
   const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
     all.map(u => `  <url>\n    <loc>${u.loc}</loc>\n    <changefreq>${u.freq}</changefreq>\n    <priority>${u.priority}</priority>\n  </url>`).join('\n') +
     `\n</urlset>\n`;

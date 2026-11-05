@@ -1,5 +1,8 @@
 import { clampString } from './util.js';
 
+// Shown beside every Submit offer / Accept / Counter (Rudy 11.04): the offer tools only signal interest.
+export const OFFER_TOOLS_LINE = "Not a purchase agreement. A California home sale needs a written contract signed by both sides, usually prepared by your agents. Accepting here only tells the other side you'd like to move forward.";
+
 function num(value, { min = 0, max = Infinity } = {}) {
   const n = Number(value);
   if (!Number.isFinite(n)) return null;
@@ -29,10 +32,11 @@ export async function insertOffer(db, listingId, buyerUserId, d) {
 }
 
 // The owner sees every offer on their listing; a buyer sees only their own (not competitors' numbers) --
-// same visibility rule the pre-listing proposal marketplace already uses for bids.
+// same visibility rule the pre-listing proposal marketplace already uses for bids. No "verified" badge beside a
+// buyer: the site doesn't vouch for anyone.
 export async function fetchOffersForOwner(db, listingId) {
   const rows = await db.prepare(
-    `SELECT listing_offers.*, users.display_name AS buyer_name, users.is_verified AS buyer_verified
+    `SELECT listing_offers.*, users.display_name AS buyer_name
      FROM listing_offers JOIN users ON users.id = listing_offers.buyer_user_id
      WHERE listing_offers.listing_id = ? ORDER BY listing_offers.created_at DESC`
   ).bind(listingId).all();
@@ -52,7 +56,7 @@ export async function fetchMyOffer(db, listingId, buyerUserId) {
 
 function mapOfferRow(r) {
   return {
-    id: r.id, listingId: r.listing_id, buyerUserId: r.buyer_user_id, buyerName: r.buyer_name, buyerVerified: !!r.buyer_verified,
+    id: r.id, listingId: r.listing_id, buyerUserId: r.buyer_user_id, buyerName: r.buyer_name,
     offerPrice: r.offer_price, financingType: r.financing_type, closingTimeline: r.closing_timeline,
     contingencies: r.contingencies, message: r.message, status: r.status,
     counterPrice: r.counter_price, counterMessage: r.counter_message, counteredBy: r.countered_by, createdAt: r.created_at,

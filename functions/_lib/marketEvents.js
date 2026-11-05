@@ -5,6 +5,26 @@
 import { DEMO_EMAIL_PATTERN } from './util.js';
 import { checkMarketPulseAlerts } from './marketPulseAlerts.js';
 
+// An accepted offer on Amico Haus only means the owner wants to move forward; it isn't a sale and has no price
+// anyone should rely on, so the event says so and never carries the amount.
+export function offerAcceptedHeadline(city) {
+  return `Offer accepted on Amico Haus in ${city || 'San Diego County'} (not a closed sale)`;
+}
+
+// Older rows were logged before that rule ("Deal closed in X: $Y", "... $Z sought" on FinderMine projects), so every
+// read goes through this: offer events get the new wording, and offers and FinderMine projects lose their amounts.
+export function cleanMarketEvent(r) {
+  let headline = r.headline;
+  let amount = r.amount ?? null;
+  if (r.event_type === 'offer_accepted') { headline = offerAcceptedHeadline(r.city); amount = null; }
+  if (r.entity_kind === 'dev_project') {
+    // ...and an older FinderMine "Fix & Flip" reads as "Renovation" (the label since Rudy 11.04).
+    headline = String(headline || '').replace(/\s+—\s+\$[\d,]+ sought$/, '').replace(/: Fix & Flip$/, ': Renovation');
+    amount = null;
+  }
+  return { headline, amount };
+}
+
 export async function logMarketEvent(db, event) {
   const { eventType, entityKind, entityId, city, state, headline, amount, delta } = event;
   await db.prepare(
@@ -28,7 +48,7 @@ export async function fetchRecentMarketEvents(db, limit = 50, filters = {}) {
   const rows = await db.prepare(`SELECT * FROM market_events WHERE ${scope.where} ORDER BY created_at DESC, id DESC LIMIT ?`).bind(...scope.params, limit).all();
   return rows.results.map(r => ({
     id: r.id, eventType: r.event_type, entityKind: r.entity_kind, entityId: r.entity_id,
-    city: r.city, state: r.state, headline: r.headline, amount: r.amount, delta: r.delta, createdAt: r.created_at,
+    city: r.city, state: r.state, ...cleanMarketEvent(r), delta: r.delta, createdAt: r.created_at,
   }));
 }
 
@@ -67,17 +87,18 @@ export async function fetchMarketTrends(db, filters = {}) {
   };
 }
 
-// The single most dramatic real price drop, and the single "hottest" entity (most events logged) in the
-// last 7 days, within the same optional scope as fetchMarketTrends -- a leaderboard spotlight, not a list.
+// One spotlight: the home or project with the most activity in the last 7 days, counting only new listings and
+// open houses (never price drops or accepted offers), within the same optional scope as fetchMarketTrends. There's
+// no "hottest" and no "biggest price drop" card any more: the site doesn't rank homes or single one out for a cut.
+// The app labels it "Most activity this week".
 export async function fetchMarketLeaderboard(db, filters = {}) {
-  const scope = trendScope(filters, [`created_at > datetime('now', '-7 days')`]);
-  const dropScope = trendScope(filters, [`created_at > datetime('now', '-7 days')`, `event_type = 'price_drop'`]);
-  const [biggestDrop, hottest] = await Promise.all([
-    db.prepare(`SELECT entity_kind, entity_id, headline, city, state, delta, amount FROM market_events WHERE ${dropScope.where} ORDER BY delta ASC LIMIT 1`).bind(...dropScope.params).first(),
-    db.prepare(`SELECT entity_kind, entity_id, COUNT(*) AS event_count, MAX(headline) AS headline, MAX(city) AS city, MAX(state) AS state
-                FROM market_events WHERE ${scope.where} GROUP BY entity_kind, entity_id ORDER BY event_count DESC, MAX(created_at) DESC LIMIT 1`).bind(...scope.params).first(),
-  ]);
-  return { biggestDrop: biggestDrop || null, hottest: hottest || null };
+  const scope = trendScope(filters, [`created_at > datetime('now', '-7 days')`, `event_type IN ('new_listing', 'open_house_scheduled')`]);
+  const row = await db.prepare(
+    `SELECT entity_kind, entity_id, COUNT(*) AS event_count, MAX(headline) AS headline, MAX(city) AS city, MAX(state) AS state
+     FROM market_events WHERE ${scope.where} GROUP BY entity_kind, entity_id ORDER BY event_count DESC, MAX(created_at) DESC LIMIT 1`
+  ).bind(...scope.params).first();
+  const mostActivity = row ? { ...row, headline: cleanMarketEvent({ ...row, event_type: 'new_listing' }).headline } : null;
+  return { mostActivity };
 }
 
 // Batches each entity's most recent new_listing/price_drop within the window, for a list/browse card's

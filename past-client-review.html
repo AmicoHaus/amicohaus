@@ -38,11 +38,11 @@
       <fieldset class="audience-choice">
         <legend>Your rating <span class="required-mark">*</span></legend>
         <div class="choice-row star-choice">
-          <label class="choice"><input type="radio" name="rating" value="5"><span>★★★★★</span></label>
-          <label class="choice"><input type="radio" name="rating" value="4"><span>★★★★</span></label>
-          <label class="choice"><input type="radio" name="rating" value="3"><span>★★★</span></label>
-          <label class="choice"><input type="radio" name="rating" value="2"><span>★★</span></label>
-          <label class="choice"><input type="radio" name="rating" value="1"><span>★</span></label>
+          <label class="choice"><input type="radio" name="rating" value="5" aria-label="5 stars"><span aria-hidden="true">★★★★★</span></label>
+          <label class="choice"><input type="radio" name="rating" value="4" aria-label="4 stars"><span aria-hidden="true">★★★★</span></label>
+          <label class="choice"><input type="radio" name="rating" value="3" aria-label="3 stars"><span aria-hidden="true">★★★</span></label>
+          <label class="choice"><input type="radio" name="rating" value="2" aria-label="2 stars"><span aria-hidden="true">★★</span></label>
+          <label class="choice"><input type="radio" name="rating" value="1" aria-label="1 star"><span aria-hidden="true">★</span></label>
         </div>
       </fieldset>
       <div class="form-row two-col">
@@ -53,9 +53,9 @@
       </div>
       <div class="form-row two-col">
         <div class="field"><label for="saleCity">City of the home <span class="required-mark">*</span></label><input type="text" id="saleCity" maxlength="80" autocomplete="address-level2"></div>
-        <div class="field"><label for="saleAddress">Street address <span class="required-mark">*</span></label><input type="text" id="saleAddress" maxlength="200" autocomplete="street-address"></div>
+        <div class="field"><label for="saleAddress">Street address (optional)</label><input type="text" id="saleAddress" maxlength="200" autocomplete="street-address" aria-describedby="saleAddressNote"></div>
       </div>
-      <p class="tiny">The street address stays private: only Amico Haus sees it, so reviews can be checked against public sale records. Your review shows your name, the year, the city and whether you bought or sold.</p>
+      <p class="tiny" id="saleAddressNote">Kept private. Amico Haus uses it only if a review is reported as fake, and never to contact you about real estate. Your review shows your name, the year, the city and whether you bought or sold.</p>
       <div class="field"><label for="reviewComment">Your review</label><textarea id="reviewComment" maxlength="1500" placeholder="What was it like working with them? What did they do well, and what could have been better?"></textarea></div>
       <p class="tiny">Please write about your own experience with this agent: their work, communication and results. Honest reviews, good or not so good, are welcome. Neither Amico Haus nor the agent can offer anything in return for a review, and the agent can't hide or remove yours. Amico Haus removes a review only if it's fake, abusive or not about the agent's work, the same rule for every rating.</p>
       <div class="form-actions"><button type="submit" class="btn btn-primary" id="pastReviewBtn">Post my review</button></div>
@@ -65,6 +65,7 @@
 
   <footer class="site-footer">
     <span class="footer-tagline">Amico Haus: the real estate marketplace of tomorrow! Everything that's missing from the real estate market for the homeowner!</span> <a href="/about">About</a> · <a href="/whats-new">What's New</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a>
+    <p class="footer-legal">Equal Housing Opportunity · <a href="/accessibility">Accessibility</a></p>
   </footer>
 </div>
 <script src="client.js"></script>

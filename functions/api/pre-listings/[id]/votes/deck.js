@@ -1,6 +1,9 @@
 import { getSessionUser } from '../../../../_lib/auth.js';
 import { json, badRequest, unauthorized, forbidden, notFound } from '../../../../_lib/util.js';
 import { isApprovedAgent } from '../../../../_lib/agents.js';
+import { isEitherBlocked } from '../../../../_lib/blocks.js';
+import { ownerIsActive } from '../../../../_lib/visibility.js';
+import { claimUserAction, rateLimited } from '../../../../_lib/rateLimits.js';
 
 // One presentation file per agent per pre-listing, part of their price opinion: a PDF, PowerPoint or Word file
 // that backs up the price they suggest. Only the homeowner and the agent who uploaded it can download it, and it
@@ -44,7 +47,7 @@ export async function onRequestPost(context) {
   if (!(await isApprovedAgent(db, user.id))) return forbidden('Only approved agents can attach a presentation.');
 
   const preListing = await loadPreListing(db, id);
-  if (!preListing) return notFound('Pre-listing not found.');
+  if (!preListing || !(await ownerIsActive(db, preListing.user_id)) || await isEitherBlocked(db, user.id, preListing.user_id)) return notFound('Pre-listing not found.');
   if (preListing.user_id === user.id) return forbidden("You can't weigh in on your own pre-listing.");
   if (preListing.status !== 'open') return badRequest('This pre-listing is closed, so it is no longer taking price opinions.');
 
@@ -68,6 +71,8 @@ export async function onRequestPost(context) {
   if (!type) return badRequest('Attach a PDF, PowerPoint (.pptx or .ppt) or Word (.docx or .doc) file.');
   const bytes = new Uint8Array(await file.arrayBuffer());
   if (!startsWith(bytes, MAGIC[type.magic])) return badRequest("That file doesn't look like a real PDF, PowerPoint or Word file.");
+  // An upload is part of the price opinion, so it counts toward the same per-person limits (rateLimits.js).
+  if (!(await claimUserAction(db, 'price_vote', user.id, `pre_listing:${Number(id)}`))) return rateLimited();
 
   const key = `pre-listing-decks/${id}/${user.id}/${crypto.randomUUID()}`;
   await bucket.put(key, bytes, { httpMetadata: { contentType: type.mime } });

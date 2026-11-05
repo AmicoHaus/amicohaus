@@ -9,8 +9,8 @@
 const DEMO_AGENTS = [
   {
     id: 'a1', name: 'Marisol Vega', avatar: '/img/avatar/marisol-vega.svg', brokerage: 'Harbor & Pine Realty', years: 14,
-    rating: 4.9, reviews: 23, topRated: true, licenseVerified: true, localSpecialist: true, accepting: true, eo: true,
-    respondsHours: 2, winRate: 46, homesSold: 31, daysOnMarket: 21, saleToList: 99,
+    rating: 4.9, reviews: 23, focusedServiceArea: true, accepting: true, eo: true,
+    respondsHours: 2, homesSold: 31, daysOnMarket: 21, saleToList: 99,
     specialties: ['Luxury', 'Condo / HOA'], languages: ['English', 'Spanish'], commission: 2.5,
     packages: [
       { tier: 'Basic', days: 3, services: ['Photography', 'MLS + Zillow/Redfin syndication'] },
@@ -21,8 +21,8 @@ const DEMO_AGENTS = [
   },
   {
     id: 'a2', name: 'Devon Brooks', avatar: '/img/avatar/devon-brooks.svg', brokerage: 'Summit Row Homes', years: 6,
-    rating: 4.4, reviews: 9, topRated: false, licenseVerified: false, localSpecialist: true, accepting: true, eo: false,
-    respondsHours: 6, winRate: 33, homesSold: 12, daysOnMarket: 34, saleToList: 97,
+    rating: 4.4, reviews: 9, focusedServiceArea: true, accepting: true, eo: false,
+    respondsHours: 6, homesSold: 12, daysOnMarket: 34, saleToList: 97,
     specialties: ['First-time buyers'], languages: ['English'], commission: 3,
     packages: [
       { tier: 'Basic', days: 4, services: ['Photography', 'MLS + Zillow/Redfin syndication'] },
@@ -32,8 +32,8 @@ const DEMO_AGENTS = [
   },
   {
     id: 'a3', name: 'Priya Nair', avatar: '/img/avatar/priya-nair.svg', brokerage: 'Meridian Coastal Group', years: 9,
-    rating: 4.8, reviews: 16, topRated: true, licenseVerified: true, localSpecialist: false, accepting: false, eo: true,
-    respondsHours: 3, winRate: 41, homesSold: 24, daysOnMarket: 26, saleToList: 98,
+    rating: 4.8, reviews: 16, focusedServiceArea: false, accepting: false, eo: true,
+    respondsHours: 3, homesSold: 24, daysOnMarket: 26, saleToList: 98,
     specialties: ['Relocation', 'Waterfront'], languages: ['English', 'French'], commission: 2,
     packages: [
       { tier: 'Standard', days: 4, services: ['Photography', 'Staging consult', 'Relocation buyer outreach'] },
@@ -43,8 +43,8 @@ const DEMO_AGENTS = [
   },
   {
     id: 'a4', name: 'Tom Alvarez', avatar: '/img/avatar/tom-alvarez.svg', brokerage: 'Cedar Lane Realty', years: 3,
-    rating: null, reviews: 0, topRated: false, licenseVerified: false, localSpecialist: true, accepting: true, eo: false,
-    respondsHours: 1, winRate: null, homesSold: 5, daysOnMarket: 41, saleToList: 96,
+    rating: null, reviews: 0, focusedServiceArea: true, accepting: true, eo: false,
+    respondsHours: 1, homesSold: 5, daysOnMarket: 41, saleToList: 96,
     specialties: ['New construction'], languages: ['English', 'Vietnamese'], commission: null,
     packages: [
       { tier: 'Basic', days: 6, services: ['Photography'] },
@@ -59,7 +59,7 @@ const DEMO_STORY = {
     title: 'Charming 3bd Craftsman', type: 'Single Family Home', beds: 3, baths: 2, sqft: 1650,
     city: 'San Diego', state: 'CA', neighborhood: 'North Park', zip: '92104', asking: 875000,
     occupancy: 'Occupied', showingNoticeHours: 24,
-    instructions: 'Lockbox on the front door — please ring twice, there is a dog.',
+    instructions: 'Please ring twice, there is a friendly dog. Weekday afternoons work best for showings.',
     preferences: [
       '8+ years of experience preferred',
       'prefers an agent who speaks Spanish',
@@ -84,16 +84,16 @@ const DEMO_STORY = {
       message: 'Newer agent, so I keep my prep fee low. Photography only, and I will be your one point of contact the whole way.',
     },
   ],
+  // The same default checklist the live app starts with (functions/_lib/milestones.js).
   milestones: [
-    { label: 'Deposit sent (off-platform)', done: true },
-    { label: 'Work in progress', done: true },
-    { label: 'Sign lockbox installed', done: true },
-    { label: 'Work completed', done: false },
-    { label: 'Final payment sent (off-platform)', done: false },
+    { label: "Listing agreement signed with the agent's brokerage", done: true },
+    { label: 'Home prepped and photographed', done: true },
+    { label: 'Listed', done: false },
+    { label: 'In escrow', done: false },
+    { label: 'Closed', done: false },
   ],
   reviews: [
     { from: 'The homeowner', fromAvatar: '/img/avatar/homeowner.svg', about: 'Marisol Vega', rating: 5, text: 'Clear about what she would do and when. The staging advice alone was worth it.' },
-    { from: 'Marisol Vega', fromAvatar: '/img/avatar/marisol-vega.svg', about: 'the homeowner', rating: 5, text: 'Responsive, had the house ready on time, and easy to schedule showings around.' },
   ],
 };
 
@@ -124,7 +124,7 @@ const DEMO_TRANSACTION = {
 function agentHead(a, aside = '') {
   return personHeadHtml({
     avatar: avatarHtml(a.name, { src: a.avatar, size: 'lg' }),
-    nameHtml: `${escapeHtml(a.name)}${a.topRated ? ' <span class="badge badge-gold">🏆 Top Rated</span>' : ''}`,
+    nameHtml: escapeHtml(a.name),
     sub: a.brokerage,
     chips: [ratingChipHtml(a.rating, a.reviews), chipHtml(`${a.years} yrs experience`, 'outline')],
     aside,
@@ -135,13 +135,11 @@ function demoAgentInfo(a) {
   return {
     status: [
       { text: a.accepting ? 'Accepting new clients' : 'Not accepting new clients', tone: a.accepting ? 'good' : 'bad' },
-      a.localSpecialist && { text: 'Local specialist', tone: 'gold' },
-      a.licenseVerified && { text: 'License checked on DRE', tone: 'good' },
+      a.focusedServiceArea && { text: 'Focused service area', tone: 'gold' },
       a.eo && { text: 'E&O insured (self-reported)', tone: 'good' },
     ].filter(Boolean),
     stats: [
       { k: 'Proposal speed', v: `~${a.respondsHours}h` },
-      a.winRate !== null && { k: 'Win rate', v: `${a.winRate}%` },
       a.caseStudies > 0 && { k: 'Case studies', v: String(a.caseStudies) },
     ].filter(Boolean),
     selfReported: [

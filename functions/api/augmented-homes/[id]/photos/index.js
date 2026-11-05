@@ -1,17 +1,28 @@
 import { getSessionUser } from '../../../../_lib/auth.js';
 import { scrubImageMetadata } from '../../../../_lib/imageMetadata.js';
 import { json, badRequest, unauthorized, forbidden, notFound } from '../../../../_lib/util.js';
+import { mediaCacheControl } from '../../../../_lib/visibility.js';
 
 const MAX_PHOTOS = 8;
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
+// Public while the home is (anything but withdrawn, and its owner's account is active: the same rule as the photo
+// files); otherwise only the owner and admins see the list.
 export async function onRequestGet(context) {
   const id = context.params.id;
-  const rows = await context.env.DB.prepare(
+  const db = context.env.DB;
+  const home = await db.prepare(
+    'SELECT augmented_homes.user_id, augmented_homes.status, users.status AS owner_status FROM augmented_homes JOIN users ON users.id = augmented_homes.user_id WHERE augmented_homes.id = ?'
+  ).bind(id).first();
+  if (!home) return notFound('Listing not found.');
+  const isPublic = home.status !== 'withdrawn' && home.owner_status === 'active';
+  const cacheControl = await mediaCacheControl(context, isPublic, home.user_id, 'no-cache');
+  if (!cacheControl) return notFound('Listing not found.');
+  const rows = await db.prepare(
     'SELECT id, position, created_at FROM augmented_home_photos WHERE augmented_home_id = ? ORDER BY position ASC'
   ).bind(id).all();
-  return json({ photos: rows.results });
+  return json({ photos: rows.results }, { headers: { 'Cache-Control': cacheControl } });
 }
 
 export async function onRequestPost(context) {

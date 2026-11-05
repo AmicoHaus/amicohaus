@@ -6,6 +6,9 @@
 // homeowner skip advertising the request to every agent on the platform.
 import { clampString } from './util.js';
 import { priceIsOpen, shownAskingPrice } from './preListings.js';
+import { hasBlocked, isBlockedWithOwners, notBlockedByOwnersSql } from './blocks.js';
+
+export const UNBLOCK_FIRST_ERROR = 'Unblock this agent first.';
 
 export async function isPartyToRequest(db, requestType, requestId, userId) {
   const row = requestType === 'pre_listing'
@@ -15,26 +18,40 @@ export async function isPartyToRequest(db, requestType, requestId, userId) {
   return row.a === userId || row.b === userId;
 }
 
-export async function inviteAgent(db, requestType, requestId, invitedByUserId, agentUserId, message) {
+// No invite across a block (either way, with any homeowner on the request): the inviter who blocked the agent is
+// told to unblock first; otherwise the answer doesn't say who blocked whom. Inviting again updates the note but
+// never puts a declined invite back to pending (the agent already said no); notifyAgentInvited decides whether the
+// agent hears about it.
+// beforeWrite: an optional async check run once the invite is allowed, before it's saved (the route's per-person
+// limit, rateLimits.js); when it returns false nothing is saved and the result is { rateLimited: true }.
+export async function inviteAgent(db, requestType, requestId, invitedByUserId, agentUserId, message, { beforeWrite = null } = {}) {
   const isParty = await isPartyToRequest(db, requestType, requestId, invitedByUserId);
   if (!isParty) return { error: 'You are not a party to this request.' };
 
   const agent = await db.prepare("SELECT 1 FROM agent_profiles WHERE user_id = ? AND status = 'approved'").bind(agentUserId).first();
   if (!agent) return { error: 'That agent is not an approved agent.' };
+  if (await isBlockedWithOwners(db, requestType, requestId, agentUserId)) {
+    return { error: (await hasBlocked(db, invitedByUserId, agentUserId)) ? UNBLOCK_FIRST_ERROR : "That agent can't be invited to this request." };
+  }
+  if (beforeWrite && !(await beforeWrite())) return { rateLimited: true };
 
   await db.prepare(
     `INSERT INTO agent_invites (request_type, request_id, agent_user_id, invited_by_user_id, message)
      VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(request_type, request_id, agent_user_id) DO UPDATE SET message = excluded.message, status = 'pending'`
+     ON CONFLICT(request_type, request_id, agent_user_id) DO UPDATE SET message = excluded.message,
+       status = CASE WHEN agent_invites.status = 'declined' THEN 'declined' ELSE 'pending' END`
   ).bind(requestType, requestId, agentUserId, invitedByUserId, clampString(message, 500)).run();
   return { ok: true };
 }
 
+// The homeowner's list of who they invited; an agent blocked either way is left out.
 export async function fetchInvitesForRequest(db, requestType, requestId) {
   const rows = await db.prepare(
     `SELECT agent_invites.*, users.display_name AS agent_name
      FROM agent_invites JOIN users ON users.id = agent_invites.agent_user_id
-     WHERE request_type = ? AND request_id = ? ORDER BY created_at DESC`
+     WHERE request_type = ?1 AND request_id = ?2
+       AND ${notBlockedByOwnersSql(requestType === 'pre_listing' ? 'pre_listing' : 'transaction', '?2', 'agent_invites.agent_user_id')}
+     ORDER BY created_at DESC`
   ).bind(requestType, requestId).all();
   return rows.results.map(r => ({
     id: r.id, agentUserId: r.agent_user_id, agentName: r.agent_name,

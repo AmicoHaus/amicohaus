@@ -30,7 +30,7 @@
   "@type": "WebApplication",
   "name": "Amico Haus",
   "url": "https://amicohaus.com/",
-  "description": "A pre-listing showcase where local real estate agent experts evaluate a home's asking price and present their strategy for selling it — fee, included services and turnaround — and the homeowner compares and chooses. The evaluation is mutual: agents assess the home, the homeowner assesses each agent, and both review each other. Homeowners can also match for home trades, including multi-party daisy-chain trades.",
+  "description": "A pre-listing showcase where local real estate agent experts evaluate a home's asking price and present their strategy for selling it — fee, included services and turnaround — and the homeowner compares and chooses. The evaluation is mutual: agents assess the home and the homeowner assesses each agent. Homeowners can also match for home trades, including multi-party daisy-chain trades.",
   "applicationCategory": "BusinessApplication",
   "operatingSystem": "Any web browser",
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
@@ -95,10 +95,10 @@
       <h2>How Agent Strategy works</h2>
       <p class="section-sub">A pre-listing is a showcase of your home before it's on the market. It's how local agent experts evaluate your price and show you their strategy — and how you evaluate them.</p>
       <ol class="steps">
-        <li><span class="step-num">1</span><div><strong>Post a pre-listing showcase</strong><p>Basic details, photos, your asking price and any preferences — a local specialist, a language, a minimum experience level. Your street address stays private.</p></div></li>
+        <li><span class="step-num">1</span><div><strong>Post a pre-listing showcase</strong><p>Basic details, photos, your asking price and any preferences — an agent focused on your area, a language, a minimum experience level. Your street address stays private.</p></div></li>
         <li><span class="step-num">2</span><div><strong>Local agent experts evaluate the price</strong><p>Approved agents weigh in on whether your asking price looks too high, too low, or about right — so you hear it from people who know the market before you list.</p></div></li>
-        <li><span class="step-num">3</span><div><strong>Agents share their strategy</strong><p>Each proposes a fee, what's included and how fast they can start. Compare ratings, response times, win rates and packages side by side — or invite an agent you already know.</p></div></li>
-        <li><span class="step-num">4</span><div><strong>Choose, then review each other</strong><p>Accept the strategy that fits. A shared checklist tracks the work, and afterward both sides review each other, so the evaluation goes both ways.</p></div></li>
+        <li><span class="step-num">3</span><div><strong>Agents share their strategy</strong><p>Each proposes a fee, what's included and how fast they can start. Compare reviews, response times and packages side by side — or invite an agent you already know.</p></div></li>
+        <li><span class="step-num">4</span><div><strong>Choose, then review your agent</strong><p>Accept the strategy that fits. A shared checklist tracks the work, and afterward you can review the agent you hired.</p></div></li>
       </ol>
     </section>
 
@@ -109,7 +109,7 @@
           <ul class="feature-list">
             <li>Hear it before you list: agents weigh in on whether your asking price looks too high, too low, or about right.</li>
             <li>Compare each agent's strategy — fee, included services and turnaround — side by side.</li>
-            <li>Ask for what matters: a local specialist, a language, years of experience.</li>
+            <li>Ask for what matters: an agent focused on your area, a language, years of experience.</li>
             <li>Already know an agent? Invite them straight to your pre-listing.</li>
           </ul>
           <a class="btn btn-primary btn-sm" href="/signup?as=homeowner">Post a Pre-Listing</a>
@@ -117,16 +117,16 @@
         <div class="card audience-card" id="for-agents">
           <h2>For agents</h2>
           <ul class="feature-list">
-            <li>Apply to be vetted — an admin reviews what you report about your license and brokerage.</li>
+            <li>Apply to be approved — it's free, takes about 3 minutes, and an admin looks up your license before approving.</li>
             <li>See homes before they hit the market, and say what you'd do differently.</li>
             <li>Build a profile with service packages, case studies, a video introduction and your service area.</li>
             <li>Win listings on your strategy and track record, and earn reviews from every client.</li>
           </ul>
           <a class="btn btn-primary btn-sm" href="/signup?as=agent">Apply as an Agent</a>
-          <p class="tiny"><a href="/unlock-your-zip">See which ZIPs need agents, and claim a founding spot →</a></p>
+          <p class="tiny"><a href="/for-agents">Why join →</a> · <a href="/unlock-your-zip">See which ZIPs need agents, and claim a founding spot →</a></p>
         </div>
       </div>
-      <p class="tiny">Before approving an agent, Amico Haus looks up their license on the California DRE's public license lookup. It's still worth confirming a license yourself before engaging anyone. An agent's view of your price is an opinion, not an appraisal.</p>
+      <p class="tiny">Before approving an agent, Amico Haus looks up their license on the California DRE's public license lookup. Check an agent's current license status anytime on the <a href="https://www2.dre.ca.gov/PublicASP/pplinfo.asp" target="_blank" rel="noopener noreferrer">DRE's public lookup</a>. An agent's view of your price is an opinion, not an appraisal.</p>
     </section>
 
     <section class="home-section" id="meet-agents">
@@ -140,7 +140,7 @@
 
     <section class="home-section trade-callout" id="trade">
       <h2>Prefer to trade than sell?</h2>
-      <p>Amico Haus also lets homeowners trade homes instead of listing them. Post what you have and what would make you move, and we'll find mutual matches — including daisy chains where three or more homeowners each get what they want. Either partner in a match can bring agents in to help coordinate the closing.</p>
+      <p>Amico Haus also lets homeowners trade homes instead of listing them. Post what you have and what would make you move, and we'll find mutual matches — including daisy chains where three or more homeowners each get what they want. Either partner in a match can ask to bring agents in to help coordinate the closing. The other partner confirms first, and each of you can choose your own agent.</p>
       <a class="btn btn-ghost btn-sm" href="#directory">Browse live listings</a>
     </section>
 
@@ -181,12 +181,12 @@
         <div class="field"><label for="filterMello">Mello-Roos</label>
           <select id="filterMello">
             <option value="">Any</option>
-            <option value="none">No Mello-Roos only</option>
+            <option value="none">Owner says no Mello-Roos</option>
           </select>
         </div>
         <div class="field"><label for="filterHoaMax">Max HOA ($ per month)</label><input type="number" id="filterHoaMax" min="0" max="20000" step="25" inputmode="numeric" placeholder="Any"></div>
       </form>
-      <p class="tiny">The Mello-Roos and HOA filters only show homes whose owner shared those costs.</p>
+      <p class="tiny">The Mello-Roos and HOA filters only show homes whose owner shared those costs, and they use the owner's numbers. Confirm on the property tax bill and in the seller's Mello-Roos and HOA disclosures.</p>
       <div id="directoryMomentum"></div>
       <div class="grid" id="directoryGrid"><div class="empty-state">Loading…</div></div>
       <div id="directoryMap" class="hidden"></div>
@@ -196,6 +196,7 @@
 
   <footer class="site-footer">
     <span class="footer-tagline">Amico Haus: the real estate marketplace of tomorrow! Everything that's missing from the real estate market for the homeowner!</span> <a href="/about">About</a> · <a href="/whats-new">What's New</a> · <a href="/calculator">Calculator</a> · <a href="/assumable-loans">Assumable loans</a> · <a href="/contact">Contact</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="https://www.instagram.com/amicohaus" target="_blank" rel="noopener noreferrer">Instagram</a> · <a href="https://www.tiktok.com/@amicohaus" target="_blank" rel="noopener noreferrer">TikTok</a> · <a href="https://www.youtube.com/@amicohaus" target="_blank" rel="noopener noreferrer">YouTube</a>
+    <p class="footer-legal">Equal Housing Opportunity · <a href="/accessibility">Accessibility</a></p>
   </footer>
 </div>
 

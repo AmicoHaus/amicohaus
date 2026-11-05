@@ -1,9 +1,8 @@
 import { getSessionUser } from '../../_lib/auth.js';
 import { json, badRequest, unauthorized, forbidden, notFound, DEMO_EMAIL_PATTERN } from '../../_lib/util.js';
-import { validatePreListingInput, updatePreListing, fetchPreListingPhotos, getVoteTally, fetchMyVote, sealTally, fetchPriceOpinions, deleteOpinionDecks, priceIsOpen, shownAskingPrice } from '../../_lib/preListings.js';
+import { validatePreListingInput, updatePreListing, fetchPreListingPhotos, getVoteTally, fetchMyVote, sealTally, fetchPriceOpinions, priceIsOpen, shownAskingPrice } from '../../_lib/preListings.js';
 import { fetchContactShares, fetchAddressViews, fetchSharedContact } from '../../_lib/addressViews.js';
-import { fetchBids, fetchMyBid, fetchHomeownerRatingSummary } from '../../_lib/marketplace.js';
-import { getAgentProfile } from '../../_lib/agents.js';
+import { fetchBids, fetchMyBid } from '../../_lib/marketplace.js';
 import { lookupZipCoords, nearestServiceDistance, SERVICE_RADIUS_MILES } from '../../_lib/geo.js';
 import { buyerDemandForDisplay } from '../../_lib/buyerDemand.js';
 import { homeCostsFromRow } from '../../_lib/homeCosts.js';
@@ -12,6 +11,8 @@ import { LAUNCH_ZIPS, FOUNDING_SPOTS, LIVE_FOUNDERS_SQL } from '../../_lib/zipBo
 import { proposalsSealed, countSealedProposals, fetchFinalists, sqlTime } from '../../_lib/decisionNight.js';
 import { logAdminAction } from '../../_lib/audit.js';
 import { countAgentsOnDuty } from '../../_lib/agentDuty.js';
+import { preListingAccess, agentsOnly } from '../../_lib/visibility.js';
+import { deleteR2Keys } from '../../_lib/r2Cleanup.js';
 
 export async function onRequestGet(context) {
   const id = context.params.id;
@@ -25,12 +26,21 @@ export async function onRequestGet(context) {
   ).bind(id).first();
   if (!row) return notFound('Pre-listing not found.');
 
-  const isOwner = user.id === row.user_id;
-  const agentProfile = await getAgentProfile(db, user.id);
-  const isApprovedAgentViewer = !!agentProfile && agentProfile.status === 'approved';
-  // Lockbox and access notes go only to the owner and vetted agents (and
-  // admins) — not to every registered account.
-  const canSeeInstructions = isOwner || isApprovedAgentViewer || user.role === 'admin';
+  // Only the owner, admins and approved agents open a pre-listing (see visibility.js); everyone else gets the browse
+  // teaser, and a blocked agent gets the same 404 as a home that doesn't exist.
+  const { access, isOwner, agentProfile, isApprovedAgent: isApprovedAgentViewer } = await preListingAccess(db, user, row);
+  if (access === 'agents_only') return agentsOnly();
+  if (access === 'hidden') return notFound('Pre-listing not found.');
+  // Notes for agents go only to the owner, admins, the agent they hired and agents they shared their contact info
+  // with, not to every approved agent.
+  let canSeeInstructions = isOwner || user.role === 'admin';
+  if (!canSeeInstructions && row.awarded_bid_id) {
+    const hired = await db.prepare('SELECT agent_user_id FROM service_bids WHERE id = ?').bind(row.awarded_bid_id).first();
+    canSeeInstructions = !!hired && hired.agent_user_id === user.id;
+  }
+  if (!canSeeInstructions) {
+    canSeeInstructions = !!(await db.prepare('SELECT 1 AS yes FROM contact_shares WHERE pre_listing_id = ? AND agent_id = ?').bind(row.id, user.id).first());
+  }
   const photos = await fetchPreListingPhotos(db, id);
   const votes = await getVoteTally(db, id, row);
   const priceOpen = priceIsOpen(row.asking_price);
@@ -150,10 +160,8 @@ export async function onRequestGet(context) {
   // Farm Radar: how many agents who serve this ZIP are on duty right now (shown only when at least one).
   if (isOwner && row.status === 'open' && row.zip) preListing.agentsOnDuty = await countAgentsOnDuty(db, row.zip);
 
-  const homeownerRating = await fetchHomeownerRatingSummary(db, row.user_id);
-
   // Per-viewer (the owner's address, a shared phone and email): never stored by a browser or the edge.
-  return json({ preListing, bids, myBid, myVote, priceOpinions, isOwner: !!isOwner, homeownerRating }, { headers: { 'Cache-Control': 'private, no-store' } });
+  return json({ preListing, bids, myBid, myVote, priceOpinions, isOwner: !!isOwner }, { headers: { 'Cache-Control': 'private, no-store' } });
 }
 
 export async function onRequestPut(context) {
@@ -221,16 +229,24 @@ export async function onRequestDelete(context) {
   if (existing.status === 'awarded' && user.role !== 'admin') return badRequest('An awarded pre-listing can\'t be deleted — close it instead once the engagement wraps up.');
 
   await wrapUpSellerPrep(context, id);
-  await deleteOpinionDecks(db, context.env.PHOTOS, id);
-  // Pitch reels live in storage, not just in the rows the delete cascades away.
-  const pitches = await db.prepare("SELECT pitch_video_r2_key FROM service_bids WHERE request_type = 'pre_listing' AND request_id = ? AND pitch_video_r2_key IS NOT NULL").bind(id).all();
-  if (context.env.PHOTOS) await Promise.all(pitches.results.map(p => context.env.PHOTOS.delete(p.pitch_video_r2_key).catch(() => {})));
   // Removing someone else's pre-listing (moderation) is on the admin activity log, like other admin deletes.
   if (existing.user_id !== user.id) await logAdminAction(db, user.id, 'delete_pre_listing', 'pre_listing', id);
-  const video = await db.prepare('SELECT video_r2_key FROM pre_listings WHERE id = ?').bind(id).first();
-  if (video && video.video_r2_key && context.env.PHOTOS) {
-    try { await context.env.PHOTOS.delete(video.video_r2_key); } catch (err) { console.log(`[video delete failed] ${err.message}`); }
-  }
-  await db.prepare('DELETE FROM pre_listings WHERE id = ?').bind(id).run();
+  // Everything in storage (photos, the walkthrough video, price-opinion decks, pitch reels) is read before the rows
+  // go, then removed.
+  const stored = await db.prepare(
+    `SELECT r2_key AS k FROM pre_listing_photos WHERE pre_listing_id = ?1
+     UNION ALL SELECT video_r2_key FROM pre_listings WHERE id = ?1
+     UNION ALL SELECT deck_r2_key FROM pre_listing_price_opinions WHERE pre_listing_id = ?1
+     UNION ALL SELECT pitch_video_r2_key FROM service_bids WHERE request_type = 'pre_listing' AND request_id = ?1`
+  ).bind(Number(id)).all();
+  // Proposals, invites and the hire checklist point at the pre-listing by type and id (no foreign key), so the
+  // delete doesn't cascade to them: they go in the same batch.
+  await db.batch([
+    db.prepare("DELETE FROM service_bids WHERE request_type = 'pre_listing' AND request_id = ?").bind(Number(id)),
+    db.prepare("DELETE FROM agent_invites WHERE request_type = 'pre_listing' AND request_id = ?").bind(Number(id)),
+    db.prepare("DELETE FROM bid_milestones WHERE request_type = 'pre_listing' AND request_id = ?").bind(Number(id)),
+    db.prepare('DELETE FROM pre_listings WHERE id = ?').bind(Number(id)),
+  ]);
+  await deleteR2Keys(context.env.PHOTOS, stored.results.map(r => r.k));
   return json({ ok: true });
 }

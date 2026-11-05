@@ -2,7 +2,7 @@ import { getSessionUser } from '../../../../_lib/auth.js';
 import { json, badRequest, unauthorized, forbidden, notFound } from '../../../../_lib/util.js';
 import { decideOffer, validateCounterInput, counterOffer, acceptCounter } from '../../../../_lib/greenHomeOffers.js';
 import { notifyOfferDecision, notifyOfferCounter, notifyCounterDecision } from '../../../../_lib/marketplaceNotify.js';
-import { logMarketEventUnlessDemo } from '../../../../_lib/marketEvents.js';
+import { logMarketEventUnlessDemo, offerAcceptedHeadline } from '../../../../_lib/marketEvents.js';
 
 // Mirrors functions/api/listings/[id]/offers/[offerId].js exactly, against green_homes/green_home_offers.
 const VALID_ACTIONS = ['accept', 'decline', 'withdraw', 'counter', 'accept_counter', 'decline_counter'];
@@ -57,13 +57,13 @@ export async function onRequestPut(context) {
     if (accepted) await acceptCounter(db, offerId, offer.counter_price);
     else await decideOffer(db, offerId, 'declined');
     const notifyUserId = responderIsBuyer ? home.user_id : offer.buyer_user_id;
-    context.waitUntil(notifyCounterDecision(context, link, notifyUserId, accepted));
+    context.waitUntil(notifyCounterDecision(context, link, notifyUserId, accepted, { price: offer.counter_price, acceptedBy: responderIsBuyer ? 'buyer' : 'owner' }));
     if (accepted) {
       context.waitUntil(logMarketEventUnlessDemo(context.env.DB, home.user_id, {
         eventType: 'offer_accepted', entityKind: 'green_home', entityId: homeId,
         city: home.city, state: home.state,
-        headline: `Deal closed in ${home.city}, ${home.state}: ${'$' + Number(offer.counter_price).toLocaleString('en-US')}`,
-        amount: offer.counter_price,
+        headline: offerAcceptedHeadline(home.city),
+        amount: null,
       }));
     }
     return json({ ok: true });
@@ -72,13 +72,13 @@ export async function onRequestPut(context) {
   if (!isOwner) return forbidden();
   if (offer.status !== 'pending') return badRequest('This offer has already been decided.');
   await decideOffer(db, offerId, body.action === 'accept' ? 'accepted' : 'declined');
-  context.waitUntil(notifyOfferDecision(context, offer.buyer_user_id, link, body.action === 'accept'));
+  context.waitUntil(notifyOfferDecision(context, offer.buyer_user_id, link, body.action === 'accept', offer.offer_price));
   if (body.action === 'accept') {
     context.waitUntil(logMarketEventUnlessDemo(context.env.DB, home.user_id, {
       eventType: 'offer_accepted', entityKind: 'green_home', entityId: homeId,
       city: home.city, state: home.state,
-      headline: `Deal closed in ${home.city}, ${home.state}: ${'$' + Number(offer.offer_price).toLocaleString('en-US')}`,
-      amount: offer.offer_price,
+      headline: offerAcceptedHeadline(home.city),
+      amount: null,
     }));
   }
   return json({ ok: true });

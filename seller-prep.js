@@ -97,7 +97,7 @@ function renderVideoTourPanel(p, isOwner) {
   return `
     <div class="panel" id="videoTourPanel" data-pre-listing-id="${p.id}">
       <h3>Video walkthrough</h3>
-      <p class="tiny">A short phone video (up to 2 minutes) lets agents weigh in on your price without a visit. Only you and approved agents can watch it.</p>
+      <p class="tiny">A short phone video (up to 2 minutes) lets agents weigh in on your price without a visit. Only you, approved agents and Amico Haus admins can watch it.</p>
       ${player}
       ${p.status === 'open' ? `<div class="field"><label for="preListingVideoInput">${p.hasVideo ? 'Replace the video' : 'Add a video'} (MP4 or MOV, under 95MB)</label><input type="file" id="preListingVideoInput" accept="video/mp4,video/quicktime,video/webm"></div>` : ''}
       ${p.hasVideo ? '<button type="button" class="btn btn-ghost btn-sm" data-sp-action="remove-video">Remove video</button>' : ''}
@@ -186,7 +186,7 @@ async function loadPreviewsInto(preListingId, isOwner, status) {
   } catch { /* non-critical */ }
 }
 
-// "Name · DRE #01234567 · Brokerage" for an agent the homeowner sees here (California DRE rule). The row's own DRE
+// "Name · DRE #01234567 on file · Brokerage" for an agent the homeowner sees here (California DRE rule). The row's own DRE
 // number and brokerage when the API sends them, else the ones on that agent's proposal; just the name if neither.
 function agentIdentityFor(row) {
   const bid = (sellerPrepView.bids || []).find(b => String(b.agentUserId) === String(row.agentUserId));
@@ -234,6 +234,7 @@ function ownerInterviewsHtml(interviews, bids, status) {
         <button type="button" class="btn btn-ghost btn-sm" data-action="message-user" data-id="${i.agentUserId}" data-name="${escapeHtml(i.agentName)}">Message ${escapeHtml(i.agentName)}</button>
         ${i.status === 'scheduled' ? `<button type="button" class="btn btn-ghost btn-sm" data-sp-action="finish-interview" data-agent-id="${i.agentUserId}">Mark interview done</button>` : ''}
         ${i.status === 'requested' || i.status === 'scheduled' ? `<button type="button" class="btn btn-ghost btn-sm" data-sp-action="cancel-interview" data-agent-id="${i.agentUserId}">Cancel</button>` : ''}
+        ${blockButtonHtml(i.agentUserId, i.agentName)}
       </div>
       <details class="score-breakdown"${Object.keys(i.scores || {}).length || i.ownerNotes ? ' open' : ''}>
         <summary>Your scorecard (only you see it; 1 = poor, 5 = great)</summary>
@@ -354,7 +355,7 @@ function agentInterviewHtml(i, status) {
         toast(action === 'finish-interview' ? 'Marked done. Your scorecard is saved.' : 'Scorecard saved.');
         if (action === 'finish-interview') loadInterviewsInto(id, true);
       }
-    } catch (err) { toast(err.message); } finally { btn.disabled = false; }
+    } catch (err) { toastActionError(err); } finally { btn.disabled = false; }
   });
 
   document.addEventListener('change', async (e) => {

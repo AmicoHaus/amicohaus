@@ -15,7 +15,7 @@ function directoryCardHtml(l) {
   return `
     <div class="card ${activityAccentClass(l.recent_activity)}" data-listing-id="${l.id}">
       <div class="directory-thumb-wrap">
-        <img class="directory-thumb" src="${l.photo_id ? `/api/photos/${l.photo_id}` : propertyArtUrl(l.property_type, l.id)}" alt="${l.photo_id ? '' : 'Illustrative photo, not this home'}" loading="lazy">
+        <img class="directory-thumb" src="${l.photo_id ? `/api/photos/${l.photo_id}` : propertyArtUrl(l.property_type, l.id)}" alt="${escapeHtml(l.photo_id ? homePhotoAlt({ propertyType: l.property_type, city: l.city }) : 'Illustrative photo, not this home')}" loading="lazy">
         ${activityRibbonHtml(l.recent_activity)}
       </div>
       ${l.photo_id ? '' : '<span class="photo-caption">Illustrative photo</span>'}
@@ -38,7 +38,6 @@ function directoryCardHtml(l) {
       ${l.is_rental
         ? `<div class="mini-block"><span class="label">Rent</span>${money(l.rent_amount)}/mo · ${l.min_lease_months}-month min lease</div>`
         : (l.desired_type ? `<div class="mini-block"><span class="label">Wants</span>${escapeHtml(l.desired_type)} in ${escapeHtml(l.locations || 'Anywhere')}</div>` : '')}
-      ${renderLifeEventTags(l.life_event_tags)}
       ${renderExternalLinks(l.external_links)}
       <div class="card-actions">
         <button type="button" class="btn btn-ghost btn-sm thumb-btn ${l.my_feedback === 'up' ? 'active' : ''}" data-action="thumb-up" data-id="${l.id}" title="Save to your favorites">👍</button>
@@ -204,12 +203,28 @@ async function setView(view) {
   }
 }
 
-// Real, approved agents only — never the demo's fictional ones. Up to three,
-// best-reviewed first; until an admin approves the first agent it says so.
+// Real, approved agents only — never the demo's fictional ones. Up to three, newest approved first in the order the
+// server sends (?sort=newest; the directory never sends approval dates), and never a ranking: no reviews or scores
+// decide the order, and the site's own operator accounts always go last. Until an admin approves the first agent it
+// says so.
+function agentStripOrder(agents) {
+  const list = [...(agents || [])];
+  return [...list.filter(a => !a.isPlatformOperator), ...list.filter(a => a.isPlatformOperator)];
+}
+
+function showAgentStripNote(el, on) {
+  let note = document.getElementById('realAgentsNote');
+  if (!note && on) {
+    el.insertAdjacentHTML('beforebegin', '<p class="tiny agents-strip-note" id="realAgentsNote">Not a ranking or recommendation.</p>');
+    note = document.getElementById('realAgentsNote');
+  }
+  if (note) note.classList.toggle('hidden', !on);
+}
+
 async function loadRealAgents() {
   const el = document.getElementById('realAgents');
   try {
-    const { agents } = await apiGet('/api/agents/directory');
+    const { agents } = await apiGet('/api/agents/directory?sort=newest');
     if (!agents.length) {
       el.innerHTML = `<div class="empty-state agents-empty">
         <p><strong>We're welcoming our founding agents in San Diego County now.</strong></p>
@@ -219,15 +234,15 @@ async function loadRealAgents() {
       </div>`;
       return;
     }
-    agents.sort((a, b) => (b.topRated - a.topRated) || (b.reviewCount - a.reviewCount));
-    el.innerHTML = agents.slice(0, 3).map(a => directoryAgentCardHtml(a)).join('');
+    showAgentStripNote(el, true);
+    el.innerHTML = agentStripOrder(agents).slice(0, 3).map(a => directoryAgentCardHtml(a)).join('');
   } catch {
     el.innerHTML = '<div class="empty-state">Could not load agents right now.</div>';
   }
 }
 
 // The true counts, straight from the database (demo accounts excluded on the
-// server). Never inflated -- but a zero isn't shown as "0 vetted agents" either:
+// server). Never inflated -- but a zero isn't shown as "0 approved agents" either:
 // while the first agents are being approved the strip says so instead, and an
 // empty count is simply left out.
 async function loadLiveNumbers() {
@@ -239,7 +254,7 @@ async function loadLiveNumbers() {
       el.innerHTML = `<strong>${n}</strong> ${n === 1 ? one : many}`;
       el.classList.toggle('hidden', !n);
     };
-    item('liveAgents', stats.agents, 'vetted agent', 'vetted agents');
+    item('liveAgents', stats.agents, 'approved agent', 'approved agents');
     item('liveRequests', stats.openRequests, 'open request', 'open requests');
     item('liveListings', stats.listings, 'live listing', 'live listings');
     if (!stats.agents) {

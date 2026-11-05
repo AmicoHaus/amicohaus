@@ -30,7 +30,7 @@
           <legend>I'm signing up as <span class="required-mark">*</span></legend>
           <div class="choice-row">
             <label class="choice"><input type="radio" name="intent" value="homeowner" checked><span><strong>A homeowner</strong><span class="tiny">Show your home to agent experts</span></span></label>
-            <label class="choice"><input type="radio" name="intent" value="agent"><span><strong>An agent</strong><span class="tiny">Get vetted, share your strategy</span></span></label>
+            <label class="choice"><input type="radio" name="intent" value="agent"><span><strong>An agent</strong><span class="tiny">Get approved, share your strategy</span></span></label>
           </div>
         </fieldset>
         <div class="field">
@@ -41,13 +41,13 @@
           <label for="email">Email <span class="required-mark">*</span></label>
           <input type="email" id="email" required maxlength="200" placeholder="you@example.com" autocomplete="email" inputmode="email">
         </div>
+        <p class="form-note" id="termsConsent">By tapping Email Me a Link you agree to the <a href="/terms">Terms of Use</a> and <a href="/privacy">Privacy Policy</a>.</p>
         <div class="form-actions">
-          <button type="submit" class="btn btn-primary" id="submitBtn">Email Me a Link</button>
+          <button type="submit" class="btn btn-primary" id="submitBtn" aria-describedby="termsConsent">Email Me a Link</button>
         </div>
         <p class="inline-alert hidden" id="signupError" role="alert"></p>
       </form>
 
-      <p class="form-note">By signing up, you agree to the <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>.</p>
       <p class="form-note">Already have an account? <a href="/login">Log in</a></p>
       <p class="form-note">Signed up already? <button type="button" class="link-btn" id="haveCodeBtn">Type the code from the email</button></p>
       </div>
@@ -73,6 +73,9 @@
       </div>
     </div>
   </main>
+  <footer class="site-footer">
+    <p class="footer-legal">Equal Housing Opportunity · <a href="/accessibility">Accessibility</a></p>
+  </footer>
 </div>
 <script src="client.js"></script>
 <script src="page-signup.js"></script>

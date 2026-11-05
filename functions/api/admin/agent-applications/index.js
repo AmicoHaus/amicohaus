@@ -1,8 +1,9 @@
 import { getSessionUser } from '../../../_lib/auth.js';
 import { json, unauthorized, forbidden } from '../../../_lib/util.js';
+import { REJECTION_REASONS, AGENT_RULES_VERSION } from '../../../_lib/agents.js';
 
 // Defaults to pending (the admin's actual queue) but takes ?status= to also
-// review past decisions.
+// review past decisions. rejectionReasons is the fixed list a rejection picks from.
 export async function onRequestGet(context) {
   const user = await getSessionUser(context);
   if (!user) return unauthorized();
@@ -31,7 +32,10 @@ export async function onRequestGet(context) {
     hasVideo: !!r.video_r2_key,
     hasLicensePhoto: !!r.license_photo_r2_key, licenseVerified: !!r.license_verified, licenseCheckedAt: r.license_verified_at,
     appliedAt: r.applied_at, reviewedAt: r.reviewed_at, rejectionReason: r.rejection_reason,
+    // Agreement to the agent rules in the Terms: the version and when (null for applications from before the rules).
+    rulesVersion: r.rules_version || null, rulesAcceptedAt: r.rules_accepted_at || null,
+    rulesCurrent: r.rules_version === AGENT_RULES_VERSION,
   }));
 
-  return json({ applications });
+  return json({ applications, rejectionReasons: REJECTION_REASONS });
 }

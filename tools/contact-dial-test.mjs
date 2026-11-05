@@ -46,6 +46,9 @@ globalThis.fetch = async (url, opts) => {
 };
 const ctx = { env, request: new Request('https://amicohaus.com/x'), waitUntil() {} };
 const call = async (handler, method, path, who, body, params = {}) => {
+  // This suite opens many conversations in a few seconds; the per-person limits (batch L1, rateLimits.js) are
+  // covered by tools/abuse-test.mjs, so each call here starts with a clean action log.
+  sqlite.prepare('DELETE FROM user_action_log').run();
   const request = new Request(`https://amicohaus.com${path}`, { method, headers: { ...(who ? { Cookie: `ah_session=t${who}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined });
   const pending = [];
   const res = await handler({ request, env, params, waitUntil(p) { if (p && p.catch) pending.push(p.catch(() => {})); } });
@@ -214,7 +217,7 @@ check('held: the recipient\'s conversation list leaves out threads with only wai
 r = await call(thread.onRequestGet, 'GET', '/x', 1, null, { id: String(K1) });
 check('held: the thread shows the recipient nothing yet', r.status === 200 && r.json.messages.length === 0 && !JSON.stringify(r.json).includes('Hello from Ana'));
 check('...and opening it does not mark the waiting message read', sqlite.prepare('SELECT read_at FROM messages WHERE conversation_id = ?').get(K1).read_at === null);
-check("...while the header shows the agent's DRE identity (and 'open' for the homeowner's own sending)", JSON.stringify(r.json.other) === JSON.stringify({ id: 2, displayName: 'Ana Agent', agent: { licenseNumber: '01234567', brokerageName: 'Pacific Realty' }, deliveryMode: 'open' }), JSON.stringify(r.json.other));
+check("...while the header shows the agent's DRE identity (and 'open' for the homeowner's own sending)", JSON.stringify(r.json.other) === JSON.stringify({ id: 2, displayName: 'Ana Agent', agent: { licenseNumber: '01234567', brokerageName: 'Pacific Realty' }, deliveryMode: 'open', blockedByMe: false }), JSON.stringify(r.json.other)); // blockedByMe added in batch L1
 r = await call(thread.onRequestGet, 'GET', '/x', 2, null, { id: String(K1) });
 check('held: the sender sees their own message with deliverAfter', r.json.messages.length === 1 && r.json.messages[0].deliverAfter === expectHold && r.json.messages[0].body === 'Hello from Ana' && 'sender_id' in r.json.messages[0] && 'created_at' in r.json.messages[0], JSON.stringify(r.json.messages));
 check("...and the homeowner's mode as it applies to them (weekly), no agent identity for a homeowner", r.json.other.deliveryMode === 'weekly' && r.json.other.agent === null && r.json.other.displayName === 'Olive Owner');

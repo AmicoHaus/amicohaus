@@ -12,6 +12,17 @@ function money(n) {
   return '$' + n.toLocaleString('en-US');
 }
 
+// Rudy 11.04: a flyer is the owner's, so it says so, and says the presenting agent doesn't represent the home.
+const RUDY_DRE = '02257808';
+// An approved agent who posted it (e.g. for a client) is named in the identity line above, so the flyer never says
+// "Posted by the owner" for them.
+function presentedByLine(ownerLicense) {
+  const lic = String(ownerLicense || '').trim();
+  if (lic === RUDY_DRE) return 'Posted on Amico Haus by Rudy Flores, Coldwell Banker West, DRE #02257808';
+  if (lic) return 'Posted on Amico Haus by the agent named above · Amico Haus is presented by Rudy Flores, Coldwell Banker West, DRE #02257808, who does not represent this home';
+  return 'Posted by the owner on Amico Haus · presented by Rudy Flores, Coldwell Banker West, DRE #02257808, who does not represent this home';
+}
+
 export async function onRequestGet(context) {
   return withSecurityHeaders(await renderFlyer(context));
 }
@@ -39,9 +50,10 @@ async function renderFlyer(context) {
   const loc = `${home.neighborhood ? escapeHtml(home.neighborhood) + ', ' : ''}${escapeHtml(home.city)}, ${escapeHtml(home.state)} ${escapeHtml(home.zip || '')}`;
 
   const body = `
-    <img class="directory-thumb" src="${photo ? `/api/augmented-home-photos/${photo.id}` : '/favicon.svg'}" alt="">
+    <img class="directory-thumb" src="${photo ? `/api/augmented-home-photos/${photo.id}` : '/favicon.svg'}" alt="${photo ? `Photo of the ${escapeHtml(home.property_type)} in ${escapeHtml(home.city)}` : ''}">
     <h1>${escapeHtml(home.title || home.property_type)}</h1>
     <p class="flyer-price">${money(home.asking_price)}</p>
+    <p class="tiny">Owner's asking price</p>
     <p><strong>${escapeHtml(home.address || '')}</strong><br>${loc}</p>
     <div class="mini-block"><span class="label">Property</span>${escapeHtml(home.property_type)} · ${home.beds}bd/${home.baths}ba${home.sqft ? ` · ${home.sqft.toLocaleString('en-US')} sqft` : ''}</div>
     <h3>Adaptations</h3>
@@ -50,9 +62,10 @@ async function renderFlyer(context) {
     ${home.description ? `<p>${escapeHtml(home.description)}</p>` : ''}
     <hr>
     <p class="flyer-brand">
-      <strong>${escapeHtml(identityLine({ name: home.owner_name, licenseNumber: String(home.owner_license || '').trim(), brokerageName: String(home.owner_brokerage || '').trim() }))}</strong>${home.owner_phone ? ` · ${escapeHtml(home.owner_phone)}` : ''}<br>
-      Presented on Amico Haus · amicohaus.com/augmented-home/${id}<br>
-      Rudy Flores · Coldwell Banker West · DRE #02257808
+      <strong>${escapeHtml(identityLine({ name: home.owner_name, licenseNumber: String(home.owner_license || '').trim(), brokerageName: String(home.owner_brokerage || '').trim() }, { onFile: true }))}</strong>${home.owner_phone ? ` · ${escapeHtml(home.owner_phone)}` : ''}<br>
+      amicohaus.com/augmented-home/${id}<br>
+      ${escapeHtml(presentedByLine(home.owner_license))}<br>
+      Equal Housing Opportunity
     </p>
   `;
 

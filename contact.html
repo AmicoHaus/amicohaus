@@ -64,7 +64,8 @@
         </div>
         <div class="field">
           <label for="phone">Phone (optional)</label>
-          <input type="tel" id="phone" maxlength="30" autocomplete="tel">
+          <input type="tel" id="phone" maxlength="30" autocomplete="tel" aria-describedby="phoneConsent">
+          <p class="form-note" id="phoneConsent">By adding your phone you agree Rudy may call or text you about your message; consent isn't required to get help.</p>
         </div>
         <div class="field">
           <label for="message">Message</label>
@@ -76,12 +77,13 @@
         <p class="inline-alert hidden" id="contactError" role="alert"></p>
       </form>
       <p class="form-note" id="resultNote" role="status" aria-live="polite"></p>
-      <p class="form-note">Rudy Flores, Realtor® · <a href="tel:+16193926714">(619) 392-6714</a></p>
+      <p class="form-note">Rudy Flores, Realtor® · DRE #02257808 · Coldwell Banker West · <a href="tel:+16193926714">(619) 392-6714</a></p>
     </div>
   </main>
 
   <footer class="site-footer">
     <span class="footer-tagline">Amico Haus: the real estate marketplace of tomorrow! Everything that's missing from the real estate market for the homeowner!</span> <a href="/about">About</a> · <a href="/whats-new">What's New</a> · <a href="/calculator">Calculator</a> · <a href="/assumable-loans">Assumable loans</a> · <a href="/contact">Contact</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="https://www.instagram.com/amicohaus" target="_blank" rel="noopener noreferrer">Instagram</a> · <a href="https://www.tiktok.com/@amicohaus" target="_blank" rel="noopener noreferrer">TikTok</a> · <a href="https://www.youtube.com/@amicohaus" target="_blank" rel="noopener noreferrer">YouTube</a>
+    <p class="footer-legal">Equal Housing Opportunity · <a href="/accessibility">Accessibility</a></p>
   </footer>
 </div>
 <script src="client.js"></script>

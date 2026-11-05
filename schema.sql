@@ -36,6 +36,9 @@ CREATE TABLE IF NOT EXISTS users (
   quiet_start TEXT,
   quiet_end TEXT,
   phone_public INTEGER NOT NULL DEFAULT 0,
+  -- Which Terms/Privacy version they agreed to at signup, and when (migration_v43).
+  terms_version TEXT,
+  terms_accepted_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code);
@@ -77,6 +80,9 @@ CREATE TABLE IF NOT EXISTS listings (
   mello_roos_annual INTEGER,
   hoa_monthly INTEGER,
   hoa_details_json TEXT NOT NULL DEFAULT '{}',
+  -- Paused by an admin (moderation): only an admin can make it active again (migration_v43).
+  hidden_at TEXT,
+  hidden_reason TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -138,6 +144,9 @@ CREATE TABLE IF NOT EXISTS posts (
   green_home_id INTEGER REFERENCES green_homes(id) ON DELETE CASCADE,
   dev_project_id INTEGER REFERENCES dev_projects(id) ON DELETE CASCADE,
   body TEXT NOT NULL,
+  -- Moderation hides instead of deleting (migration_v43).
+  hidden_at TEXT,
+  hidden_reason TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_posts_group ON posts(group_id);
@@ -152,6 +161,9 @@ CREATE TABLE IF NOT EXISTS comments (
   post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   body TEXT NOT NULL,
+  -- Moderation hides instead of deleting (migration_v43).
+  hidden_at TEXT,
+  hidden_reason TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id);
@@ -180,7 +192,8 @@ CREATE INDEX IF NOT EXISTS idx_login_attempts_lookup ON login_attempts(kind, ip,
 CREATE TABLE IF NOT EXISTS reports (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   reporter_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  target_type TEXT NOT NULL CHECK(target_type IN ('post','comment','listing','user')),
+  -- past_client_review: a review from an agent's past client (migration_v43).
+  target_type TEXT NOT NULL CHECK(target_type IN ('post','comment','listing','user','past_client_review')),
   target_id INTEGER NOT NULL,
   reason TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','resolved','dismissed')),
@@ -381,6 +394,9 @@ CREATE TABLE IF NOT EXISTS agent_profiles (
   carries_eo_insurance INTEGER NOT NULL DEFAULT 0,
   applied_at TEXT NOT NULL DEFAULT (datetime('now')),
   reviewed_at TEXT,
+  -- Agreement to the agent rules in the Terms (migration_v43).
+  rules_version TEXT,
+  rules_accepted_at TEXT,
   reviewed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
   rejection_reason TEXT,
   -- Bring Your Reviews (migration_v40): the past-client review link and its period.
@@ -491,6 +507,8 @@ CREATE TABLE IF NOT EXISTS transaction_requests (
   note TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','awarded','closed')),
   awarded_bid_id INTEGER,
+  -- The other partner confirms before agents see the request or anyone is hired (migration_v43).
+  partner_confirmed_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(listing_a_id, listing_b_id)
@@ -1274,3 +1292,18 @@ CREATE TABLE IF NOT EXISTS address_views (
   view_count INTEGER NOT NULL DEFAULT 1,
   PRIMARY KEY (pre_listing_id, agent_id, via)
 );
+
+-- Batch L1 (migration_v43)
+-- Per-person limits on actions that notify someone else (new conversations, messages, proposals, price opinions,
+-- showing requests, broker-preview RSVPs, agent invites, saved searches, reports). Checked and recorded in one
+-- statement (functions/_lib/rateLimits.js claimUserAction); rows older than 2 days are pruned by the lazy jobs.
+-- kind is checked in code (no CHECK here, so new kinds don't need a table rebuild).
+CREATE TABLE IF NOT EXISTS user_action_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  ref TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_user_action_log ON user_action_log(user_id, kind, created_at);
+CREATE INDEX IF NOT EXISTS idx_saved_searches_user ON saved_searches(user_id, created_at);

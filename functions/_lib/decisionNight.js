@@ -9,6 +9,7 @@
 // shortlisted) up to 3 reasons from a preset list. Never a fee, a rate or a number, and never who was hired.
 import { DEMO_EMAIL_PATTERN } from './util.js';
 import { notifyProposalsOpen, notifyFinalistDebrief, fetchRecipient } from './marketplaceNotify.js';
+import { notBlockedByOwnersSql } from './blocks.js';
 
 export const DECISION_MIN_HOURS = 12;
 export const DECISION_MAX_DAYS = 21;
@@ -56,24 +57,26 @@ export function validateDebriefReasons(reasons) {
   return { reasons: list };
 }
 
-// How many live proposals a sealed Decision Night is holding (same rule as the owner's list: not withdrawn, and
-// from an active agent unless already accepted).
+// How many live proposals a sealed Decision Night is holding (same rule as the owner's list: not withdrawn, from an
+// active agent with no block either way with the homeowner, unless already accepted).
 export async function countSealedProposals(db, preListingId) {
   const row = await db.prepare(
     `SELECT COUNT(*) AS n FROM service_bids JOIN users ON users.id = service_bids.agent_user_id
-     WHERE service_bids.request_type = 'pre_listing' AND service_bids.request_id = ? AND service_bids.status != 'withdrawn'
-       AND (users.status = 'active' OR service_bids.status = 'accepted')`
+     WHERE service_bids.request_type = 'pre_listing' AND service_bids.request_id = ?1 AND service_bids.status != 'withdrawn'
+       AND (users.status = 'active' OR service_bids.status = 'accepted')
+       AND (service_bids.status = 'accepted' OR ${notBlockedByOwnersSql('pre_listing', '?1', 'service_bids.agent_user_id')})`
   ).bind(preListingId).first();
   return row ? row.n : 0;
 }
 
 // Finalists on a pre-listing: agents the homeowner interviewed (scheduled or done) or shortlisted from the pitch
-// reels, other than the agent they hired, whose proposal wasn't withdrawn.
+// reels, other than the agent they hired, whose proposal wasn't withdrawn. An agent blocked either way is left out.
 export async function fetchFinalists(db, preListingId, hiredAgentId) {
   const rows = await db.prepare(
     `SELECT DISTINCT b.agent_user_id, users.display_name AS agent_name
      FROM service_bids b JOIN users ON users.id = b.agent_user_id
      WHERE b.request_type = 'pre_listing' AND b.request_id = ?1 AND b.status != 'withdrawn' AND b.agent_user_id != ?2 AND users.status = 'active'
+       AND ${notBlockedByOwnersSql('pre_listing', '?1', 'b.agent_user_id')}
        AND (b.owner_pick = 'shortlist' OR EXISTS (
          SELECT 1 FROM pre_listing_interviews i WHERE i.pre_listing_id = ?1 AND i.agent_user_id = b.agent_user_id AND i.status IN ('scheduled','done')))
      ORDER BY users.display_name`

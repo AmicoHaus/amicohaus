@@ -4,6 +4,7 @@ import { json, badRequest, unauthorized, forbidden, notFound } from '../../../..
 import { isApprovedAgent } from '../../../../_lib/agents.js';
 import { validateInterviewRequest, MAX_ACTIVE_INTERVIEWS, parseJsonArray, parseJsonObject } from '../../../../_lib/sellerPrep.js';
 import { notifyInterviewRequested } from '../../../../_lib/marketplaceNotify.js';
+import { isEitherBlocked, hasBlocked, notBlockedSql } from '../../../../_lib/blocks.js';
 
 // "Interview your top 3": the owner asks agents who sent a proposal for a short interview, offering up to 3 times;
 // the agent picks one. The owner's scorecard and notes are private to the owner: an agent only ever sees their
@@ -25,11 +26,13 @@ export async function onRequestGet(context) {
   const preListing = await db.prepare('SELECT user_id FROM pre_listings WHERE id = ?').bind(context.params.id).first();
   if (!preListing) return notFound('Pre-listing not found.');
   const isOwner = preListing.user_id === user.id;
+  if (!isOwner && await isEitherBlocked(db, user.id, preListing.user_id)) return notFound('Pre-listing not found.');
+  // The owner's list leaves out agents blocked either way (their interviews were canceled by the block).
   const rows = await db.prepare(
     `SELECT i.*, users.display_name AS agent_name, ap.license_number, ap.brokerage_name
      FROM pre_listing_interviews i JOIN users ON users.id = i.agent_user_id LEFT JOIN agent_profiles ap ON ap.user_id = i.agent_user_id
-     WHERE i.pre_listing_id = ? ${isOwner ? '' : 'AND i.agent_user_id = ?'} ORDER BY i.created_at ASC`
-  ).bind(...(isOwner ? [context.params.id] : [context.params.id, user.id])).all();
+     WHERE i.pre_listing_id = ?1 AND ${isOwner ? notBlockedSql('i.agent_user_id', '?2') : 'i.agent_user_id = ?2'} ORDER BY i.created_at ASC`
+  ).bind(context.params.id, user.id).all();
   return json({ interviews: rows.results.map(r => interviewJson(r, { forOwner: isOwner })) });
 }
 
@@ -53,6 +56,9 @@ export async function onRequestPost(context) {
      WHERE request_type = 'pre_listing' AND request_id = ? AND agent_user_id = ? AND service_bids.status IN ('pending','accepted') AND users.status = 'active'`
   ).bind(id, agentUserId).first();
   if (!bid || !(await isApprovedAgent(db, agentUserId))) return badRequest('You can interview agents who sent you a proposal.');
+  if (await isEitherBlocked(db, user.id, agentUserId)) {
+    return badRequest((await hasBlocked(db, user.id, agentUserId)) ? 'Unblock this agent first.' : 'You can interview agents who sent you a proposal.');
+  }
   const validated = validateInterviewRequest(body);
   if (validated.error) return badRequest(validated.error);
 

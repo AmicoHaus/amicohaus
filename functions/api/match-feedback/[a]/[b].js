@@ -1,5 +1,5 @@
 import { getSessionUser } from '../../../_lib/auth.js';
-import { json, badRequest, unauthorized } from '../../../_lib/util.js';
+import { json, badRequest, unauthorized, notFound } from '../../../_lib/util.js';
 
 // Matches aren't rows in a table (they're computed on the fly by the
 // matching engine — see functions/api/matches.js), so there's no natural
@@ -22,6 +22,11 @@ export async function onRequestPut(context) {
   let body;
   try { body = await context.request.json(); } catch { return badRequest('Invalid request body.'); }
   if (!['up', 'down'].includes(body.feedback)) return badRequest('feedback must be "up" or "down".');
+
+  // Feedback is on your own matches only: you must own one of the two listings.
+  const owns = await context.env.DB.prepare('SELECT 1 FROM listings WHERE id IN (?, ?) AND user_id = ? LIMIT 1')
+    .bind(pair[0], pair[1], user.id).first();
+  if (!owns) return notFound('Match not found.');
 
   await context.env.DB.prepare(
     `INSERT INTO match_feedback (user_id, listing_a_id, listing_b_id, feedback) VALUES (?, ?, ?, ?)

@@ -3,6 +3,7 @@
 // rewording an item never needs a migration; main.js keeps matching copies of the labels.
 import { clampString } from './util.js';
 import { logAddressView } from './addressViews.js';
+import { notBlockedByOwnersSql } from './blocks.js';
 
 // "Before listing, I'd…" — the prep an agent recommends, saved with their sealed price opinion.
 export const PREP_ITEMS = {
@@ -117,7 +118,9 @@ export function parseJsonObject(json) {
 // Broker preview windows on a pre-listing: the owner opens a time when agents can walk through; approved agents
 // RSVP. The owner sees who's coming; an agent sees how many are coming and whether they are. The street address
 // (which otherwise only the owner sees) goes to agents once they've RSVP'd to an upcoming window, and each time it
-// does, that's logged for the owner's "Who saw my address" list.
+// does, that's logged for the owner's "Who saw my address" list. An RSVP from an agent blocked either way with the
+// homeowner doesn't count: it's not in the owner's list or the count, and it never gets that agent the address
+// (even one made before the block).
 export async function fetchPreviews(db, preListingId, { isOwner, viewerId, address }) {
   const rows = await db.prepare(
     `SELECT id, starts_at, ends_at, note FROM pre_listing_previews
@@ -129,8 +132,9 @@ export async function fetchPreviews(db, preListingId, { isOwner, viewerId, addre
     const rsvps = await db.prepare(
       `SELECT r.agent_user_id, users.display_name, ap.license_number, ap.brokerage_name
        FROM pre_listing_preview_rsvps r JOIN users ON users.id = r.agent_user_id LEFT JOIN agent_profiles ap ON ap.user_id = r.agent_user_id
-       WHERE r.preview_id = ? AND users.status = 'active' ORDER BY r.created_at ASC`
-    ).bind(r.id).all();
+       WHERE r.preview_id = ?1 AND users.status = 'active' AND ${notBlockedByOwnersSql('pre_listing', '?2', 'r.agent_user_id')}
+       ORDER BY r.created_at ASC`
+    ).bind(r.id, preListingId).all();
     const imGoing = rsvps.results.some(x => x.agent_user_id === viewerId);
     goingToAny = goingToAny || imGoing;
     // The owner sees who's coming with each agent's DRE number and brokerage (they're coming to the home).

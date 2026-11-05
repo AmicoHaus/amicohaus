@@ -6,23 +6,31 @@ import { lookupZipCoords, nearestServiceDistance, SERVICE_RADIUS_MILES } from '.
 import { notifyAgentsNewRequest } from '../../_lib/marketplaceNotify.js';
 import { alertAdmin } from '../../_lib/adminAlerts.js';
 import { fetchPriceSeriesBatch } from '../../_lib/priceSeries.js';
+import { notBlockedSql } from '../../_lib/blocks.js';
 
 const LIST_FIELDS = `pre_listings.id, pre_listings.user_id, pre_listings.title, pre_listings.city, pre_listings.state,
             pre_listings.zip, pre_listings.occupancy_status,
             pre_listings.property_type, pre_listings.beds, pre_listings.baths, pre_listings.sqft, pre_listings.asking_price,
             pre_listings.status, pre_listings.proposals_paused, pre_listings.created_at, users.display_name AS owner_name`;
 
-// ?mine=1 for a homeowner's own pre-listings (any status); otherwise every
-// open one, for agents browsing the marketplace — approved-agent status
-// isn't required just to look, only to bid or vote.
+// The browse list and the owner's own list differ per viewer, so no browser or shared cache keeps them.
+const NO_STORE = { headers: { 'Cache-Control': 'private, no-store' } };
+
+// ?mine=1 for a homeowner's own pre-listings (any status); otherwise every open one. Approved agents (and admins)
+// get the full card; everyone else signed in gets a teaser (area, type, size and price only), since a pre-listing
+// shows the inside of a home that isn't on the market yet. Homes whose owner blocked the viewer, or that the viewer
+// blocked, are left out either way.
 export async function onRequestGet(context) {
   const user = await getSessionUser(context);
   if (!user) return unauthorized();
   const db = context.env.DB;
   const url = new URL(context.request.url);
+  const mine = url.searchParams.get('mine') === '1';
+  const agentProfile = await getAgentProfile(db, user.id);
+  const isApprovedAgent = !!agentProfile && agentProfile.status === 'approved';
 
   let rows;
-  if (url.searchParams.get('mine') === '1') {
+  if (mine) {
     rows = await db.prepare(
       `SELECT ${LIST_FIELDS} FROM pre_listings JOIN users ON users.id = pre_listings.user_id
        WHERE pre_listings.user_id = ? ORDER BY pre_listings.created_at DESC`
@@ -30,15 +38,24 @@ export async function onRequestGet(context) {
   } else {
     const city = (url.searchParams.get('city') || '').trim();
     const state = (url.searchParams.get('state') || '').trim();
-    const conditions = [`pre_listings.status = 'open'`];
-    const params = [];
-    if (city) { conditions.push('pre_listings.city LIKE ?'); params.push(`%${city}%`); }
-    if (state) { conditions.push('pre_listings.state LIKE ?'); params.push(`%${state}%`); }
+    // ?1 is the viewer. A suspended owner's pre-listings drop out of the browse (and the teaser).
+    const conditions = [`pre_listings.status = 'open'`, `users.status = 'active'`, notBlockedSql('pre_listings.user_id', '?1')];
+    const params = [user.id];
+    if (city) { params.push(`%${city}%`); conditions.push(`pre_listings.city LIKE ?${params.length}`); }
+    if (state) { params.push(`%${state}%`); conditions.push(`pre_listings.state LIKE ?${params.length}`); }
     params.push(60);
     rows = await db.prepare(
       `SELECT ${LIST_FIELDS} FROM pre_listings JOIN users ON users.id = pre_listings.user_id
-       WHERE ${conditions.join(' AND ')} ORDER BY pre_listings.created_at DESC LIMIT ?`
+       WHERE ${conditions.join(' AND ')} ORDER BY pre_listings.created_at DESC LIMIT ?${params.length}`
     ).bind(...params).all();
+    if (!isApprovedAgent && user.role !== 'admin') {
+      const preListings = rows.results.map(r => ({
+        id: r.id, city: r.city, state: r.state, zip: r.zip, propertyType: r.property_type, beds: r.beds, baths: r.baths,
+        askingPrice: shownAskingPrice(r.asking_price), priceOpen: priceIsOpen(r.asking_price), proposalsPaused: !!r.proposals_paused,
+        createdAt: r.created_at, teaser: true,
+      }));
+      return json({ preListings }, NO_STORE);
+    }
   }
 
   // If the viewer is an approved agent with a declared service area, show
@@ -49,19 +66,15 @@ export async function onRequestGet(context) {
   let serviceZips = null;
   // An approved agent sees vote tallies only on pre-listings they've voted on themselves (see sealTally).
   let votedIds = null;
-  if (user) {
-    const agentProfile = await getAgentProfile(db, user.id);
-    if (agentProfile && agentProfile.status === 'approved') {
-      votedIds = await fetchVotedIds(db, user.id);
-      if (agentProfile.serviceZips.length > 0) {
-        serviceZips = agentProfile.serviceZips;
-        agentZipCoords = await lookupZipCoords(db, serviceZips);
-      }
+  if (isApprovedAgent) {
+    votedIds = await fetchVotedIds(db, user.id);
+    if (agentProfile.serviceZips.length > 0) {
+      serviceZips = agentProfile.serviceZips;
+      agentZipCoords = await lookupZipCoords(db, serviceZips);
     }
   }
   const listingZipCoords = serviceZips ? await lookupZipCoords(db, rows.results.map(r => r.zip)) : null;
 
-  const mine = url.searchParams.get('mine') === '1';
   const seriesById = await fetchPriceSeriesBatch(db, 'pre_listing', rows.results.map(r => r.id));
   const preListings = [];
   for (const r of rows.results) {
@@ -76,13 +89,17 @@ export async function onRequestGet(context) {
     // card, which nobody browsing someone else's open pre-listing needs to see.
     let pendingBidCount = null, pendingShowingCount = null;
     if (mine) {
-      // Same rule as the proposal comparison (fetchBids): a suspended agent's pending proposal is hidden there and
-      // can't be accepted, so it mustn't count as one "waiting on you" either.
+      // Same rule as the proposal comparison (fetchBids): a suspended or blocked agent's pending proposal is hidden
+      // there and can't be accepted, so it mustn't count as one "waiting on you" either. ?2 is the owner.
       pendingBidCount = (await db.prepare(
         `SELECT COUNT(*) AS n FROM service_bids JOIN users ON users.id = service_bids.agent_user_id
-         WHERE service_bids.request_type = 'pre_listing' AND service_bids.request_id = ? AND service_bids.status = 'pending' AND users.status = 'active'`
-      ).bind(r.id).first()).n;
-      pendingShowingCount = (await db.prepare("SELECT COUNT(*) AS n FROM pre_listing_showings WHERE pre_listing_id = ? AND status = 'pending'").bind(r.id).first()).n;
+         WHERE service_bids.request_type = 'pre_listing' AND service_bids.request_id = ?1 AND service_bids.status = 'pending' AND users.status = 'active'
+           AND ${notBlockedSql('service_bids.agent_user_id', '?2')}`
+      ).bind(r.id, user.id).first()).n;
+      pendingShowingCount = (await db.prepare(
+        `SELECT COUNT(*) AS n FROM pre_listing_showings s WHERE s.pre_listing_id = ?1 AND s.status = 'pending'
+           AND ${notBlockedSql('s.agent_user_id', '?2')}`
+      ).bind(r.id, user.id).first()).n;
     }
     preListings.push({
       id: r.id, userId: r.user_id, owner: r.owner_name, title: r.title, city: r.city, state: r.state, zip: r.zip,
@@ -97,7 +114,7 @@ export async function onRequestGet(context) {
       pendingBidCount, pendingShowingCount,
     });
   }
-  return json({ preListings });
+  return json({ preListings }, NO_STORE);
 }
 
 export async function onRequestPost(context) {

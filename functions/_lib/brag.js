@@ -2,7 +2,7 @@
 // Haus records itself (never past-client reviews, which the agent collects and nobody has verified), each with a minimum sample, scoped to Amico Haus and dated ("as of Oct 2026"), never a
 // bare "#1" (B&P 17500 and DRE advertising rules). The agent's name, DRE number and brokerage always go with them.
 import { fetchAgentStats, fetchAgentRatingSummary } from './marketplace.js';
-import { fetchFoundingZips } from './zipBoard.js';
+import { fetchFoundingZips, FOUNDING_SPOTS } from './zipBoard.js';
 import { DEMO_EMAIL_PATTERN } from './util.js';
 
 const MIN_REVIEWS = 3;
@@ -28,7 +28,8 @@ export async function fetchBragStats(db, agentUserId) {
   const founding = (await fetchFoundingZips(db, [agentUserId])).get(agentUserId) || [];
 
   const items = [];
-  if (founding.length) items.push(`Founding agent · ${founding.join(', ')}`);
+  // The card and badge leave the site (no tooltip there), so the founding caption travels with the item.
+  if (founding.length) items.push(`Founding agent · ${founding.join(', ')}: among the first ${FOUNDING_SPOTS} approved agents there; recognition only`);
   if (stats.acceptedBids > 0) items.push(`Hired ${stats.acceptedBids} time${stats.acceptedBids === 1 ? '' : 's'} on Amico Haus`);
   if (stats.finalistCount > 0) items.push(`Finalist on ${stats.finalistCount} home${stats.finalistCount === 1 ? '' : 's'}`);
   if (rating.reviewCount >= MIN_REVIEWS && rating.avgRating !== null) items.push(`★ ${rating.avgRating} from ${rating.reviewCount} homeowners who hired them`);

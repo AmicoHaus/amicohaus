@@ -3,22 +3,22 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Trade-for-Lease Calculator — Amico Haus</title>
-<meta name="description" content="See roughly how many years of a luxury rental your home's value could fund instead of trading straight across for another house. Slide to see live estimates.">
+<title>Rent Calculator — Amico Haus</title>
+<meta name="description" content="Rough math from your own numbers: how long the money from selling your home could cover a rental, after your selling costs and loan payoff.">
 <link rel="canonical" href="https://amicohaus.com/calculator">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Amico Haus">
-<meta property="og:title" content="Trade-for-Lease Calculator — Amico Haus">
-<meta property="og:description" content="See roughly how many years of a luxury rental your home's value could fund instead of trading straight across for another house. Slide to see live estimates.">
+<meta property="og:title" content="Rent Calculator — Amico Haus">
+<meta property="og:description" content="Rough math from your own numbers: how long the money from selling your home could cover a rental, after your selling costs and loan payoff.">
 <meta property="og:url" content="https://amicohaus.com/calculator">
 <meta property="og:image" content="https://amicohaus.com/og-image.png">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Trade-for-Lease Calculator — Amico Haus">
-<meta name="twitter:description" content="See roughly how many years of a luxury rental your home's value could fund instead of trading straight across for another house. Slide to see live estimates.">
+<meta name="twitter:title" content="Rent Calculator — Amico Haus">
+<meta name="twitter:description" content="Rough math from your own numbers: how long the money from selling your home could cover a rental, after your selling costs and loan payoff.">
 <meta name="twitter:image" content="https://amicohaus.com/og-image.png">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="styles.css">
-<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Trade-for-Lease Calculator","url":"https://amicohaus.com/calculator","applicationCategory":"FinanceApplication","operatingSystem":"Any web browser","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"isPartOf":{"@type":"WebSite","name":"Amico Haus","url":"https://amicohaus.com/"}}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Rent Calculator","url":"https://amicohaus.com/calculator","applicationCategory":"FinanceApplication","operatingSystem":"Any web browser","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"isPartOf":{"@type":"WebSite","name":"Amico Haus","url":"https://amicohaus.com/"}}</script>
 </head>
 <body>
 <div id="app">
@@ -45,13 +45,13 @@
 
   <main class="prose">
     <h1>What could your home fund instead?</h1>
-    <p class="section-sub">Some homeowners don't want another mortgage — they'd rather sell and put the proceeds toward a long-term luxury rental instead. Slide the numbers below to see roughly how long that could last.</p>
+    <p class="section-sub">Some homeowners don't want another mortgage: they'd rather sell and rent for a while instead. Rough math from your own numbers: slide each one to match your situation and see roughly how long the money from your sale could cover the rent.</p>
 
     <div class="calc-layout">
       <div class="calc-panel">
         <div class="calc-row">
           <div class="calc-row-head">
-            <label for="homeValue">Your home's value</label>
+            <label for="homeValue">Your home's value (your guess)</label>
             <span class="calc-readout" id="homeValueReadout"></span>
           </div>
           <input type="range" id="homeValue" min="100000" max="5000000" step="10000" value="1000000">
@@ -59,7 +59,7 @@
 
         <div class="calc-row">
           <div class="calc-row-head">
-            <label for="sellingCosts">Estimated selling costs</label>
+            <label for="sellingCosts">Your selling costs (% of price, your guess)</label>
             <span class="calc-readout" id="sellingCostsReadout"></span>
           </div>
           <input type="range" id="sellingCosts" min="0" max="10" step="0.5" value="7">
@@ -67,30 +67,38 @@
 
         <div class="calc-row">
           <div class="calc-row-head">
-            <label for="monthlyRent">Target rental, per month</label>
+            <label for="loanPayoff">What you still owe on it (loan payoff)</label>
+            <span class="calc-readout" id="loanPayoffReadout"></span>
+          </div>
+          <input type="range" id="loanPayoff" min="0" max="5000000" step="10000" value="0">
+        </div>
+
+        <div class="calc-row">
+          <div class="calc-row-head">
+            <label for="monthlyRent">Rent you'd pay, per month (your guess)</label>
             <span class="calc-readout" id="monthlyRentReadout"></span>
           </div>
           <input type="range" id="monthlyRent" min="1000" max="50000" step="500" value="10000">
           <div class="calc-presets">
-            <button type="button" class="btn btn-ghost btn-sm" data-rent="4000">Nice Condo · $4k/mo</button>
-            <button type="button" class="btn btn-ghost btn-sm" data-rent="10000">Luxury Beachfront · $10k/mo</button>
-            <button type="button" class="btn btn-ghost btn-sm" data-rent="25000">Ultra-Luxury Estate · $25k/mo</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-rent="4000">$4,000/mo</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-rent="10000">$10,000/mo</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-rent="25000">$25,000/mo</button>
           </div>
         </div>
       </div>
 
       <div class="calc-result">
-        <span class="calc-result-label">That could fund about</span>
+        <span class="calc-result-label">Your estimate, from the numbers you entered: about</span>
         <span class="calc-result-value" id="yearsResult">—</span>
         <span class="calc-result-label" id="rentLabel"></span>
         <div class="calc-breakdown">
-          <div><span class="label">Net proceeds after selling costs</span><strong id="netProceedsOut">—</strong></div>
-          <div><span class="label">Extra time for paying it as a lump sum</span><strong id="bonusTimeOut">—</strong></div>
+          <div><span class="label">Left from your sale after selling costs and your loan payoff</span><strong id="netProceedsOut">—</strong></div>
         </div>
       </div>
     </div>
 
-    <p class="form-note">This is a rough, illustrative estimate only — not financial, investment, tax, or legal advice, and not a lease offer. The range shown is a starting point for negotiation: the low end is the exact math (net proceeds ÷ annual rent), and the high end adds 15% more time, reflecting that a landlord receiving the full amount upfront as a lump sum avoids vacancy and collections risk compared to collecting it monthly. It doesn't account for rent increases over time, investment returns on unspent proceeds, capital gains taxes, or moving costs, and any actual lease term, price, and lump-sum arrangement is negotiated directly between landlord and tenant, not set by Amico Haus. Talk to a financial advisor before making a decision like this.</p>
+    <p class="form-note money-tool-note">An estimate only, not tax, legal or financial advice. Confirm the numbers with your agent, your lender and a tax professional.</p>
+    <p class="form-note">The math is simply what's left from your sale divided by a year of rent. It doesn't count rent increases, taxes or moving costs, and it isn't a lease offer: any lease term and price are worked out directly between landlord and tenant, not set by Amico Haus. A large rent prepayment can be lost if the landlord sells, refinances or loses the home. Use escrow and a real estate attorney; California rules on advance rent may apply.</p>
 
     <div class="form-actions">
       <a class="btn btn-primary" href="/signup">Create Your Profile</a>
@@ -99,6 +107,7 @@
 
   <footer class="site-footer">
     <span class="footer-tagline">Amico Haus: the real estate marketplace of tomorrow! Everything that's missing from the real estate market for the homeowner!</span> <a href="/about">About</a> · <a href="/whats-new">What's New</a> · <a href="/calculator">Calculator</a> · <a href="/assumable-loans">Assumable loans</a> · <a href="/contact">Contact</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="https://www.instagram.com/amicohaus" target="_blank" rel="noopener noreferrer">Instagram</a> · <a href="https://www.tiktok.com/@amicohaus" target="_blank" rel="noopener noreferrer">TikTok</a> · <a href="https://www.youtube.com/@amicohaus" target="_blank" rel="noopener noreferrer">YouTube</a>
+    <p class="footer-legal">Equal Housing Opportunity · <a href="/accessibility">Accessibility</a></p>
   </footer>
 </div>
 <script src="client.js"></script>

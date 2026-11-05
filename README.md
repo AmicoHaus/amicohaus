@@ -29,7 +29,7 @@ Presented by **Rudy Flores**, Real Estate Strategist with Coldwell Banker West (
 - **D1** (SQLite at the edge) for data, **R2** for photos
 - Plain HTML/CSS/JS front end — no framework, no build step beyond content-hash asset versioning
 - Magic-link email signup (no passwords sent, no password required until the link is confirmed)
-- A two-user authorization test suite (`tools/authz-test.js`) that runs against production after every change and checks who can see and touch what
+- A two-user authorization test suite (`tools/authz-test.js`) that runs against a separate preview deployment and test database (see [tools/TESTING.md](tools/TESTING.md)) after every change and checks who can see and touch what
 
 ## Try it
 

@@ -18,11 +18,11 @@ export async function onRequestGet(context) {
     // No "verified" badge beside a buyer (the site doesn't vouch for anyone): the shared offers helper still reads
     // the old flag, so it's dropped here.
     const offers = (await fetchOffersForOwner(db, id)).map(({ buyerVerified, ...o }) => o);
-    return json({ offers, myOffer: null, isOwner: true });
+    return json({ offers, myOffer: null, isOwner: true }, { headers: { 'Cache-Control': 'private, no-store' } });
   }
   const mine = await fetchMyOffer(db, id, user.id);
   const myOffer = mine ? (({ buyerVerified, ...o }) => o)(mine) : null;
-  return json({ offers: null, myOffer, isOwner: false });
+  return json({ offers: null, myOffer, isOwner: false }, { headers: { 'Cache-Control': 'private, no-store' } });
 }
 
 export async function onRequestPost(context) {

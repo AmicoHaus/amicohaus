@@ -21,11 +21,13 @@ export async function onRequestPut(context) {
   if (verified) {
     const licenseNumber = String(body.licenseNumber || '');
     if (!licenseNumber) return badRequest('Send the license number you checked.');
+    // When the page sends the brokerage it showed, it must still match too (a broker change clears the check).
+    const brokerage = typeof body.brokerageName === 'string' ? body.brokerageName : null;
     const stamped = await db.prepare(
-      "UPDATE agent_profiles SET license_verified = 1, license_verified_at = datetime('now'), license_verified_by = ? WHERE user_id = ? AND license_number = ?"
-    ).bind(user.id, applicantId, licenseNumber).run();
+      "UPDATE agent_profiles SET license_verified = 1, license_verified_at = datetime('now'), license_verified_by = ? WHERE user_id = ? AND license_number = ? AND (? IS NULL OR COALESCE(brokerage_name, '') = ?)"
+    ).bind(user.id, applicantId, licenseNumber, brokerage, brokerage === null ? null : brokerage).run();
     if (!stamped.meta.changes) {
-      return json({ error: "This agent's license number changed since the page loaded. Reload, then check the new number on the DRE." }, { status: 409 });
+      return json({ error: "This agent's license number or brokerage changed since the page loaded. Reload, then check the new number on the DRE." }, { status: 409 });
     }
   } else {
     // "License not active": the check comes off entirely (no date), so the profile stops saying it was checked.

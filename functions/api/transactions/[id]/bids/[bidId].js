@@ -5,8 +5,9 @@ import { notifyBidDecision } from '../../../../_lib/marketplaceNotify.js';
 import { blockedWithPartners, didBlock, DUAL_AGENCY_LINE, PARTNER_CONFIRM_FIRST } from '../../../../_lib/transactions.js';
 
 // Either trade partner can accept a proposal, but only on a request both partners confirmed (partner_confirmed_at,
-// migration_v43): the other partner said yes before any agent saw it. One agent for both homes is dual agency and
-// needs both owners' written consent, so the two of them should still agree before whichever one clicks accept.
+// migration_v43): the other partner said yes before any agent saw it. One agent for both homes, or two agents under
+// the same brokerage, is dual agency and needs both owners' written consent, so the two of them should still agree
+// before whichever one clicks accept.
 export async function onRequestPut(context) {
   const { id, bidId } = context.params;
   const user = await getSessionUser(context);

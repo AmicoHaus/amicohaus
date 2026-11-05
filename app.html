@@ -48,6 +48,7 @@
   </header>
 
   <main>
+    <div id="termsUpdateBanner" class="card terms-update-banner hidden" role="region" aria-labelledby="termsUpdateTitle"><h3 id="termsUpdateTitle">We updated our Terms of Use and Privacy Policy</h3><p>Updated <span id="termsUpdateDate">November 5, 2026</span>: a wider license so your public pages and link previews can show what you post, who can post a home for someone else, and how to report a fair housing concern. Read the <a href="/terms">Terms of Use</a> and <a href="/privacy">Privacy Policy</a>.</p><div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="termsAgreeBtn">I agree</button> <button type="button" class="btn btn-ghost btn-sm" id="termsLaterBtn">Not now</button></div></div>
     <!-- FEED -->
     <section id="tab-feed" class="tab-panel">
       <h1>Feed</h1>
@@ -121,24 +122,26 @@
     <!-- MY LISTING -->
     <section id="tab-listing" class="tab-panel">
       <h1>My Listings</h1>
-      <p class="section-sub">List your own home, or add properties on behalf of clients — just fill in their name below so it's clear who each listing represents.</p>
+      <p class="section-sub">List your own home, or, as an approved agent, a client's home you have the owner's written permission to post (add their name below so it's clear who each listing represents).</p>
       <div id="brokerStats" class="stats-bar hidden"></div>
       <div id="myListingSummary"></div>
       <div class="form-actions hidden" id="addAnotherWrap">
         <button type="button" class="btn btn-ghost btn-sm" id="addAnotherBtn">+ Add Another Listing</button>
       </div>
 
-      <details id="bulkUploadWrap" class="panel bulk-upload">
-        <summary>Broker tools: bulk-upload multiple client listings from a spreadsheet</summary>
+      <details id="bulkUploadWrap" class="panel bulk-upload hidden">
+        <summary>Agent tools: upload several homes you have the owners' written permission to post (approved agents only)</summary>
         <p class="section-sub">Upload a CSV of properties instead of entering them one at a time — trade listings and rentals can be mixed in the same file. <a href="/api/listings/bulk-template" download>Download the CSV template</a> to see the exact columns expected.</p>
+        <p class="tiny composer-note">Agents: if this home is under your listing agreement, posting it here counts as public marketing under your MLS's Clear Cooperation rule (CRMLS Rule 7.9), which can require MLS entry within one business day. Check your MLS rules before posting.</p>
         <div class="field"><label for="bulkCsvInput">CSV file</label><input type="file" id="bulkCsvInput" accept=".csv,text/csv"></div>
+        <label class="checkbox-row"><input type="checkbox" id="ownerConfirmBulk"><span>For every home in this file: I own it, or I'm its trustee, executor or attorney-in-fact, or I'm a California-licensed agent with the owner's written permission to post it here.</span></label>
         <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="bulkUploadBtn">Upload</button></div>
         <div id="bulkUploadResults"></div>
       </details>
 
       <details id="portfolioWrap" class="panel bulk-upload hidden">
         <summary>Bundle multiple properties into one portfolio trade</summary>
-        <p class="section-sub">Own (or list on behalf of one client) more than one property? Bundle 2 or more of your active listings into a single portfolio — trade the whole group for one larger home, or for someone else's portfolio.</p>
+        <p class="section-sub">Own (or, as an approved agent, list for one client) more than one property? Bundle 2 or more of your active listings into a single portfolio — trade the whole group for one larger home, or for someone else's portfolio.</p>
         <div class="field" id="portfolioMembersField">
           <label for="portfolioMembers">Properties to include <span class="required-mark">*</span></label>
           <select id="portfolioMembers" multiple size="6"></select>
@@ -189,7 +192,7 @@
             <fieldset class="panel" id="whatYouHaveFieldset">
               <legend>🏠 What you have</legend>
               <div class="field"><label for="title">Title (optional)</label><input type="text" id="title" maxlength="120" placeholder="e.g. 3bd Condo near the Marina"></div>
-              <div class="field"><label for="clientName">Client name (optional — leave blank if this is your own home)</label><input type="text" id="clientName" maxlength="100" placeholder="e.g. Jane Smith"></div>
+              <div class="field hidden" id="clientNameField"><label for="clientName">Client name (leave blank if this is your own home)</label><input type="text" id="clientName" maxlength="100" placeholder="e.g. Jane Smith"><p class="tiny field-hint composer-note">Agents: if this home is under your listing agreement, posting it here counts as public marketing under your MLS's Clear Cooperation rule (CRMLS Rule 7.9), which can require MLS entry within one business day. Check your MLS rules before posting.</p></div>
               <div class="form-row two-col">
                 <div class="field"><label for="city">City <span class="required-mark">*</span></label><input type="text" id="city" required maxlength="80"></div>
                 <div class="field"><label for="state">State <span class="required-mark">*</span></label><input type="text" id="state" required maxlength="20"></div>
@@ -249,8 +252,10 @@
                 <div class="field"><label for="minLeaseMonths">Minimum lease term (months)</label><input type="number" id="minLeaseMonths" min="1" max="360" value="12"></div>
               </div>
               <p class="form-note">Some tenants may offer to prepay a lump sum covering multiple years of rent instead of paying monthly. The actual term, price, and lease are always negotiated directly between you and the tenant, not set by the platform.</p>
+              <p class="tiny composer-note">California fair housing law covers rentals, including a renter's source of income (such as a Section 8 or VASH voucher). Don't post limits like "no vouchers."</p>
             </fieldset>
           </div>
+          <label class="checkbox-row" id="ownerConfirmListingRow"><input type="checkbox" id="ownerConfirmListing"><span>I own this home, or I'm its trustee, executor or attorney-in-fact, or I'm a California-licensed agent with the owner's written permission to post it here.</span></label>
           <div class="form-actions">
             <button type="submit" class="btn btn-primary" id="listingSubmitBtn">Create Listing</button>
             <button type="button" class="btn btn-ghost hidden" id="cancelListingBtn">Cancel</button>
@@ -364,7 +369,7 @@
 
           <p class="tiny"><strong>Optional preferences for agents (informational only — not a contract term or a hard requirement):</strong></p>
           <div class="form-row three-col">
-            <div class="field"><label for="plMinYearsExperience">Min. years of experience</label><input type="number" id="plMinYearsExperience" min="0" max="80"></div>
+            <div class="field"><label for="plMinYearsExperience">Min. years of experience (agent-reported)</label><input type="number" id="plMinYearsExperience" min="0" max="80"></div>
             <div class="field"><label for="plPreferredLanguage">Preferred language</label><input type="text" id="plPreferredLanguage" maxlength="40" placeholder="e.g. Spanish"></div>
             <div class="field"><label for="plPreferredAgreementMonths">Preferred agreement length (months)</label><input type="number" id="plPreferredAgreementMonths" min="1" max="60"></div>
           </div>
@@ -377,6 +382,7 @@
           <div id="plCostsFields"></div>
           <div class="field"><label for="plPhotos">Photos (up to 8, added after posting)</label><input type="file" id="plPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple><p class="tiny field-hint">By adding photos you confirm: I took these photos or have permission to use them.</p></div>
           <div id="plContactDial"></div>
+          <label class="checkbox-row"><input type="checkbox" id="ownerConfirmPreListing"><span>I own this home, or I'm its trustee, executor or attorney-in-fact, or I'm a California-licensed agent with the owner's written permission to post it here.</span></label>
           <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="createPreListingBtn">Post for Proposals</button></div>
         </details>
 
@@ -403,8 +409,8 @@
           <p class="section-sub">Takes about 3 minutes: your DRE license number, brokerage and service area. Everything else is optional and can be added later. <strong>How we approve agents:</strong> an active California real estate license (we look it up on the DRE's public lookup), a service area in San Diego County, and agreeing to <a href="/terms">the Amico Haus Terms of Use</a>.</p>
           <div id="agentApplicationStatus"></div>
           <div class="form-row two-col">
-            <div class="field"><label for="agentBrokerage">Brokerage name <span class="required-mark">*</span></label><input type="text" id="agentBrokerage" maxlength="150"></div>
-            <div class="field"><label for="agentLicense">California DRE license # <span class="required-mark">*</span></label><input type="text" id="agentLicense" maxlength="20" inputmode="numeric" placeholder="8 digits, e.g. 01234567"></div>
+            <div class="field"><label for="agentBrokerage">Responsible broker (as shown on your DRE license record) <span class="required-mark">*</span></label><input type="text" id="agentBrokerage" maxlength="150"></div>
+            <div class="field"><label for="agentLicense">California DRE license # <span class="required-mark">*</span></label><input type="text" id="agentLicense" maxlength="20" inputmode="numeric" placeholder="8 digits, e.g. 01234567"><p class="tiny field-hint">Changing your license number or broker takes the 'checked' date off your profile until an admin looks it up again.</p></div>
           </div>
           <div class="field">
             <label id="agentZipsLabel">Service area — up to 4 zip codes <span class="required-mark">*</span></label>
@@ -428,7 +434,7 @@
             <div class="field"><label for="agentAvgDom">Average days on market (self-reported)</label><input type="number" id="agentAvgDom" min="0" max="3650"></div>
             <div class="field"><label for="agentSaleToList">Sale-to-list price ratio (self-reported, e.g. 0.98 = 98%)</label><input type="number" id="agentSaleToList" min="0" max="2" step="0.01"></div>
           </div>
-          <div class="field"><label for="agentBio">Bio / pitch</label><textarea id="agentBio" maxlength="2000" placeholder="Tell homeowners about your track record…"></textarea></div>
+          <div class="field"><label for="agentBio">Bio / pitch</label><textarea id="agentBio" maxlength="2000" placeholder="Tell homeowners about your track record…"></textarea><p class="tiny field-hint composer-note">Keep it to your work and the homes: no talk about schools, crime or who lives in an area (fair housing).</p></div>
           <div class="field"><label for="agentCertifications">Certifications (self-reported, e.g. CRS, ABR, Luxury Home Marketing Specialist)</label><input type="text" id="agentCertifications" maxlength="300"></div>
           <div class="field">
             <label id="agentSpecialtyTagsLabel">Specialties</label>
@@ -479,7 +485,7 @@
           <div id="myTeamPanel"></div>
 
           <h3>Invite Your Clients</h3>
-          <p class="section-sub">Invite your past and current clients to post a pre-listing. Once they do, they can invite you to send a proposal, and every agent who serves their area hears about it at the same moment, you included. No rewards or payments for invites.</p>
+          <p class="section-sub">Invite past clients and homeowners thinking about selling to post a pre-listing (not a home you already have under a listing agreement). Once they do, they can invite you to send a proposal, and every agent who serves their area hears about it at the same moment, you included. No rewards or payments for invites.</p>
           <div class="field"><label for="agentReferralLink">Your invite link</label><input type="text" id="agentReferralLink" readonly></div>
           <div class="form-actions"><button type="button" class="btn btn-ghost btn-sm" id="copyAgentReferralBtn">Copy Link</button></div>
           <p class="tiny" id="agentReferralCount"></p>
@@ -492,6 +498,7 @@
           <p class="section-sub">Up to 4 minutes — a quick intro or interview homeowners can watch alongside your proposal.</p>
           <div id="agentVideoPreviewWrap"></div>
           <div class="field"><label for="agentVideoInput">Upload / replace video (MP4, WebM, or MOV — under 95MB)</label><input type="file" id="agentVideoInput" accept="video/mp4,video/webm,video/quicktime"></div>
+          <p class="tiny field-hint composer-note">Keep it to your work and the homes: no talk about schools, crime or who lives in an area (fair housing).</p>
           <p class="tiny" id="agentVideoStatus"></p>
 
           <h3>License Photo (optional)</h3>
@@ -510,6 +517,7 @@
             <div class="field"><label for="caseStudyTitle">Title</label><input type="text" id="caseStudyTitle" maxlength="120" placeholder="e.g. 3bd Craftsman in Uptown"></div>
             <div class="field"><label for="caseStudyResultNote">Result</label><input type="text" id="caseStudyResultNote" maxlength="200" placeholder="e.g. Sold in 12 days, 5% over asking"></div>
           </div>
+          <p class="tiny field-hint composer-note">Keep it to your work and the homes: no talk about schools, crime or who lives in an area (fair housing).</p>
           <div class="form-row two-col">
             <div class="field"><label for="caseStudyBeforeInput">Before photo</label><input type="file" id="caseStudyBeforeInput" accept="image/jpeg,image/png,image/webp,image/gif"></div>
             <div class="field"><label for="caseStudyAfterInput">After photo</label><input type="file" id="caseStudyAfterInput" accept="image/jpeg,image/png,image/webp,image/gif"></div>
@@ -569,7 +577,7 @@
           <details class="score-breakdown">
             <summary>Agent's own claims (self-reported)</summary>
             <div class="form-row three-col">
-              <div class="field"><label for="agentDirMinYears">Min. years of experience</label><input type="number" id="agentDirMinYears" min="0" max="80"></div>
+              <div class="field"><label for="agentDirMinYears">Min. years of experience (agent-reported)</label><input type="number" id="agentDirMinYears" min="0" max="80"></div>
               <div class="field"><label for="agentDirMinHomesSold">Min. homes sold last year</label><input type="number" id="agentDirMinHomesSold" min="0" max="10000"></div>
               <div class="field"><label for="agentDirMaxDom">Max avg. days on market</label><input type="number" id="agentDirMaxDom" min="0" max="3650"></div>
             </div>
@@ -664,7 +672,7 @@
         <button class="link-btn" id="backToConversations">← All conversations</button>
         <h2 id="threadTitle"></h2>
         <p id="threadIdentity" class="tiny agent-id-line hidden"></p>
-        <p class="tiny thread-tools"><button type="button" class="link-btn" id="threadBlockBtn">Block</button></p>
+        <div class="tiny thread-tools" data-report-host><button type="button" class="link-btn" id="threadBlockBtn">Block</button> <button type="button" class="link-btn" id="threadReportBtn">Report</button></div>
         <div id="threadOpenToBidsWrap" class="hidden"><button type="button" class="btn btn-ghost btn-sm" id="threadOpenToBidsBtn">Open Trade to Agent Bids</button></div>
         <div class="stack" id="messageList"></div>
         <p id="threadComposerNote" class="inline-note hidden" role="status"></p>
@@ -704,7 +712,7 @@
 
           <p class="tiny"><strong>Adaptations this home has <span class="required-mark">*</span> (check at least one):</strong></p>
           <div id="augmentedAdaptationsFields"></div>
-          <div class="field"><label for="augAdaptationNotes">Notes about the adaptations (optional)</label><textarea id="augAdaptationNotes" maxlength="1000" placeholder="e.g. roll-in shower installed 2022, ADA-compliant grab bars throughout"></textarea></div>
+          <div class="field"><label for="augAdaptationNotes">Notes about the adaptations (optional)</label><textarea id="augAdaptationNotes" maxlength="1000" placeholder="e.g. roll-in shower installed 2022, ADA-compliant grab bars throughout"></textarea><p class="tiny field-hint composer-note">Describe the home, not who should live there or who lives nearby.</p></div>
 
           <div class="field">
             <label id="augLifeEventFieldsLabel">Why you're selling (optional, shown only to you)</label>
@@ -713,6 +721,7 @@
 
           <div id="augCostsFields"></div>
           <div class="field"><label for="augPhotos">Photos (up to 8, added after posting)</label><input type="file" id="augPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple><p class="tiny field-hint">By adding photos you confirm: I took these photos or have permission to use them.</p></div>
+          <label class="checkbox-row"><input type="checkbox" id="ownerConfirmAugmented"><span>I own this home, or I'm its trustee, executor or attorney-in-fact, or I'm a California-licensed agent with the owner's written permission to post it here.</span></label>
           <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="createAugmentedHomeBtn">Post Listing</button></div>
         </details>
 
@@ -783,7 +792,7 @@
 
           <p class="tiny"><strong>Green features this home has <span class="required-mark">*</span> (check at least one):</strong></p>
           <div id="greenFeaturesFields"></div>
-          <div class="field"><label for="greenFeatureNotes">Notes about the features (optional)</label><textarea id="greenFeatureNotes" maxlength="1000" placeholder="e.g. 6kW solar system installed 2023, fully owned not leased"></textarea></div>
+          <div class="field"><label for="greenFeatureNotes">Notes about the features (optional)</label><textarea id="greenFeatureNotes" maxlength="1000" placeholder="e.g. 6kW solar system installed 2023, fully owned not leased"></textarea><p class="tiny field-hint composer-note">Describe the home, not who should live there or who lives nearby.</p></div>
 
           <div class="field">
             <label id="greenLifeEventFieldsLabel">Why you're selling (optional, shown only to you)</label>
@@ -792,6 +801,7 @@
 
           <div id="greenCostsFields"></div>
           <div class="field"><label for="greenPhotos">Photos (up to 8, added after posting)</label><input type="file" id="greenPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple><p class="tiny field-hint">By adding photos you confirm: I took these photos or have permission to use them.</p></div>
+          <label class="checkbox-row"><input type="checkbox" id="ownerConfirmGreen"><span>I own this home, or I'm its trustee, executor or attorney-in-fact, or I'm a California-licensed agent with the owner's written permission to post it here.</span></label>
           <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="createGreenHomeBtn">Post Listing</button></div>
         </details>
 
@@ -842,7 +852,7 @@
       <div id="findermineListView">
         <details class="panel bulk-upload" id="postProjectWrap">
           <summary>Post a project</summary>
-          <div class="field"><label for="projTitle">Title <span class="required-mark">*</span></label><input type="text" id="projTitle" maxlength="120" placeholder="e.g. 12-unit multifamily rebuild, North Park"></div>
+          <div class="field"><label for="projTitle">Title <span class="required-mark">*</span></label><input type="text" id="projTitle" maxlength="120" placeholder="e.g. ADU in our backyard, looking for a licensed builder"></div>
           <div class="form-row three-col">
             <div class="field"><label for="projCity">City <span class="required-mark">*</span></label><input type="text" id="projCity" maxlength="80"></div>
             <div class="field"><label for="projState">State <span class="required-mark">*</span></label><input type="text" id="projState" maxlength="20"></div>
@@ -918,7 +928,7 @@
   </main>
 
   <footer class="app-footer">
-    <p class="footer-legal">Equal Housing Opportunity · <a href="/accessibility">Accessibility</a></p>
+    <p class="footer-legal"><a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · Equal Housing Opportunity · <a href="/accessibility">Accessibility</a></p>
   </footer>
 
   <div id="notifPanel" class="hidden">

@@ -110,7 +110,7 @@ check('"Blocked on {date}" in Pacific time', t.blockedOnLabel('2026-11-04 07:30:
 check('"Blocked on" uses the LA day', t.blockedOnLabel('2026-11-05 03:00:00') === 'Blocked on Nov 4, 2026', t.blockedOnLabel('2026-11-05 03:00:00'));
 check('no date -> no label', t.blockedOnLabel('') === '');
 const confirmText = t.blockConfirmText('Ana Agent');
-check('block confirm copy, word for word', confirmText === "Block Ana Agent? They won't be able to send you proposals, price opinions, showing or interview requests, or messages, and won't see your homes. You can unblock anytime in Account › Blocked Users.");
+check('block confirm copy, word for word', confirmText === "Block Ana Agent? They won't be able to send you proposals, price opinions, showing or interview requests, or messages, and won't see your homes. You can unblock anytime in Account › Blocked Users. Blocking is for spam, harassment or safety, not for turning away a buyer or renter because of who they are.");
 check('unblock note, word for word', t.UNBLOCK_NOTE === "Unblocking lets them reach you again. Shared contact info, broker preview RSVPs, showing requests and interviews that ended with the block don't come back.");
 
 // Reports: presets match what the server accepts (functions/api/reports/index.js).
@@ -278,7 +278,9 @@ check('main.js: teaser cards and the agents_only note', main.includes('preListin
 check('main.js: trade partner confirm button', main.includes('data-action="confirm-trade"') && main.includes('${basePath}/confirm'));
 check('inbox and group rows open from the keyboard', main.includes('role="button" tabindex="0" data-action="open-conversation"') && main.includes('role="button" tabindex="0" data-action="open-group"') && main.includes('openCardOnKey'));
 check('every app.html label is tied to a field or a group', !/<label>/.test(app));
-check('app.html + every owned static page has the footer line', ['app.html', 'account-security.html', 'sell-or-buy-first.html', 'calculator.html', 'whats-new.html']
+// L1.1 (F17): the app's footer line also links Terms and Privacy (FOOTER_LEGAL_APP); the other pages keep theirs.
+check('app.html has the Terms + Privacy footer line', app.includes('<p class="footer-legal"><a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · Equal Housing Opportunity · <a href="/accessibility">Accessibility</a></p>'));
+check('every other owned static page has the footer line', ['account-security.html', 'sell-or-buy-first.html', 'calculator.html', 'whats-new.html']
   .every(f => read(f).includes('<p class="footer-legal">Equal Housing Opportunity · <a href="/accessibility">Accessibility</a></p>')));
 check('calculator: loan payoff input, your-own-numbers wording, caution line', calc.includes('id="loanPayoff"') && calc.includes('Rough math from your own numbers') && calc.includes('A large rent prepayment can be lost if the landlord sells, refinances or loses the home. Use escrow and a real estate attorney; California rules on advance rent may apply.') && !/bonusTimeOut|lump sum upfront/.test(calc));
 check('calculator + planner + take-home: estimate label and fixed advice line', calc.includes('Your estimate, from the numbers you entered') && sellBuy.includes('ESTIMATE_LABEL')
@@ -299,7 +301,7 @@ check('main.js only looks up ids that exist', missingIds.length === 0, missingId
 // ---- 6. Every new class used in the markup has a style, and gold text is the darker shade ----
 const css = read('styles.css');
 for (const cls of ['footer-legal', 'composer-note', 'offer-tools-note', 'teaser-card', 'teaser-note', 'inline-report', 'help-box', 'rules-report',
-  'founding-caption', 'operator-note', 'estimate-label', 'money-tool-note', 'home-costs-heading', 'thread-tools', 'app-footer', 'agents-strip-note', 'dual-agency-note']) {
+  'founding-caption', 'operator-note', 'estimate-label', 'money-tool-note', 'home-costs-heading', 'thread-tools', 'app-footer', 'agents-strip-note', 'dual-agency-note', 'terms-update-banner']) {
   check(`styles.css has .${cls}`, new RegExp(`\\.${cls}\\b`).test(css));
 }
 check('gold text uses --gold-text (#8a5f2c), fills keep --gold', css.includes('--gold-text: #8a5f2c') && !/(^|[;{\s])color: var\(--gold\)/.test(css) && css.includes('background: var(--gold)'));

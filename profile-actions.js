@@ -43,7 +43,8 @@
       const section = document.getElementById('bioSection');
       const currentBio = section.dataset.bio || '';
       section.innerHTML = `
-        <textarea id="bioInput" maxlength="500" placeholder="Tell other homeowners a bit about yourself and what you're hoping to find…">${escapeHtml(currentBio)}</textarea>
+        <textarea id="bioInput" maxlength="500" placeholder="What kind of home you have and what you're hoping to find…">${escapeHtml(currentBio)}</textarea>
+        <p class="tiny field-hint composer-note">${escapeHtml(HOME_TEXT_NOTE)}</p>
         <div class="form-actions">
           <button type="button" class="btn btn-primary btn-sm" id="saveBioBtn">Save</button>
           <button type="button" class="btn btn-ghost btn-sm" id="cancelBioBtn">Cancel</button>
@@ -59,14 +60,16 @@
     });
   }
 
-  // "Report" on a past-client review: the same short report form as the app (client.js inlineReportFormHtml).
+  // "Report" on a past-client review or on the person: the same short report form as the app (client.js
+  // inlineReportFormHtml, presets incl. "Fair housing concern").
   document.addEventListener('click', async e => {
-    const reportBtn = e.target.closest('[data-action="report-past-review"]');
+    const reportBtn = e.target.closest('[data-action="report-past-review"], [data-action="report-user"]');
     if (reportBtn) {
       const host = reportBtn.closest('[data-report-host]');
       const open = host && host.querySelector(':scope > .inline-report');
       if (open) { open.remove(); return; }
-      if (host) host.insertAdjacentHTML('beforeend', inlineReportFormHtml('past_client_review', reportBtn.dataset.id));
+      const targetType = reportBtn.dataset.action === 'report-user' ? 'user' : 'past_client_review';
+      if (host) host.insertAdjacentHTML('beforeend', inlineReportFormHtml(targetType, reportBtn.dataset.id));
       return;
     }
     const sendBtn = e.target.closest('[data-action="send-report"]');

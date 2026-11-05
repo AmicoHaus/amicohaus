@@ -1,14 +1,19 @@
-// Two-user authorization test against production. Creates throwaway test-authz-* accounts, plants recognisable
-// secrets in user A's data, then tries to read / change it as other users and anonymously.
-// Usage: node tools/authz-test.js <projectRoot>   then: node tools/authz-cleanup.js <projectRoot>
+// Two-user authorization test against a PREVIEW deployment and its own test database, never production (see
+// tools/TESTING.md). Creates throwaway delivered+authz-* accounts, plants recognisable secrets in user A's data, then
+// tries to read / change it as other users and anonymously. Runs tools/authz-cleanup.js itself when it finishes.
+// Usage: AUTHZ_BASE=https://authz-preview.amicohaus.pages.dev AUTHZ_D1=amicohaus-test AUTHZ_R2=amicohaus-test-photos
+//          node tools/authz-test.js <projectRoot>
 // Needs wrangler logged in (it seeds two approved agents with SQL). Uses 5 signups, the hourly per-IP limit.
 const { execSync } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+// Throws before any network or wrangler call when the target is missing or is production.
+const { resolveAuthzTarget } = require('./authz-target');
+// AUTHZ_R2 is required up front too: the automatic cleanup at the end (tools/authz-cleanup.js) needs the bucket.
+const { base: BASE, d1: D1 } = resolveAuthzTarget(process.env, { needR2: true });
 
 const ROOT = process.argv[2];
-const BASE = 'https://amicohaus.com';
 const RUN = Math.random().toString(36).slice(2, 8);
 const PASSWORD = 'AuthzTest-' + Math.random().toString(36).slice(2, 12) + '!';
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
@@ -51,7 +56,7 @@ function sql(command) {
   const isRead = /^\s*SELECT\b/i.test(command);
   for (let attempt = 1; ; attempt++) {
     try {
-      const out = execSync(`npx wrangler d1 execute amicohaus --remote --json --command "${command.replace(/"/g, '\\"')}"`, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], shell: true, maxBuffer: 20 * 1024 * 1024 });
+      const out = execSync(`npx wrangler d1 execute ${D1} --remote --json --command "${command.replace(/"/g, '\\"')}"`, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], shell: true, maxBuffer: 20 * 1024 * 1024 });
       const j = JSON.parse(out.slice(out.indexOf('[')));
       return j[0].results || [];
     } catch (e) {
@@ -119,7 +124,7 @@ function writeCleanupFile() {
   if (!ids.length) return 0;
   const list = ids.join(',');
   const r2keys = sql(`SELECT r2_key FROM pre_listing_photos WHERE pre_listing_id IN (SELECT id FROM pre_listings WHERE user_id IN (${list})) UNION SELECT r2_key FROM listing_photos WHERE listing_id IN (SELECT id FROM listings WHERE user_id IN (${list}))`).map(r => r.r2_key);
-  fs.writeFileSync(path.join(__dirname, 'authz-cleanup.json'), JSON.stringify({ run: RUN, userIds: ids, r2keys, runStart: RUN_START }));
+  fs.writeFileSync(path.join(__dirname, 'authz-cleanup.json'), JSON.stringify({ run: RUN, base: BASE, d1: D1, userIds: ids, r2keys, runStart: RUN_START }));
   return ids.length;
 }
 
@@ -156,10 +161,17 @@ const denied = r => r.status >= 400 && r.status < 500;
   sql(`INSERT INTO agent_profiles (user_id, status, brokerage_name, license_number, years_experience, bio) VALUES (${G.id}, 'approved', 'Authz Realty One', '09999901', 5, 'bio'), (${H.id}, 'approved', 'Authz Realty One', 'TESTLIC-2', 6, 'bio')`); // same brokerage as G: teams are same-brokerage only (L1)
 
   const listingBody = (over) => ({ title: 'AUTHZ Home', city: 'San Diego', state: 'CA', propertyType: 'Single Family Home', beds: 3, baths: 2, estimatedValue: 600000,
-    address: MARK.address, clientName: MARK.clientName, description: 'authz test', locations: 'Sacramento, CA', desiredType: 'Condo', priceMin: 500000, priceMax: 700000,
+    address: MARK.address, clientName: '', description: 'authz test', locations: 'Sacramento, CA', desiredType: 'Condo', priceMin: 500000, priceMax: 700000,
     minBeds: 1, minBaths: 1, cashMode: 'none', ...over });
+  // L1.1 (Y1): only an approved agent can post a home for a client, so A (a homeowner) is refused with a client name.
+  const laClient = await A.call('POST', '/api/listings', listingBody({ clientName: MARK.clientName }));
+  record('listings', 'a homeowner cannot post a home for a client (approved agents only)', laClient.status === 403, `status ${laClient.status} ${laClient.text.slice(0, 90)}`);
   const la = await A.call('POST', '/api/listings', listingBody());
   const LA = la.json && la.json.id;
+  // The client-name secret is planted straight in the test database instead, so the leak checks below still cover it.
+  // A's own edits send clientName '' (and would clear it), so it is planted again after each of them.
+  const plantClientName = () => { if (LA) sql(`UPDATE listings SET client_name = '${MARK.clientName}' WHERE id = ${Number(LA)}`); };
+  plantClientName();
   const lc = await C.call('POST', '/api/listings', listingBody({ title: 'AUTHZ Partner Home', city: 'Sacramento', propertyType: 'Condo', locations: 'San Diego, CA', desiredType: 'Single Family Home', address: '', clientName: '' }));
   const LC = lc.json && lc.json.id;
   console.log('listings', { LA, LC, laStatus: la.status, lcStatus: lc.status });
@@ -266,8 +278,16 @@ const denied = r => r.status >= 400 && r.status < 500;
     record('separation', 'the sitemap lists no demo listing', ![...demoListingIds].some(id => sm.text.includes(`/listing/${id}<`)), '');
   } else console.log('  (no demo listings in this database — skipping demo-listing checks)');
   const stats = await anon.call('GET', '/api/public-stats');
-  const truth = sql(`SELECT (SELECT COUNT(*) FROM agent_profiles JOIN users ON users.id = agent_profiles.user_id WHERE agent_profiles.status = 'approved' AND users.email NOT LIKE ${DEMO}) AS agents, (SELECT COUNT(*) FROM pre_listings JOIN users ON users.id = pre_listings.user_id WHERE pre_listings.status = 'open' AND users.email NOT LIKE ${DEMO}) + (SELECT COUNT(*) FROM transaction_requests JOIN users ON users.id = transaction_requests.user_a_id WHERE transaction_requests.status = 'open' AND users.email NOT LIKE ${DEMO}) AS requests, (SELECT COUNT(*) FROM listings JOIN users ON users.id = listings.user_id WHERE listings.status = 'active' AND listings.is_buyer_only = 0 AND users.email NOT LIKE ${DEMO} AND listings.id NOT IN (SELECT member_listing_id FROM portfolio_members)) AS listings`)[0];
-  record('separation', 'public stats are counts only and match the database exactly (demo excluded)', stats.status === 200 && Object.keys(stats.json).sort().join() === 'agents,listings,openRequests' && stats.json.agents === truth.agents && stats.json.openRequests === truth.requests && stats.json.listings === truth.listings, JSON.stringify(stats.json) + ' vs ' + JSON.stringify(truth));
+  // L1.1: the public counts also leave out unlisted accounts (these @resend.dev test accounts and the Google Play
+  // reviewer's sample), mirroring unlistedOwnerSql() in functions/_lib/util.js.
+  const UNLISTED = "AND NOT (lower(users.email) LIKE '%@resend.dev' OR lower(users.email) = 'playstore-review@amicohaus.com')";
+  const truth = sql(`SELECT (SELECT COUNT(*) FROM agent_profiles JOIN users ON users.id = agent_profiles.user_id WHERE agent_profiles.status = 'approved' AND users.email NOT LIKE ${DEMO} ${UNLISTED}) AS agents, (SELECT COUNT(*) FROM pre_listings JOIN users ON users.id = pre_listings.user_id WHERE pre_listings.status = 'open' AND users.email NOT LIKE ${DEMO} ${UNLISTED}) + (SELECT COUNT(*) FROM transaction_requests JOIN users ON users.id = transaction_requests.user_a_id WHERE transaction_requests.status = 'open' AND users.email NOT LIKE ${DEMO} ${UNLISTED}) AS requests, (SELECT COUNT(*) FROM listings JOIN users ON users.id = listings.user_id WHERE listings.status = 'active' AND listings.is_buyer_only = 0 AND users.email NOT LIKE ${DEMO} ${UNLISTED} AND listings.id NOT IN (SELECT member_listing_id FROM portfolio_members)) AS listings`)[0];
+  record('separation', 'public stats are counts only and match the database exactly (demo and unlisted test accounts excluded)', stats.status === 200 && Object.keys(stats.json).sort().join() === 'agents,listings,openRequests' && stats.json.agents === truth.agents && stats.json.openRequests === truth.requests && stats.json.listings === truth.listings, JSON.stringify(stats.json) + ' vs ' + JSON.stringify(truth));
+  // L1.1 (F1): the interim guards keep this run's own test accounts out of search even on a shared database.
+  const smTest = await anon.call('GET', '/sitemap.xml');
+  record('separation', "the sitemap leaves out this run's @resend.dev test listing and test agent", smTest.status === 200 && !smTest.text.includes(`/listing/${LA}<`) && !smTest.text.includes(`/profile/${G.id}<`), '');
+  const laPublic = await anon.call('GET', `/listing/${LA}`);
+  record('separation', "a test account's listing page still opens by link but is noindex", laPublic.status === 200 && laPublic.text.includes('<meta name="robots" content="noindex">') && /noindex/i.test(laPublic.headers.get('x-robots-tag') || ''), `status ${laPublic.status} x-robots-tag ${laPublic.headers.get('x-robots-tag')}`);
   const home = await anon.call('GET', '/');
   record('separation', 'the home page ships no demo data or fictional agents', !home.text.includes('demo-sample-data.js') && !/Marisol Vega|Devon Brooks|Priya Nair|Tom Alvarez/.test(home.text), '');
   const demoPage = await anon.call('GET', '/demo');
@@ -1221,6 +1241,7 @@ const denied = r => r.status >= 400 && r.status < 500;
   record('market-pulse', "anonymous can't read market events (signed-in only, like the rest of the app)", eventsAnon.status === 401, `status ${eventsAnon.status}`);
   const priceDrop = await A.call('PUT', `/api/listings/${LA}`, { action: 'edit', ...listingBody({ estimatedValue: 575000 }) });
   record('market-pulse', 'the owner can edit their listing to a lower price (triggers a price_drop event)', priceDrop.status === 200, `status ${priceDrop.status}`);
+  plantClientName();
   await new Promise(r => setTimeout(r, 500));
   const eventsB = await B.call('GET', '/api/market-events?limit=50');
   const dropEvent = eventsB.json && eventsB.json.events && eventsB.json.events.find(e => e.entityKind === 'listing' && e.entityId === LA && e.eventType === 'price_drop');
@@ -1239,6 +1260,7 @@ const denied = r => r.status >= 400 && r.status < 500;
 
   const priceDrop2 = await A.call('PUT', `/api/listings/${LA}`, { action: 'edit', ...listingBody({ estimatedValue: 550000 }) });
   record('market-pulse-alerts', 'owner drops the price again, for the alert-matching check', priceDrop2.status === 200, `status ${priceDrop2.status}`);
+  plantClientName();
   await new Promise(r => setTimeout(r, 500));
   const bNotifAlert = sql(`SELECT body FROM notifications WHERE user_id = ${B.id} AND type = 'market_pulse' AND body LIKE '%AUTHZ price drop watch%'`);
   record('market-pulse-alerts', 'a matching real event notifies the alert owner', bNotifAlert.length > 0, JSON.stringify(bNotifAlert));
@@ -1428,14 +1450,23 @@ const denied = r => r.status >= 400 && r.status < 500;
   }
   record('leak', `scanned ${urls.length} endpoints as attacker and anonymous for ${secrets.length + 1} kinds of secret (incl. A's phone)`, !findings.some(f => f.startsWith('[leak]')), '');
 
-  // ---------- collect ids for cleanup ----------
-  writeCleanupFile();
+  // ---------- collect ids for cleanup, then clean up right away ----------
+  const madeAccounts = writeCleanupFile();
 
   console.log(`\n${results.length} checks, ${findings.length} failed`);
   if (findings.length) { console.log('\nFAILURES:'); findings.forEach(f => console.log('  - ' + f)); }
-  console.log('\ncleanup file written: authz_cleanup.json');
+  console.log('\ncleanup file written: authz-cleanup.json');
+  if (madeAccounts) runCleanup();
 })().catch(e => {
   console.error('HARNESS ERROR', e);
-  try { console.error(`cleanup file written for ${writeCleanupFile()} test account(s): run authz-cleanup.js`); } catch (e2) { console.error('could not write the cleanup file:', e2.message); }
+  let made = 0;
+  try { made = writeCleanupFile(); console.error(`cleanup file written for ${made} test account(s)`); } catch (e2) { console.error('could not write the cleanup file:', e2.message); }
+  if (made) runCleanup();
   process.exit(2);
 });
+
+// Removes this run's accounts from the test site (same AUTHZ_* target, passed through the environment).
+function runCleanup() {
+  try { execSync(`node "${path.join(__dirname, 'authz-cleanup.js')}" "${ROOT}"`, { cwd: ROOT, stdio: 'inherit', env: process.env }); }
+  catch (e) { console.error('CLEANUP FAILED: test accounts are still live on the test site, run tools/authz-cleanup.js by hand'); }
+}

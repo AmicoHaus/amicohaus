@@ -152,7 +152,7 @@ check('privacy: pre-listings are shared only with approved agents', /Pre-listing
 check('privacy: blocking is described', /Blocking\./.test(ptext) && /works both ways/.test(ptext));
 check('privacy: decision 2, sentence 1 verbatim', ptext.includes("When you post a pre-listing, Rudy Flores, who runs Amico Haus and also works as a real estate agent, gets an email with your name, email and the home's basics so he can run the site. He doesn't use it to contact you about your home unless you share your contact info with him, the same as any agent."));
 check('privacy: decision 2, sentence 2 verbatim', ptext.includes('Amico Haus admins can see account details to run the site.'));
-check('privacy: Last updated November 4, 2026', ptext.includes('Last updated November 4, 2026.'));
+check('privacy: Last updated November 5, 2026', ptext.includes('Last updated November 5, 2026.'));
 check('privacy: Do Not Track line', /Do Not Track/.test(ptext));
 check('privacy: public pages are on the open web and indexed', /Public pages are on the open web/.test(ptext) && /index/.test(ptext));
 check('privacy: §5 names members (per §3) and service providers', /5\. Data sharing<\/h2>\s*<p>We don't sell your data\. We share it only with other members as described in §3/.test(privacy) && /Cloudflare/.test(ptext));
@@ -238,8 +238,8 @@ agent(15, 'approved', ['91913'], '2026-08-01 10:00:00', '2026-08-02 10:00:00');
 agent(16, 'approved', ['91913'], '2026-08-01 10:00:00', '2026-08-02 10:00:00');
 agent(11, 'approved', ['91913'], '2026-08-01 10:00:00', '2026-08-02 10:00:00');
 agent(17, 'rejected', ['91902'], '2026-10-22 10:00:00', '2026-10-23 10:00:00');
-// Founding: the demo agent was granted first but never holds a live spot; then 15, 13, 11 (the operator counts on the
-// public board, same rule as the site), then 13 in 91915.
+// Founding: the demo agent was granted first but never holds a live spot; then 15, 13, 11 (since L1.1 the operator, an
+// admin, never holds a spot either: same rule as the site's LIVE_FOUNDERS_SQL), then 13 in 91915.
 for (const [zip, uid] of [['91913', 16], ['91913', 15], ['91913', 13], ['91913', 11], ['91915', 13]]) sqlite.prepare('INSERT INTO founding_agents (zip, agent_user_id) VALUES (?, ?)').run(zip, uid);
 const pl = (id, uid, zip, created) => sqlite.prepare("INSERT INTO pre_listings (id, user_id, city, state, zip, property_type, asking_price, address, created_at) VALUES (?, ?, 'Chula Vista', 'CA', ?, 'House', 800000, '1 Private Way', ?)").run(id, uid, zip, created);
 pl(50, 1, '91913', THIS); pl(51, 5, '91902', LAST); pl(52, 7, '91913', THIS); pl(53, 1, '92101', THIS);
@@ -272,13 +272,13 @@ check('report: contact messages = 1 real (test and Rudy\'s own left out)', T.lea
 check('report: agent applications (1 applied, 1 approved this week, 1 waiting, 2 approved in total)', D.agents.applied.cur === 1 && D.agents.applied.prev === 1 && D.agents.approved.cur === 1 && D.agents.pendingBacklog === 1 && D.agents.approvedTotal === 2, JSON.stringify(D.agents));
 check('report: 2 signed up as agents but never applied', D.agents.neverApplied.confirmed === 2 && D.agents.neverApplied.confirmedThisWeek === 2);
 const z13 = D.zips.find(z => z.zip === '91913'), z15 = D.zips.find(z => z.zip === '91915');
-check('report: launch ZIP agents + founding spots (91913: 3 agents, full; 91915: 1 of 3)', z13.agents === 3 && z13.foundingTaken === 3 && z13.foundingOpen === 0 && z15.agents === 1 && z15.foundingTaken === 1 && D.foundingTaken === 4 && D.foundingSpots === 18, JSON.stringify(D.zips));
+check('report: launch ZIP agents + founding spots (91913: 3 agents, 2 of 3 taken since the operator never holds one; 91915: 1 of 3)', z13.agents === 3 && z13.foundingTaken === 2 && z13.foundingOpen === 1 && z15.agents === 1 && z15.foundingTaken === 1 && D.foundingTaken === 3 && D.foundingSpots === 18, JSON.stringify(D.zips));
 const board = await zipBoard.fetchZipBoard(DB);
 check('report: founding and agent counts match the live ZIP board for every ZIP', board.every(b => { const z = D.zips.find(x => x.zip === String(b.zip)); return z && z.foundingTaken === b.foundingTaken && z.agents === b.agents; }), JSON.stringify(board.map(b => [b.zip, b.agents, b.foundingTaken])));
 check('report: new pre-listings by ZIP (91913 + 92101 this week, 91902 last week; demo left out)', T.preListings === 2 && Lw.preListings === 1 && D.preListings.byZip['91913'].cur === 1 && D.preListings.byZip['92101'].cur === 1 && D.preListings.openNow === 3, JSON.stringify(D.preListings));
 check('report: activity counts (operator and demo left out)', T.proposals === 1 && Lw.proposals === 1 && T.opinions === 1 && T.votes === 1 && T.messages === 4 && Lw.messages === 1 && T.conversations === 2 && T.contactShares === 1 && T.interviews === 1 && T.invites === 1, JSON.stringify(T));
 const plainNotes = one.notes.join(' | ').replace(/<[^>]+>/g, '');
-check('report: plain-English notes at the top', plainNotes.includes('2 new homeowners this week (1 still confirming their email), 1 from') && plainNotes.includes('Founding spots: 4 of 18 taken') && plainNotes.includes('Top campaign this week: mv4 on TikTok'), plainNotes);
+check('report: plain-English notes at the top', plainNotes.includes('2 new homeowners this week (1 still confirming their email), 1 from') && plainNotes.includes('Founding spots: 3 of 18 taken') && plainNotes.includes('Top campaign this week: mv4 on TikTok'), plainNotes);
 check('report: files written (dated html, latest, dated json)', existsSync(join(outDir, 'amico-growth-2026-11-01.html')) && existsSync(join(outDir, 'amico-growth-latest.html')) && existsSync(join(outDir, 'amico-growth-2026-11-01.json')));
 const html = readFileSync(join(outDir, 'amico-growth-latest.html'), 'utf8'), jsonText = readFileSync(join(outDir, 'amico-growth-2026-11-01.json'), 'utf8');
 check('report: title "Amico Haus Weekly Growth", no McKelvey line', html.includes('<title>Amico Haus Weekly Growth</title>') && !/mckelvey|patti/i.test(html + jsonText));

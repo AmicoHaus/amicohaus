@@ -51,7 +51,8 @@ function profilePostItem(p) {
 async function saveBio(userId, currentBio) {
   const el = document.getElementById('bioSection');
   el.innerHTML = `
-    <textarea id="bioInput" maxlength="500" placeholder="Tell other homeowners a bit about yourself and what you're hoping to find…">${escapeHtml(currentBio)}</textarea>
+    <textarea id="bioInput" maxlength="500" placeholder="What kind of home you have and what you're hoping to find…">${escapeHtml(currentBio)}</textarea>
+    <p class="tiny field-hint composer-note">${escapeHtml(HOME_TEXT_NOTE)}</p>
     <div class="form-actions">
       <button type="button" class="btn btn-primary btn-sm" id="saveBioBtn">Save</button>
       <button type="button" class="btn btn-ghost btn-sm" id="cancelBioBtn">Cancel</button>

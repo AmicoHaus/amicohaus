@@ -2,7 +2,9 @@ import { getSessionUser } from '../../_lib/auth.js';
 import { json, badRequest, unauthorized, forbidden, notFound, clampString, parseJsonSafe } from '../../_lib/util.js';
 import { logAdminAction } from '../../_lib/audit.js';
 import { releasePortfolioMembers, updatePortfolioCriteria } from '../../_lib/portfolios.js';
-import { validateListingEdit, updateListing } from '../../_lib/listings.js';
+import { validateListingEdit, updateListing, sourceOfIncomeLimitError } from '../../_lib/listings.js';
+import { isApprovedAgent } from '../../_lib/agents.js';
+import { pauseListingForModeration } from '../../_lib/moderation.js';
 import { notifyNewMatches } from '../../_lib/matchNotify.js';
 import { snapshotListingForTrash } from '../../_lib/trash.js';
 import { DEMO_EMAIL_PATTERN } from '../../_lib/util.js';
@@ -95,6 +97,10 @@ export async function onRequestPut(context) {
     } else {
       const validated = validateListingEdit(!!existing.is_buyer_only, !!existing.is_rental, body);
       if (validated.error) return badRequest(validated.error);
+      // Posting a home for a client (Client name) is for approved agents only (Rudy 11.05), on edit too.
+      if (validated.data.clientName && !(await isApprovedAgent(db, user.id))) {
+        return forbidden('Only approved agents can post a home for a client.');
+      }
       await updateListing(db, id, existing.user_id, validated.data);
       if (!existing.is_buyer_only && Number(validated.data.estimatedValue) < Number(existing.estimated_value)) {
         const oldPrice = '$' + Number(existing.estimated_value).toLocaleString('en-US');
@@ -125,13 +131,24 @@ export async function onRequestPut(context) {
     return json({ error: "This listing wasn't paused by Amico Haus. Its owner paused it, so only they can reactivate it.", code: 'owner_paused' }, { status: 403 });
   }
 
+  // An admin pausing someone else's listing is a moderation pause: the same helper (and the same notice to the owner)
+  // as pausing it from the report queue.
+  if (isAdminOnOthers && body.status === 'paused') {
+    await pauseListingForModeration(db, id, clampString(body.reason, 300) || existing.hidden_reason || 'Paused by an admin');
+    await logAdminAction(db, user.id, 'hide_listing', 'listing', id);
+    return json({ ok: true });
+  }
+
+  // A rental's description can't limit renters by source of income (California law), the same rule as a full edit.
+  if (body.description !== undefined && existing.is_rental) {
+    const sourceOfIncomeError = sourceOfIncomeLimitError(clampString(body.description, 2000));
+    if (sourceOfIncomeError) return badRequest(sourceOfIncomeError);
+  }
+
   const fields = [];
   const values = [];
   if (body.status) { fields.push('status = ?'); values.push(body.status); }
-  if (isAdminOnOthers && body.status === 'paused') {
-    fields.push("hidden_at = datetime('now')", 'hidden_reason = ?');
-    values.push(clampString(body.reason, 300) || existing.hidden_reason || 'Paused by an admin');
-  } else if (user.role === 'admin' && body.status === 'active') {
+  if (user.role === 'admin' && body.status === 'active') {
     fields.push('hidden_at = NULL', 'hidden_reason = NULL');
   }
   // (The old "reveal exact address once matched" switch is gone: a listing's street address is only ever shown to
@@ -143,7 +160,7 @@ export async function onRequestPut(context) {
     values.push(id);
     await db.prepare(`UPDATE listings SET ${fields.join(', ')} WHERE id = ?`).bind(...values).run();
     // An admin acting on someone else's content is on the admin activity log.
-    if (isAdminOnOthers) await logAdminAction(db, user.id, body.status === 'paused' ? 'hide_listing' : 'unhide_listing', 'listing', id);
+    if (isAdminOnOthers) await logAdminAction(db, user.id, 'unhide_listing', 'listing', id);
   }
 
   return json({ ok: true });

@@ -1,5 +1,5 @@
 import { getSessionUser } from '../../_lib/auth.js';
-import { json, badRequest, unauthorized, parseJsonSafe } from '../../_lib/util.js';
+import { json, badRequest, unauthorized, forbidden, parseJsonSafe } from '../../_lib/util.js';
 import { validateListingInput, insertListing } from '../../_lib/listings.js';
 import { notifyNewMatches } from '../../_lib/matchNotify.js';
 import { notifySavedSearches, savedSearchHome } from '../../_lib/savedSearches.js';
@@ -7,6 +7,7 @@ import { fetchPortfolioMembers } from '../../_lib/portfolios.js';
 import { logMarketEventUnlessDemo, fetchRecentActivityBatch } from '../../_lib/marketEvents.js';
 import { fetchPriceSeriesBatch, fetchListingFavoriteCountBatch } from '../../_lib/priceSeries.js';
 import { fetchCommentCountBatch } from '../../_lib/dealThreads.js';
+import { isApprovedAgent } from '../../_lib/agents.js';
 
 export async function onRequestGet(context) {
   const user = await getSessionUser(context);
@@ -54,6 +55,21 @@ export async function onRequestPost(context) {
 
   const validated = validateListingInput(body);
   if (validated.error) return badRequest(validated.error);
+  const db = context.env.DB;
+  // Posting a home for a client (the Client name field) is for approved agents only (Rudy 11.05); a homeowner posts
+  // their own home without it.
+  if (validated.data.clientName && !(await isApprovedAgent(db, user.id))) {
+    return forbidden('Only approved agents can post a home for a client.');
+  }
+  // "Duplicate" pre-fills this form from one of the person's listings and sends cloneOf: a listing paused by
+  // moderation (hidden_at set) can't be re-posted that way.
+  const cloneOf = Number(body.cloneOf);
+  if (Number.isInteger(cloneOf) && cloneOf > 0) {
+    const source = await db.prepare('SELECT hidden_at FROM listings WHERE id = ? AND user_id = ?').bind(cloneOf, user.id).first();
+    if (source && source.hidden_at) {
+      return json({ error: "This listing was paused by Amico Haus, so it can't be copied. Questions? Use Contact.", code: 'moderation_paused' }, { status: 409 });
+    }
+  }
 
   const listingId = await insertListing(context.env.DB, user.id, validated.data);
   // Backgrounded via waitUntil rather than awaited: a listing that happens to

@@ -23,6 +23,12 @@ export const PROJECT_STAGE_LABELS = {
   completed: 'Completed',
 };
 
+// FinderMine has no investment fields (Rudy 11.04), and the free text can't bring them back: a title or description
+// with returns, minimums or investors in it is refused, so no post reads as an offer of a security.
+export const INVESTMENT_TERMS = /\b(irr|roi|cap rate|preferred return|pref(erred)? equity|accredited investors?|minimum investment|min(imum|\.)?\s+investment|equity (stake|investors?|partners?)|investors?|lp units?|syndicat\w*|passive income|return on investment|\d+(\.\d+)?\s*%\s*(return|yield|irr|roi))\b/i;
+// (A bare "30% a year" is NOT refused: green features and HOA notes use percentages normally.)
+export const INVESTMENT_ERROR = "FinderMine posts can't include investment terms (returns, minimums, investors, shares). Describe the project and the builder, partner or co-buyer you're looking for.";
+
 export function validateDevProjectInput(body) {
   const title = clampString(body.title, 120);
   const city = clampString(body.city, 80);
@@ -34,6 +40,7 @@ export function validateDevProjectInput(body) {
   if (!title || !city || !state || !projectType) {
     return { error: 'Fill in a title, city, state, and project type.' };
   }
+  if (INVESTMENT_TERMS.test(`${title} ${body.description || ''}`)) return { error: INVESTMENT_ERROR };
 
   return {
     data: {

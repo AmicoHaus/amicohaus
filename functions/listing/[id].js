@@ -3,7 +3,7 @@ import { escapeHtml, parseJsonSafe } from '../_lib/util.js';
 import { propertyArtUrl } from '../_lib/propertyArt.js';
 import { fetchPortfolioMembers } from '../_lib/portfolios.js';
 import { ASSET_VERSIONS } from '../_lib/assetVersions.js';
-import { DEMO_EMAIL_PATTERN } from '../_lib/util.js';
+import { DEMO_EMAIL_PATTERN, unlistedOwnerSql } from '../_lib/util.js';
 import { withSecurityHeaders } from '../_lib/withSecurityHeaders.js';
 import { homeCostsFromRow, homeCostsLines, HOME_COSTS_HEADING, HOME_COSTS_CONFIRM_LINE } from '../_lib/homeCosts.js';
 import { fetchOpenHouses } from '../_lib/openHouses.js';
@@ -14,6 +14,10 @@ import { fetchSimilarEntities, similarEntitiesHtml } from '../_lib/similarEntiti
 import { mortgageCalcHtml } from '../_lib/mortgageCalc.js';
 import { realEstateListingJsonLd } from '../_lib/structuredData.js';
 
+// Under the offer and counter-back message boxes (fair housing: the note is about the deal, not the buyer).
+const OFFER_MESSAGE_NOTE = 'Stick to price, terms and timing. Leave out personal details like family, religion, age or background.';
+// Under California law a renter's source of income (e.g. a housing voucher) is protected; shown on every rental.
+const SOI_PAGE_LINE = "Under California law, a renter's source of income (including a Section 8 or VASH voucher) is protected.";
 // Beside every offer, accept and counter (Rudy 11.04): the tools only say "I'd like to move forward", never a contract.
 const OFFER_TOOLS_LINE = "Not a purchase agreement. A California home sale needs a written contract signed by both sides, usually prepared by your agents. Accepting here only tells the other side you'd like to move forward.";
 // Under the comment box (fair housing).
@@ -77,13 +81,16 @@ function notFoundPage() {
   `), { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 
-function renderShell(title, description, bodyHtml, authCta, { jsonLd = '', image = '', url = '' } = {}) {
+// noindex: the page still opens by direct link but asks search engines to leave it out (unlisted owners, see
+// unlistedOwnerSql in _lib/util.js); the Response also carries X-Robots-Tag.
+function renderShell(title, description, bodyHtml, authCta, { jsonLd = '', image = '', url = '', noindex = false } = {}) {
   return `<!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${escapeHtml(title)}</title>
+${noindex ? '<meta name="robots" content="noindex">' : ''}
 ${description ? `<meta name="description" content="${escapeHtml(description)}">` : ''}
 ${url ? `<link rel="canonical" href="${escapeHtml(url)}">` : ''}
 <meta property="og:type" content="website">
@@ -150,7 +157,8 @@ async function renderListingPage(context) {
             owner_agent.license_number AS owner_license, owner_agent.brokerage_name AS owner_brokerage,
             desired_criteria.locations, desired_criteria.property_type AS desired_type,
             desired_criteria.price_min, desired_criteria.price_max,
-            (SELECT id FROM listing_photos WHERE listing_photos.listing_id = listings.id ORDER BY position ASC LIMIT 1) AS photo_id
+            (SELECT id FROM listing_photos WHERE listing_photos.listing_id = listings.id ORDER BY position ASC LIMIT 1) AS photo_id,
+            ${unlistedOwnerSql('users.email')} AS unlisted_owner
      FROM listings
      JOIN users ON users.id = listings.user_id
      LEFT JOIN agent_profiles AS owner_agent ON owner_agent.user_id = users.id AND owner_agent.status = 'approved'
@@ -243,7 +251,7 @@ async function renderListingPage(context) {
             <details class="panel">
               <summary>Counter back</summary>
               <div class="field"><label>Counter price ($)</label><input type="number" id="counterBackPrice" min="1" max="500000000" step="1000"></div>
-              <div class="field"><label>Message (optional)</label><textarea id="counterBackMessage" maxlength="1000"></textarea></div>
+              <div class="field"><label>Message (optional)</label><textarea id="counterBackMessage" maxlength="1000"></textarea><p class="tiny field-hint composer-note">${OFFER_MESSAGE_NOTE}</p></div>
               <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="counter-back" data-id="${myOffer.id}">Send Counter</button></div>
             </details>
             <p class="form-note">${OFFER_TOOLS_LINE}</p>
@@ -267,7 +275,7 @@ async function renderListingPage(context) {
             <div class="field"><label>Financing</label><select id="offerFinancingType"><option value="financed">Financed</option><option value="cash">Cash</option></select></div>
             <div class="field"><label>Proposed closing timeline</label><input type="text" id="offerClosingTimeline" maxlength="100" placeholder="e.g. 30 days"></div>
             <div class="field"><label>Contingencies</label><input type="text" id="offerContingencies" maxlength="500" placeholder="e.g. subject to inspection, financing approval"></div>
-            <div class="field"><label>Message to the owner</label><textarea id="offerMessage" maxlength="1000"></textarea></div>
+            <div class="field"><label for="offerMessage">Note about your terms (optional)</label><textarea id="offerMessage" maxlength="1000"></textarea><p class="tiny field-hint composer-note">Stick to price, terms and timing. Leave out personal details like family, religion, age or background.</p></div>
             <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="submit-offer" data-listing-id="${id}">Submit Offer</button></div>
             <p class="form-note">${OFFER_TOOLS_LINE}</p>
           </div>`;
@@ -345,6 +353,12 @@ async function renderListingPage(context) {
     ? `<span class="tiny">Hi, ${escapeHtml(viewer.display_name)}</span> <a class="btn btn-primary btn-sm" href="/app">Go to App</a>`
     : null;
 
+  // Report (fair housing or a rules problem): signed-in visitors other than the owner get the inline report form
+  // (listing-actions.js); signed-out visitors are sent to the contact form; the owner sees nothing.
+  const reportHtml = !viewer
+    ? ' · <a class="link-btn" href="/contact">Report a concern</a>'
+    : isOwner ? '' : ` · <span data-report-host><button type="button" class="link-btn" data-action="report-listing" data-id="${id}">Report</button></span>`;
+
   const body = `
     <div id="entityMeta" class="hidden" data-kind="listing" data-id="${id}" data-title="${escapeHtml(listing.title || listing.property_type)}" data-amount="${listing.estimated_value}" data-city="${escapeHtml(listing.city)}" data-state="${escapeHtml(listing.state)}"></div>
     <div class="card">
@@ -353,7 +367,7 @@ async function renderListingPage(context) {
       <div class="card-head">
         <div>
           <h1>${escapeHtml(listing.title || listing.property_type)}</h1>
-          <div class="card-agent">Listed by <a class="profile-link" href="/profile/${listing.owner_id}">${escapeHtml(ownerIdentity || listing.owner_name)}</a>${(listing.client_name && isOwnerOrAdmin) ? ` on behalf of <strong>${escapeHtml(listing.client_name)}</strong>` : ''}${isOwnerOrAdmin ? ` · ${listing.views} view${listing.views === 1 ? '' : 's'}` : ''}</div>
+          <div class="card-agent">Listed by <a class="profile-link" href="/profile/${listing.owner_id}">${escapeHtml(ownerIdentity || listing.owner_name)}</a>${(listing.client_name && isOwnerOrAdmin) ? ` on behalf of <strong>${escapeHtml(listing.client_name)}</strong>` : ''}${isOwnerOrAdmin ? ` · ${listing.views} view${listing.views === 1 ? '' : 's'}` : ''}${reportHtml}</div>
         </div>
         <span class="badge badge-gold">${listing.is_portfolio ? `Portfolio · ${members.length}` : (listing.is_rental ? 'For Rent' : escapeHtml(listing.price_tier))}</span>
       </div>
@@ -381,7 +395,7 @@ async function renderListingPage(context) {
         </div>`}
       </div>
       ${listing.is_portfolio ? `<div class="mini-block"><span class="label">Includes</span>${members.map(m => `${escapeHtml(m.propertyType)} in ${escapeHtml(m.city)}, ${escapeHtml(m.state)} (${money(m.estimatedValue)})`).join('<br>')}</div><p class="tiny">This is a portfolio trade — all ${members.length} properties move together as one deal. The combined value is the sum of what the owner entered for each property, not an appraisal.</p>` : ''}
-      ${listing.is_rental ? '<p class="tiny">See the <a href="/calculator">rent calculator</a> for rough math from your own numbers. A large rent prepayment can be lost if the landlord sells, refinances or loses the home. Use escrow and a real estate attorney; California rules on advance rent may apply.</p>' : ''}
+      ${listing.is_rental ? '<p class="tiny">See the <a href="/calculator">rent calculator</a> for rough math from your own numbers. A large rent prepayment can be lost if the landlord sells, refinances or loses the home. Use escrow and a real estate attorney; California rules on advance rent may apply. ' + SOI_PAGE_LINE + '</p>' : ''}
 
       ${listing.description ? `<p>${escapeHtml(listing.description)}</p>` : ''}
       ${linksHtml}
@@ -401,7 +415,7 @@ async function renderListingPage(context) {
 
     ${openHousesHtml}
     ${offerHtml}
-    ${!listing.is_rental ? mortgageCalcHtml(listing.estimated_value) : ''}
+    ${!listing.is_rental ? mortgageCalcHtml(listing.estimated_value, { lenderNote: false }) : ''}
     ${similarEntitiesHtml(similar)}
     ${discussionHtml}
 
@@ -435,7 +449,8 @@ async function renderListingPage(context) {
     price: listing.is_rental ? listing.rent_amount : undefined,
   });
 
-  return new Response(renderShell(title, description, body, authCta, { jsonLd, image: shareImage, url: pageUrl }), {
-    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+  const noindex = !!listing.unlisted_owner;
+  return new Response(renderShell(title, description, body, authCta, { jsonLd, image: shareImage, url: pageUrl, noindex }), {
+    headers: { 'Content-Type': 'text/html; charset=utf-8', ...(noindex ? { 'X-Robots-Tag': 'noindex' } : {}) },
   });
 }

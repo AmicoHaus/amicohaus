@@ -313,10 +313,10 @@ export async function notifyAgentsNewRequest(context, requestType, requestId, zi
 // or /app#green-home-{id} for those verticals (no public offer UI there, so it routes back into the app).
 export async function notifyNewOffer(context, link, ownerUserId, buyerUserId) {
   const db = context.env.DB;
-  const buyer = await db.prepare('SELECT display_name FROM users WHERE id = ?').bind(buyerUserId).first();
   const owner = await fetchRecipient(db, ownerUserId);
   if (!owner) return;
-  const body = `${buyer ? buyer.display_name : 'Someone'} made an offer on your listing.`;
+  // An agent buyer's offer names their DRE # and broker (a point of contact), the same label as other alerts.
+  const body = `${await senderLabel(db, buyerUserId, 'Someone')} made an offer on your listing.`;
   await notifyAndMaybeEmail(context, owner, body, link, 'New offer on Amico Haus', 'see the details');
 }
 

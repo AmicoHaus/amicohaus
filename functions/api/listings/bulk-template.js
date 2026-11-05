@@ -23,6 +23,8 @@ const NOTE = [
   '# Is Rental: put Yes to list this row as a rental instead of a trade. For a rental row, fill in Rent Amount',
   '# (and optionally Min Lease Months, defaults to 12) and leave every Desired/Price/Min column blank — a',
   '# rental has nothing it wants back, so those are ignored for that row.',
+  "# Rentals: California protects a renter's source of income (including Section 8 and VASH vouchers). Don't write limits like \"no vouchers\".",
+  '# Fair housing: in Title, Neighborhood and Must Haves, describe the home, not who should live there or who lives nearby.',
 ];
 
 function csvRow(cells) {
@@ -38,6 +40,7 @@ export async function onRequestGet(context) {
     headers: {
       'Content-Type': 'text/csv; charset=utf-8',
       'Content-Disposition': 'attachment; filename="amicohaus-listings-template.csv"',
+      'Cache-Control': 'private, no-store',
     },
   });
 }

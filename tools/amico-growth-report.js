@@ -7,7 +7,10 @@
    Real accounts only: no demo, @resend.dev or @example.com test accounts, no admins, no rudypabloflores+… test
    addresses, active accounts only.
    Read-only by construction: every statement must start with SELECT or WITH and contain no write keyword, and
-   wrangler is only ever called with --command (never --file).
+   wrangler is only ever called with --command (never --file). --file is never used because with --remote wrangler
+   sends a file through the D1 import API: that returns no SELECT rows (the report would be empty) and leaves the
+   database unable to serve queries while it runs. Instead the statements go out in small --command batches sized
+   so the Windows command line stays under its limit (see estimatedCmdLength).
    Exit codes: 0 fine; 1 the report could not be made. Prints WEEK, "- note" lines and FILE at the end. */
 'use strict';
 const { execSync } = require('child_process');
@@ -93,7 +96,8 @@ function buildQueries(w) {
     ['neverApplied', `SELECT u.email_confirmation_pending AS pending, SUM(CASE WHEN ${cur('u.created_at')} THEN 1 ELSE 0 END) AS week, COUNT(*) AS total FROM users u WHERE ${realUser('u')} AND u.signup_intent = 'agent' AND NOT EXISTS (SELECT 1 FROM agent_profiles ap WHERE ap.user_id = u.id) GROUP BY 1`],
     ['zipAgents', `SELECT CAST(z.value AS TEXT) AS zip, COUNT(DISTINCT ap.user_id) AS n FROM agent_profiles ap JOIN users u ON u.id = ap.user_id, json_each(ap.service_zips_json) z WHERE ${boardAgent('ap', 'u')} AND CAST(z.value AS TEXT) IN (${zips}) GROUP BY 1`],
     // Mirrors LIVE_FOUNDERS_SQL in functions/_lib/zipBoard.js (GLOB instead of LIKE; tools/launch-test.mjs compares them).
-    ['founders', `SELECT zip, COUNT(*) AS n FROM (SELECT fa.zip AS zip, ROW_NUMBER() OVER (PARTITION BY fa.zip ORDER BY fa.id) AS rn FROM founding_agents fa JOIN agent_profiles ap ON ap.user_id = fa.agent_user_id JOIN users u ON u.id = fa.agent_user_id WHERE ${boardAgent('ap', 'u')} AND EXISTS (SELECT 1 FROM json_each(ap.service_zips_json) sz WHERE CAST(sz.value AS TEXT) = fa.zip)) WHERE rn <= ${FOUNDING_SPOTS} GROUP BY zip`],
+    // The account that runs Amico Haus (an admin) never takes a founding spot.
+    ['founders', `SELECT zip, COUNT(*) AS n FROM (SELECT fa.zip AS zip, ROW_NUMBER() OVER (PARTITION BY fa.zip ORDER BY fa.id) AS rn FROM founding_agents fa JOIN agent_profiles ap ON ap.user_id = fa.agent_user_id JOIN users u ON u.id = fa.agent_user_id WHERE ${boardAgent('ap', 'u')} AND u.role <> 'admin' AND EXISTS (SELECT 1 FROM json_each(ap.service_zips_json) sz WHERE CAST(sz.value AS TEXT) = fa.zip)) WHERE rn <= ${FOUNDING_SPOTS} GROUP BY zip`],
     ['preListings', `SELECT ${wk('pl.created_at')} AS wk, pl.zip AS zip, COUNT(*) AS n FROM pre_listings pl JOIN users u ON u.id = pl.user_id WHERE ${realUser('u')} AND ${both('pl.created_at')} GROUP BY 1, 2`],
     ['openPreListings', `SELECT COUNT(*) AS n FROM pre_listings pl JOIN users u ON u.id = pl.user_id WHERE ${realUser('u')} AND pl.status = 'open'`],
     ['proposals', `SELECT ${pair('sb.created_at')} FROM service_bids sb JOIN users u ON u.id = sb.agent_user_id WHERE ${realUser('u')} AND ${both('sb.created_at')}`],
@@ -108,18 +112,27 @@ function buildQueries(w) {
 
 // ---------- production runner (wrangler, read-only) ----------
 const TRANSIENT = /\b7403\b|fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|\b50[234]\b/;
-const MAX_COMMAND = 6500; // cmd.exe caps a command line at 8191 characters
-function wranglerRunner(statements) {
+// cmd.exe caps a command line at 8191 characters, and on Windows npx goes through a .cmd shim that caret-escapes cmd
+// metacharacters again (up to 3 extra characters each), which is what made "The command line is too long" happen with
+// a plain length check. 140 covers the npx/wrangler words around the SQL.
+const MAX_CMD = 7000;
+function estimatedCmdLength(sql) { return 140 + sql.length + 3 * (sql.match(/[()<>&|^!"%]/g) || []).length; }
+const oneLine = (s) => String(s).replace(/\s+/g, ' ').trim();
+// Groups whole statements (in order) into ;-joined batches that each fit one wrangler --command call.
+function wranglerBatches(statements) {
   for (const s of statements) assertReadOnly(s);
   const batches = [];
-  for (const s of statements) {
+  for (const s of statements.map(oneLine)) {
+    if (estimatedCmdLength(s) >= MAX_CMD) throw new Error('Read-only guard: a report statement is too long for one wrangler call.');
     const last = batches[batches.length - 1];
-    if (last && (last.join('; ') + '; ' + s).length < MAX_COMMAND) last.push(s); else batches.push([s]);
+    if (last && estimatedCmdLength(last.concat(s).join('; ')) < MAX_CMD) last.push(s); else batches.push([s]);
   }
+  return batches.map((b) => { const sql = b.join('; '); assertReadOnly(sql); return sql; });
+}
+function wranglerRunner(statements) {
   const out = [];
-  for (const batch of batches) {
-    const sql = batch.join('; ').replace(/\s+/g, ' ');
-    assertReadOnly(sql);
+  for (const sql of wranglerBatches(statements)) {
+    const expected = sql.split(';').filter((s) => s.trim()).length;
     const cmd = `npx wrangler d1 execute amicohaus --remote --json --command "${sql}"`;
     if (/--file/.test(cmd)) throw new Error('Read-only guard: --file is never allowed.');
     let raw;
@@ -133,7 +146,7 @@ function wranglerRunner(statements) {
       }
     }
     const parsed = JSON.parse(raw.replace(/^[^[]*/, ''));
-    if (!Array.isArray(parsed) || parsed.length !== batch.length) throw new Error(`Expected ${batch.length} result sets, got ${Array.isArray(parsed) ? parsed.length : 'none'}.`);
+    if (!Array.isArray(parsed) || parsed.length !== expected) throw new Error(`Expected ${expected} result sets, got ${Array.isArray(parsed) ? parsed.length : 'none'}.`);
     for (const r of parsed) out.push(r.results || []);
   }
   return out;
@@ -442,4 +455,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { LAUNCH_ZIPS, FOUNDING_SPOTS, laMidnightUtc, sqlTime, weekWindow, realUser, assertReadOnly, buildQueries, cleanTag, referrerBucket, sourceLabel, summarize, buildNotes, renderHtml, run };
+module.exports = { LAUNCH_ZIPS, FOUNDING_SPOTS, laMidnightUtc, sqlTime, weekWindow, realUser, assertReadOnly, buildQueries, wranglerBatches, estimatedCmdLength, cleanTag, referrerBucket, sourceLabel, summarize, buildNotes, renderHtml, run };

@@ -431,8 +431,11 @@ function agentIdentityLine({ name, licenseNumber, brokerageName } = {}) {
 }
 
 // A post or comment author: an approved agent's name carries their identity line (authorAgent from the API).
+// The account that runs Amico Haus also carries the operator label (authorAgent.isPlatformOperator, F6).
 function contentAuthorLabel(name, authorAgent) {
-  return authorAgent ? agentIdentityLine({ name, licenseNumber: authorAgent.licenseNumber, brokerageName: authorAgent.brokerageName }) : String(name ?? '');
+  if (!authorAgent) return String(name ?? '');
+  const line = agentIdentityLine({ name, licenseNumber: authorAgent.licenseNumber, brokerageName: authorAgent.brokerageName });
+  return authorAgent.isPlatformOperator ? `${line} · ${PLATFORM_OPERATOR_LABEL}` : line;
 }
 // A hidden post or comment reaches only its author and admins (the API leaves it out for everyone else), so anyone
 // who isn't the author here is an admin and gets an Unhide button (data-action="unhide-content"). kind: 'post' or 'comment'.
@@ -543,6 +546,14 @@ function toastActionError(err) {
 
 /* ---------------- Shared wording (Rudy's "jury test": the site never vouches, ranks, verifies or advises) ---------------- */
 const HOME_TEXT_NOTE = 'Describe the home, not who should live there or who lives nearby.';
+const AGENT_TEXT_NOTE = 'Keep it to your work and the homes: no talk about schools, crime or who lives in an area (fair housing).';
+const OFFER_MESSAGE_NOTE = 'Stick to price, terms and timing. Leave out personal details like family, religion, age or background.';
+const OFFER_OWNER_NOTE = 'Weigh offers on price, terms and timing only, not on who the buyer is (fair housing).';
+const OWNER_CONFIRM_TEXT = "I own this home, or I'm its trustee, executor or attorney-in-fact, or I'm a California-licensed agent with the owner's written permission to post it here.";
+const OWNER_CONFIRM_BULK_TEXT = "For every home in this file: I own it, or I'm its trustee, executor or attorney-in-fact, or I'm a California-licensed agent with the owner's written permission to post it here.";
+const OWNER_CONFIRM_REQUIRED = "Please confirm you own this home or have the owner's written permission to post it.";
+const CLEAR_COOP_NOTE = "Agents: if this home is under your listing agreement, posting it here counts as public marketing under your MLS's Clear Cooperation rule (CRMLS Rule 7.9), which can require MLS entry within one business day. Check your MLS rules before posting.";
+const PLATFORM_OPERATOR_LABEL = 'Platform operator: runs Amico Haus';
 const PRICE_BASIS_NOTE = 'Base your price on the home and comparable sales only.';
 const OFFER_TOOLS_NOTE = "Not a purchase agreement. A California home sale needs a written contract signed by both sides, usually prepared by your agents. Accepting here only tells the other side you'd like to move forward.";
 const FEE_NOTE = 'Each agent sets their own fees; commissions are negotiable and not set by law or by Amico Haus.';
@@ -550,7 +561,7 @@ const OPERATOR_NOTE = 'Amico Haus is run by Rudy Flores, a Coldwell Banker West 
 const ESTIMATE_LABEL = 'Your estimate, from the numbers you entered';
 const MONEY_TOOL_NOTE = 'An estimate only, not tax, legal or financial advice. Confirm the numbers with your agent, your lender and a tax professional.';
 const PHOTO_RIGHTS_NOTE = 'By adding photos you confirm: I took these photos or have permission to use them.';
-const DUAL_AGENCY_NOTE = "One agent for both homes is dual agency and needs both owners' written consent. Each of you can choose your own agent.";
+const DUAL_AGENCY_NOTE = "One agent for both homes, or two agents under the same brokerage, is dual agency and needs both owners' written consent. Each of you can choose your own agent.";
 const NO_DISPUTES_LINE = "Amico Haus doesn't decide disputes between homeowners and agents.";
 const PRE_LISTING_TEASER_NOTE = 'Pre-listings open to approved local agents. Thinking of selling?';
 const UNBLOCK_NOTE = "Unblocking lets them reach you again. Shared contact info, broker preview RSVPs, showing requests and interviews that ended with the block don't come back.";
@@ -613,7 +624,7 @@ function blockedOnLabel(createdAt) {
   return d ? `Blocked on ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/Los_Angeles' })}` : '';
 }
 function blockConfirmText(name) {
-  return `Block ${name || 'this person'}? They won't be able to send you proposals, price opinions, showing or interview requests, or messages, and won't see your homes. You can unblock anytime in Account › Blocked Users.`;
+  return `Block ${name || 'this person'}? They won't be able to send you proposals, price opinions, showing or interview requests, or messages, and won't see your homes. You can unblock anytime in Account › Blocked Users. Blocking is for spam, harassment or safety, not for turning away a buyer or renter because of who they are.`;
 }
 
 // Reports (POST /api/reports): a preset the server knows, or "Something else" with the person's own words.
@@ -882,7 +893,7 @@ function recentlyViewedHref(kind, id) {
 // never suggests a rate: until the visitor types one, the result stays "—".
 (function initMortgageCalculators() {
   document.querySelectorAll('.mortgage-calc').forEach(calc => {
-    const price = Number(calc.dataset.price) || 0;
+    const priceEl = calc.querySelector('.mc-price');
     const downPctEl = calc.querySelector('.mc-down-pct');
     const rateEl = calc.querySelector('.mc-rate');
     const termEl = calc.querySelector('.mc-term');
@@ -891,6 +902,7 @@ function recentlyViewedHref(kind, id) {
 
     function recompute() {
       if (String(rateEl.value).trim() === '') { outEl.textContent = '—'; return; }
+      const price = priceEl ? Math.max(Number(priceEl.value) || 0, 0) : (Number(calc.dataset.price) || 0);
       const downPct = Math.min(Math.max(Number(downPctEl.value) || 0, 0), 100);
       const rate = Math.max(Number(rateEl.value) || 0, 0);
       const years = Number(termEl.value) || 30;
@@ -900,7 +912,7 @@ function recentlyViewedHref(kind, id) {
       const payment = monthlyRate === 0 ? loanAmount / n : loanAmount * monthlyRate * Math.pow(1 + monthlyRate, n) / (Math.pow(1 + monthlyRate, n) - 1);
       outEl.textContent = Number.isFinite(payment) && payment > 0 ? money(Math.round(payment)) : '—';
     }
-    [downPctEl, rateEl, termEl].forEach(el => el.addEventListener('input', recompute));
+    [priceEl, downPctEl, rateEl, termEl].filter(Boolean).forEach(el => el.addEventListener('input', recompute));
     recompute();
   });
 })();

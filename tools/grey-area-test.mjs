@@ -177,7 +177,7 @@ const txBids = await mod('functions/api/transactions/[id]/bids/index.js');
 const txBid = await mod('functions/api/transactions/[id]/bids/[bidId].js');
 const txInvites = await mod('functions/api/transactions/[id]/invites.js');
 const txRateHomeowner = await mod('functions/api/transactions/[id]/review-homeowner.js');
-const DUAL = "One agent for both homes is dual agency and needs both owners' written consent. Each of you can choose your own agent.";
+const DUAL = "One agent for both homes, or two agents under the same brokerage, is dual agency and needs both owners' written consent. Each of you can choose your own agent.";
 r = await call(txIndex.onRequestPost, 'POST', '/api/transactions', 1, {}, { listingIdA: 101, listingIdB: 102, note: 'Lets trade' });
 const TX = r.json && r.json.id;
 const PT = { id: String(TX) };
@@ -367,12 +367,13 @@ check('the profile list never carries the address', (await pcrLib.fetchPastClien
 
 // ===================== 7. Terms acceptance stored at signup (#16) =====================
 const signup = await mod('functions/api/auth/signup.js');
+const { CURRENT_TERMS_VERSION } = await mod('functions/_lib/terms.js');
 r = await call(signup.onRequestPost, 'POST', '/api/auth/signup', null, {}, { email: 'new.person@example.test', displayName: 'New Person', intent: 'homeowner' });
 const nu = one("SELECT terms_version, terms_accepted_at FROM users WHERE email = 'new.person@example.test'");
-check("a new account records the Terms version 2026-11-04 and when it was accepted", [201, 202].includes(r.status) && nu && nu.terms_version === '2026-11-04' && !!nu.terms_accepted_at, r.text + JSON.stringify(nu));
+check("a new account records the Terms version 2026-11-05 (CURRENT_TERMS_VERSION) and when it was accepted", CURRENT_TERMS_VERSION === '2026-11-05' && [201, 202].includes(r.status) && nu && nu.terms_version === CURRENT_TERMS_VERSION && !!nu.terms_accepted_at, r.text + JSON.stringify(nu));
 run("UPDATE users SET terms_version = NULL, terms_accepted_at = NULL, verify_sent_at = NULL WHERE email = 'new.person@example.test'");
 r = await call(signup.onRequestPost, 'POST', '/api/auth/signup', null, {}, { email: 'new.person@example.test', displayName: 'New Person' });
-check('...signing up again while pending records it again', one("SELECT terms_version FROM users WHERE email = 'new.person@example.test'").terms_version === '2026-11-04');
+check('...signing up again while pending records it again', one("SELECT terms_version FROM users WHERE email = 'new.person@example.test'").terms_version === CURRENT_TERMS_VERSION);
 
 // ===================== 8. FinderMine without investment terms (decision 1) =====================
 const dpIndex = await mod('functions/api/dev-projects/index.js');
@@ -428,7 +429,7 @@ const html = mc.mortgageCalcHtml(650000);
 check('the payment widget starts with no rate ("your rate") and shows "—"', !/value="6\.75"/.test(html) && html.includes('placeholder="your rate"') && html.includes('<strong class="mc-monthly">—</strong>'));
 check('...labels the result "Your estimate (not an APR or a rate quote)" and says any lender is fine',
   html.includes('Your estimate (not an APR or a rate quote)') && html.includes('You are always free to choose any lender you like'));
-check('...and every input has a label for=', ['mcDownPct', 'mcRate', 'mcTerm'].every(i => html.includes(`for="${i}"`) && html.includes(`id="${i}"`)));
+check('...and every input has a label for=', ['mcPrice', 'mcDownPct', 'mcRate', 'mcTerm'].every(i => html.includes(`for="${i}"`) && html.includes(`id="${i}"`)));
 
 // ===================== 10. Team names (#23) =====================
 const teams = await mod('functions/_lib/agentTeams.js');
@@ -490,7 +491,7 @@ check("Rudy's own flyer doesn't claim he doesn't represent it", r.text.includes(
 // ===================== 13. Static pages (#2, #14, #16, #18, #22, #24) =====================
 const page = (f) => readFileSync(`${root}/${f}`, 'utf8');
 const terms = page('terms.html');
-check('Terms: dated November 4, 2026 and titled Terms of Use', terms.includes('November 4, 2026') && terms.includes('<title>Terms of Use — Amico Haus</title>'));
+check('Terms: dated November 5, 2026 (version 2026-11-05) and titled Terms of Use', terms.includes('Last updated November 5, 2026 (version 2026-11-05).') && terms.includes('<title>Terms of Use — Amico Haus</title>'));
 check('Terms: section 1 names who presents it and that Amico Haus does not represent you',
   terms.includes('Amico Haus is presented by Rudy Flores, a salesperson licensed under Coldwell Banker West (DRE #02257808). Amico Haus does not represent you; any agent, including Rudy, represents you only under a signed agreement with their brokerage.') && !terms.includes('is not a licensed real estate agent'));
 check('Terms: the fee wording (escrow at closing, never pay an agent personally, no payments)',
@@ -519,7 +520,9 @@ check('Past-client review page: address optional, the reworded note, star choice
   pcrHtml.includes('Street address (optional)') && pcrHtml.includes('Kept private. Amico Haus uses it only if a review is reported as fake, and never to contact you about real estate.') && !pcrHtml.includes('public sale records') && pcrHtml.includes('aria-label="5 stars"'));
 const mine = ['terms.html', 'about.html', 'demo.html', 'contact.html', 'signup.html', 'login.html', 'assumable-loans.html', 'profile.html', 'past-client-review.html', '404.html', 'admin-seed.html', 'forgot-password.html', 'reset-password.html', 'verify-email.html'];
 const FOOTER = '<p class="footer-legal">Equal Housing Opportunity · <a href="/accessibility">Accessibility</a></p>';
-const missingFooter = mine.filter(f => !page(f).includes(FOOTER));
+// L1.1 (F17): login.html carries the Terms and Privacy links in the same footer line (FOOTER_LEGAL_APP).
+const FOOTER_LEGAL_APP = '<p class="footer-legal"><a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · Equal Housing Opportunity · <a href="/accessibility">Accessibility</a></p>';
+const missingFooter = mine.filter(f => !page(f).includes(f === 'login.html' ? FOOTER_LEGAL_APP : FOOTER));
 check('every page this batch owns has the Equal Housing Opportunity footer line', missingFooter.length === 0, missingFooter.join(', '));
 // A <script> tag is fine only with a src= or as JSON-LD data (never run); no style="" and no on*= handlers anywhere.
 const inlineScript = (html) => (html.match(/<script\b[^>]*>/gi) || []).some(tag => !/\ssrc=/i.test(tag) && !/type="application\/ld\+json"/i.test(tag));

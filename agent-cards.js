@@ -96,7 +96,7 @@ function directoryAgentCardHtml(a, { favorite = false, message = false } = {}) {
         // No "verified" or "top rated" badges: the site never vouches for or ranks agents. The license reads "on file".
         nameHtml: `<a class="profile-link" href="/profile/${a.userId}">${escapeHtml(a.displayName)}</a>`,
         sub: [licenseOnFileLabel(a.licenseNumber), a.brokerageName, a.teamDisplayName || teamDisplayName(a.teamName)].filter(Boolean).join(' · '),
-        chips: [ratingChipHtml(a.rating, a.reviewCount), a.yearsExperience ? chipHtml(`${a.yearsExperience} yrs experience`, 'outline') : ''].filter(Boolean),
+        chips: [ratingChipHtml(a.rating, a.reviewCount), a.yearsExperience ? chipHtml(`${a.yearsExperience} yrs experience (self-reported)`, 'outline') : ''].filter(Boolean),
       })}
       ${agentDetailsHtml(directoryAgentInfo(a))}
       ${foundingCaptionHtml(a.foundingZips)}

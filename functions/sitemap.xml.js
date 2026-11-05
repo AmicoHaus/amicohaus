@@ -3,8 +3,11 @@
 // excluded (@demo.amicohaus.local) since indexing fake "for sale" homes
 // would be actively misleading, not just unhelpful. A suspended account's pages
 // return 404, so they're left out too. FinderMine project pages (/project/:id)
-// are sign-in only and noindex, so they're never listed here.
+// are sign-in only and noindex, so they're never listed here. Unlisted owners (unlistedOwnerSql in _lib/util.js:
+// the @resend.dev authz test accounts and the Google Play reviewer's sample listing) are left out too; their
+// pages still open by direct link but carry noindex.
 import { withSecurityHeaders } from './_lib/withSecurityHeaders.js';
+import { unlistedOwnerSql } from './_lib/util.js';
 
 const STATIC_URLS = [
   { loc: 'https://amicohaus.com/', freq: 'weekly', priority: '1.0' },
@@ -32,6 +35,7 @@ async function renderSitemap(context) {
   const listings = await db.prepare(
     `SELECT listings.id FROM listings JOIN users ON users.id = listings.user_id
      WHERE listings.status = 'active' AND users.email NOT LIKE '%@demo.amicohaus.local' AND users.status = 'active'
+       AND NOT ${unlistedOwnerSql('users.email')}
      ORDER BY listings.created_at DESC LIMIT 5000`
   ).all();
 
@@ -42,6 +46,7 @@ async function renderSitemap(context) {
   const augmentedHomes = await db.prepare(
     `SELECT augmented_homes.id FROM augmented_homes JOIN users ON users.id = augmented_homes.user_id
      WHERE augmented_homes.status = 'active' AND users.email NOT LIKE '%@demo.amicohaus.local' AND users.status = 'active'
+       AND NOT ${unlistedOwnerSql('users.email')}
      ORDER BY augmented_homes.created_at DESC LIMIT 5000`
   ).all();
   const augmentedHomeUrls = augmentedHomes.results.map(h => ({
@@ -51,6 +56,7 @@ async function renderSitemap(context) {
   const greenHomes = await db.prepare(
     `SELECT green_homes.id FROM green_homes JOIN users ON users.id = green_homes.user_id
      WHERE green_homes.status = 'active' AND users.email NOT LIKE '%@demo.amicohaus.local' AND users.status = 'active'
+       AND NOT ${unlistedOwnerSql('users.email')}
      ORDER BY green_homes.created_at DESC LIMIT 5000`
   ).all();
   const greenHomeUrls = greenHomes.results.map(h => ({
@@ -62,7 +68,8 @@ async function renderSitemap(context) {
   // actively promoted the same way, even though it stays crawlable if linked to from somewhere.
   const agents = await db.prepare(
     `SELECT agent_profiles.user_id FROM agent_profiles JOIN users ON users.id = agent_profiles.user_id
-     WHERE agent_profiles.status = 'approved' AND users.email NOT LIKE '%@demo.amicohaus.local' AND users.status = 'active'`
+     WHERE agent_profiles.status = 'approved' AND users.email NOT LIKE '%@demo.amicohaus.local' AND users.status = 'active'
+       AND NOT ${unlistedOwnerSql('users.email')}`
   ).all();
   const agentUrls = agents.results.map(a => ({
     loc: `https://amicohaus.com/profile/${a.user_id}`, freq: 'monthly', priority: '0.5',

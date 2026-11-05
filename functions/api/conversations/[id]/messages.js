@@ -19,7 +19,7 @@ async function loadConversationForParticipant(db, conversationId, userId) {
 // blockedByMe: the viewer blocked them (the composer turns off with an Unblock link). Never whether they blocked the viewer.
 async function describeOther(db, viewerId, otherId) {
   const row = await db.prepare(
-    `SELECT users.id, users.display_name, agent_profiles.status AS agent_status, agent_profiles.license_number, agent_profiles.brokerage_name
+    `SELECT users.id, users.display_name, users.role, agent_profiles.status AS agent_status, agent_profiles.license_number, agent_profiles.brokerage_name
      FROM users LEFT JOIN agent_profiles ON agent_profiles.user_id = users.id WHERE users.id = ?`
   ).bind(otherId).first();
   if (!row) return null;
@@ -27,7 +27,10 @@ async function describeOther(db, viewerId, otherId) {
   return {
     id: row.id,
     displayName: row.display_name,
-    agent: row.agent_status === 'approved' ? { licenseNumber: row.license_number || '', brokerageName: row.brokerage_name || '' } : null,
+    // isPlatformOperator: the account that runs Amico Haus (admin + approved agent), labeled in the thread header.
+    agent: row.agent_status === 'approved'
+      ? { licenseNumber: row.license_number || '', brokerageName: row.brokerage_name || '', isPlatformOperator: row.role === 'admin' }
+      : null,
     deliveryMode: decision.appliesToSender && !decision.exempt ? decision.mode : 'open',
     blockedByMe: await hasBlocked(db, viewerId, otherId),
   };
@@ -62,7 +65,7 @@ export async function onRequestGet(context) {
   ).bind(conversationId, user.id, now).run();
 
   const otherId = convo.user_a_id === user.id ? convo.user_b_id : convo.user_a_id;
-  return json({ messages, other: await describeOther(db, user.id, otherId) });
+  return json({ messages, other: await describeOther(db, user.id, otherId) }, { headers: { 'Cache-Control': 'private, no-store' } });
 }
 
 export async function onRequestPost(context) {

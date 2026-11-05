@@ -5,7 +5,7 @@
 // content for crawlers and first paint, and those scripts progressively enhance the buttons already in it.
 import { getSessionUser, phoneVisibleTo } from '../_lib/auth.js';
 import { fetchPastClientReviews, fetchPastClientSummary, PAST_CLIENT_SIDES } from '../_lib/pastClientReviews.js';
-import { escapeHtml, parseJsonSafe, DEMO_EMAIL_PATTERN } from '../_lib/util.js';
+import { escapeHtml, parseJsonSafe, DEMO_EMAIL_PATTERN, unlistedOwnerSql } from '../_lib/util.js';
 import { getAgentProfile, fetchAgentPortfolioPhotos, dreLookupUrl } from '../_lib/agents.js';
 import { fetchAgentReviews, fetchAgentRatingSummary, fetchAgentStats } from '../_lib/marketplace.js';
 import { fetchAgentPackages } from '../_lib/agentPackages.js';
@@ -30,6 +30,14 @@ const OPERATOR_LINE = 'Amico Haus is run by Rudy Flores, a Coldwell Banker West 
 const FEE_LINE = 'Each agent sets their own fees; commissions are negotiable and not set by law or by Amico Haus.';
 
 // Signed-out visitors can't message anyone, so they get the way in instead of a button that can only fail.
+// Report (fair housing or a rules problem) on a person, never on your own profile: signed-in visitors get the inline
+// report form (profile-actions.js); signed-out visitors are sent to the contact form.
+function reportUserHtml(viewer, isMine, userId) {
+  if (isMine) return '';
+  if (!viewer) return '<a class="link-btn" href="/contact">Report a concern</a>';
+  return `<span data-report-host><button type="button" class="link-btn" data-action="report-user" data-id="${Number(userId)}">Report</button></span>`;
+}
+
 const SIGN_UP_TO_MESSAGE = '<a class="btn btn-primary btn-sm" href="/signup">Sign up to message</a> <a class="btn btn-ghost btn-sm" href="/login">Log in</a>';
 
 function money(n) {
@@ -188,7 +196,8 @@ async function renderProfilePage(context) {
 
   const db = context.env.DB;
   const userRow = await db.prepare(
-    `SELECT id, display_name, bio, phone, phone_public, is_verified, role, created_at FROM users WHERE id = ? AND email NOT LIKE ? AND status = 'active'`
+    `SELECT id, display_name, bio, phone, phone_public, is_verified, role, created_at, ${unlistedOwnerSql('email')} AS is_test_account
+     FROM users WHERE id = ? AND email NOT LIKE ? AND status = 'active'`
   ).bind(id, DEMO_EMAIL_PATTERN).first();
   if (!userRow) return notFoundPage();
 
@@ -290,6 +299,7 @@ async function renderUserProfilePage(context, db, user, { viewer, isMine, isAdmi
         </div>
         ${isMine ? '<button type="button" class="btn btn-ghost btn-sm" id="editBioBtn">Edit Profile</button>' : ''}
         ${isMine ? '' : viewer ? `<button type="button" class="btn btn-primary btn-sm" id="messageUserBtn" data-id="${user.id}" data-name="${escapeHtml(user.display_name)}">Message</button>` : SIGN_UP_TO_MESSAGE}
+        ${reportUserHtml(viewer, isMine, user.id)}
         ${isAdmin ? `<button type="button" class="btn btn-ghost btn-sm" id="toggleVerifiedBtn" data-id="${user.id}" data-action="${user.is_verified ? 'unverify' : 'verify'}">${user.is_verified ? 'Clear admin "verified" note' : 'Admin note: verified (never shown publicly)'}</button>` : ''}
       </div>
       <div id="bioSection" data-bio="${escapeHtml(user.bio || '')}">
@@ -320,8 +330,9 @@ async function renderUserProfilePage(context, db, user, { viewer, isMine, isAdmi
 }
 
 function renderFinal(title, description, body, authCta, jsonLd, canonicalPath, options) {
+  const noindex = !!(options && options.noindex);
   return new Response(renderShell(title, description, body, authCta, jsonLd, canonicalPath, options), {
-    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    headers: { 'Content-Type': 'text/html; charset=utf-8', ...(noindex ? { 'X-Robots-Tag': 'noindex' } : {}) },
   });
 }
 
@@ -347,7 +358,6 @@ async function renderAgentProfilePage(context, db, user, agentProfile, { viewer,
     `${user.display_name} is an approved real estate agent on Amico Haus`,
     agentProfile.brokerageName ? ` with ${agentProfile.brokerageName}` : '',
     agentProfile.licenseNumber ? ` (DRE #${agentProfile.licenseNumber})` : '',
-    agentProfile.yearsExperience ? `, ${agentProfile.yearsExperience} years experience` : '',
     ratingSummary.avgRating ? `, rated ${ratingSummary.avgRating}/5 by ${ratingSummary.reviewCount} homeowner${ratingSummary.reviewCount === 1 ? '' : 's'} who hired them here` : '',
     '.',
   ].join('');
@@ -437,12 +447,13 @@ async function renderAgentProfilePage(context, db, user, agentProfile, { viewer,
         // The brokerage (and team) here and the DRE license line right below, as California requires wherever an
         // agent meets a homeowner.
         sub: [agentProfile.brokerageName, teamLabel(teamName)].filter(Boolean).join(' · '),
-        chips: [ratingChipHtml(ratingSummary.avgRating, ratingSummary.reviewCount), agentProfile.yearsExperience ? chipHtml(`${agentProfile.yearsExperience} yrs experience`, 'outline') : ''].filter(Boolean),
+        chips: [ratingChipHtml(ratingSummary.avgRating, ratingSummary.reviewCount), agentProfile.yearsExperience ? chipHtml(`${agentProfile.yearsExperience} yrs experience (self-reported)`, 'outline') : ''].filter(Boolean),
       })}
       ${licenseLineHtml(agentProfile.licenseNumber, agentProfile.licenseCheckedAt)}
       <div class="card-actions">
         ${isMine ? '' : viewer ? `<button type="button" class="btn btn-primary btn-sm" id="messageUserBtn" data-id="${user.id}" data-name="${escapeHtml(user.display_name)}">Message</button>` : SIGN_UP_TO_MESSAGE}
         ${viewer && !isMine ? `<button type="button" class="btn btn-ghost btn-sm" id="favoriteAgentBtn" data-id="${user.id}">${isFavorited ? '★ Favorited' : '☆ Favorite'}</button>` : ''}
+        ${reportUserHtml(viewer, isMine, user.id)}
         ${isAdmin ? `<button type="button" class="btn btn-ghost btn-sm" id="toggleVerifiedBtn" data-id="${user.id}" data-action="${user.is_verified ? 'unverify' : 'verify'}">${user.is_verified ? 'Clear admin "verified" note' : 'Admin note: verified (never shown publicly)'}</button>` : ''}
       </div>
       ${phone ? `<p class="tiny"><span class="label">Phone</span> <a href="tel:${escapeHtml(phone.replace(/[^0-9+]/g, ''))}">${escapeHtml(phone)}</a></p>` : ''}
@@ -470,5 +481,6 @@ async function renderAgentProfilePage(context, db, user, agentProfile, { viewer,
     ...(agentProfile.bio ? { description: agentProfile.bio.slice(0, 500) } : {}),
     ...(ratingSummary.avgRating ? { aggregateRating: { '@type': 'AggregateRating', ratingValue: ratingSummary.avgRating, reviewCount: ratingSummary.reviewCount } } : {}),
   };
-  return renderFinal(title, description, body, authCta, jsonLd, `/profile/${user.id}`);
+  // The authz test agents (@resend.dev) and the Google Play reviewer's sample stay out of search (Rudy 11.05).
+  return renderFinal(title, description, body, authCta, jsonLd, `/profile/${user.id}`, { noindex: !!user.is_test_account });
 }

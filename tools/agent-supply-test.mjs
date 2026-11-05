@@ -79,7 +79,11 @@ const f2 = sqlite.prepare("SELECT zip FROM founding_agents WHERE agent_user_id =
 check('approving an agent in a launch ZIP makes them a founding agent there', r.status === 200 && f2.join() === '91913', JSON.stringify(f2));
 const note2 = sqlite.prepare("SELECT body FROM notifications WHERE user_id = 2 ORDER BY id DESC").get();
 check('the approval message says which ZIPs they are a founding agent in', note2 && /founding agent in 91913/.test(note2.body), note2 && note2.body);
-const approve = (id, lic) => call(decide.onRequestPut, 'PUT', '/x', 1, { id: String(id) }, { decision: 'approve', licenseNumber: lic });
+// L1.1 (F3): approving needs the DRE check first, so the helper marks the license checked, then approves.
+const approve = async (id, lic) => {
+  await call(verify.onRequestPut, 'PUT', '/x', 1, { id: String(id) }, { verified: true, licenseNumber: lic });
+  return call(decide.onRequestPut, 'PUT', '/x', 1, { id: String(id) }, { decision: 'approve', licenseNumber: lic });
+};
 for (const id of [3, 4, 5]) {
   await call(apply.onRequestPost, 'POST', '/x', id, null, { acceptRules: true, brokerageName: `Realty ${id}`, licenseNumber: `0100000${id}`, serviceZips: ['91913', '92104'] });
   await approve(id, `0100000${id}`);
@@ -88,6 +92,8 @@ const f913 = sqlite.prepare("SELECT agent_user_id FROM founding_agents WHERE zip
 check('only the first 3 approved agents get founding spots in a ZIP', f913.join() === '2,3,4', JSON.stringify(f913));
 check('ZIPs outside the launch area never get founding spots', sqlite.prepare("SELECT COUNT(*) AS n FROM founding_agents WHERE zip = '92104'").get().n === 0);
 await call(apply.onRequestPost, 'POST', '/x', 6, null, { acceptRules: true, brokerageName: 'Realty 6', licenseNumber: '01000006', serviceZips: ['91902'] });
+r = await call(decide.onRequestPut, 'PUT', '/x', 1, { id: '6' }, { decision: 'approve', licenseNumber: '01000006' });
+check('approving before the license is checked on the DRE is refused (409 license_not_checked)', r.status === 409 && r.json && r.json.code === 'license_not_checked' && sqlite.prepare('SELECT status FROM agent_profiles WHERE user_id = 6').get().status === 'pending', JSON.stringify(r));
 check('a pending application gets no founding spot', sqlite.prepare('SELECT COUNT(*) AS n FROM founding_agents WHERE agent_user_id = 6').get().n === 0);
 await approve(6, '01000006');
 await call(apply.onRequestPost, 'POST', '/x', 5, null, { acceptRules: true, brokerageName: 'Realty 5', licenseNumber: '01000005', serviceZips: ['91913', '91902'] });

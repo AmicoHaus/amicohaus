@@ -14,6 +14,11 @@
 //   EMAIL_DEV_LOG=1 - print the email to the console instead of sending it and
 //                     report success, so sign-up links can be followed while
 //                     developing locally. Never set this in production.
+// The sender's identity and a postal address, at the bottom of recurring emails (the Monday scorecard, held-email
+// bundles): CAN-SPAM wants a valid physical postal address in commercial email, and the DRE wants the licensee's name,
+// license number and broker on it.
+export const EMAIL_POSTAL_LINE = 'Amico Haus · Rudy Flores, Realtor® · DRE #02257808 · Coldwell Banker West, 2300 Boswell Rd, Suite 100, Chula Vista, CA 91914';
+
 export async function sendEmail(context, { to, subject, text, html }) {
   if (context.env.EMAIL_DEV_LOG === '1') {
     console.log(`[email dev log] to ${to}: ${subject}

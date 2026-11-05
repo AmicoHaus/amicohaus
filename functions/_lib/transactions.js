@@ -3,9 +3,9 @@ import { matchScore, rowsToProfiles, MATCH_THRESHOLD } from './matching.js';
 import { isEitherBlocked, notBlockedSql } from './blocks.js';
 
 // Home trades (Rudy 11.04): the partner who didn't open the request confirms it (partner_confirmed_at) before
-// approved agents are told about it, can see it, send a proposal or get hired. One agent for both homes is dual
-// agency, so this line goes with every trade proposal and in the Terms.
-export const DUAL_AGENCY_LINE = "One agent for both homes is dual agency and needs both owners' written consent. Each of you can choose your own agent.";
+// approved agents are told about it, can see it, send a proposal or get hired. One agent for both homes, or two
+// agents under the same brokerage, is dual agency, so this line goes with every trade proposal and in the Terms.
+export const DUAL_AGENCY_LINE = "One agent for both homes, or two agents under the same brokerage, is dual agency and needs both owners' written consent. Each of you can choose your own agent.";
 export const PARTNER_CONFIRM_FIRST = 'Your trade partner needs to confirm this trade request first.';
 
 const LISTING_FIELDS = `listings.id, listings.user_id, listings.city, listings.state, listings.neighborhood,
@@ -56,7 +56,16 @@ export async function openTransactionRequest(db, openedByUserId, listingId1, lis
     return { error: "These two listings aren't actually a mutual match." };
   }
 
-  const existing = await db.prepare('SELECT id, opened_by_user_id, partner_confirmed_at FROM transaction_requests WHERE listing_a_id = ? AND listing_b_id = ?').bind(lowId, highId).first();
+  const existing = await db.prepare('SELECT id, status, opened_by_user_id, partner_confirmed_at FROM transaction_requests WHERE listing_a_id = ? AND listing_b_id = ?').bind(lowId, highId).first();
+  if (existing && existing.status === 'closed') {
+    // Closed (e.g. when one of them blocked the other, blocks/index.js): asking again starts it over, opened by this
+    // person, and the partner confirms again before any agent hears about it.
+    await db.prepare(
+      `UPDATE transaction_requests SET status = 'open', opened_by_user_id = ?, partner_confirmed_at = NULL, awarded_bid_id = NULL,
+         note = ?, updated_at = datetime('now') WHERE id = ?`
+    ).bind(openedByUserId, clampString(note, 1000), existing.id).run();
+    return { id: existing.id, isNew: true, confirmedNow: false };
+  }
   if (existing) {
     // Asking again updates the note. When the other partner asks for the same trade, both of them want it: that's
     // the confirmation.

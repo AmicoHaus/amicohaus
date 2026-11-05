@@ -32,8 +32,9 @@ export async function onRequestGet(context) {
   if (access === 'agents_only') return agentsOnly();
   if (access === 'hidden') return notFound('Pre-listing not found.');
   // Notes for agents go only to the owner, admins, the agent they hired and agents they shared their contact info
-  // with, not to every approved agent.
-  let canSeeInstructions = isOwner || user.role === 'admin';
+  // with, not to every approved agent. The operator account (admin + approved agent) is treated like any other agent
+  // here (Rudy 11.05); an admin with no agent profile keeps seeing them.
+  let canSeeInstructions = isOwner || (user.role === 'admin' && !isApprovedAgentViewer);
   if (!canSeeInstructions && row.awarded_bid_id) {
     const hired = await db.prepare('SELECT agent_user_id FROM service_bids WHERE id = ?').bind(row.awarded_bid_id).first();
     canSeeInstructions = !!hired && hired.agent_user_id === user.id;

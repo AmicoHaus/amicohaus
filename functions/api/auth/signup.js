@@ -2,13 +2,13 @@ import { getClientIp, isRateLimited, recordAttempt, generateReferralCode } from 
 import { json, badRequest, clampString } from '../../_lib/util.js';
 import { sendConfirmationLink } from '../../_lib/emailConfirmation.js';
 import { sanitizeAttribution } from '../../_lib/attribution.js';
+import { CURRENT_TERMS_VERSION } from '../../_lib/terms.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-// The Terms of Use / Privacy Policy version this release asks people to agree to. signup.html says "By tapping Email
-// Me a Link you agree to the Terms of Use and Privacy Policy." right above the button, so every signup records which
-// version they agreed to and when (users.terms_version / terms_accepted_at, migration_v43).
-const TERMS_VERSION = '2026-11-04';
+// signup.html says "By tapping Email Me a Link you agree to the Terms of Use and Privacy Policy." right above the
+// button, so every signup records which version they agreed to and when (users.terms_version / terms_accepted_at,
+// migration_v43). The version lives in _lib/terms.js (CURRENT_TERMS_VERSION), shared with /api/me and accept-terms.
 
 // Signing up only needs a name and an email. The account is created "pending"
 // (no password, no session) and an emailed link finishes it: opening the link
@@ -58,7 +58,7 @@ export async function onRequestPost(context) {
     await db.prepare(
       `UPDATE users SET display_name = ?, signup_intent = COALESCE(?, signup_intent), signup_source = COALESCE(signup_source, ?), created_at = datetime('now'),
          terms_version = ?, terms_accepted_at = datetime('now') WHERE id = ?`
-    ).bind(displayName, intent || null, source, TERMS_VERSION, userId).run();
+    ).bind(displayName, intent || null, source, CURRENT_TERMS_VERSION, userId).run();
     // At most one delivered email per address every couple of minutes (like resend-confirmation), so repeat signups
     // can't flood an inbox or keep replacing the code someone is about to type. A send that failed doesn't count.
     const recent = await db.prepare("SELECT 1 FROM users WHERE id = ? AND verify_sent_at > datetime('now', '-2 minutes')").bind(userId).first();
@@ -75,7 +75,7 @@ export async function onRequestPost(context) {
       `INSERT INTO users (email, password_hash, display_name, role, referral_code, referred_by, email_confirmation_pending, signup_intent, signup_source,
          terms_version, terms_accepted_at)
        VALUES (?, NULL, ?, 'user', ?, ?, 1, ?, ?, ?, datetime('now'))`
-    ).bind(email, displayName, code, referredBy, intent || null, source, TERMS_VERSION).run();
+    ).bind(email, displayName, code, referredBy, intent || null, source, CURRENT_TERMS_VERSION).run();
 
     let result;
     try {

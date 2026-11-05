@@ -17,10 +17,10 @@ export async function onRequestGet(context) {
 
   if (listing.user_id === user.id) {
     const offers = await fetchOffersForOwner(db, id);
-    return json({ offers, myOffer: null, isOwner: true });
+    return json({ offers, myOffer: null, isOwner: true }, { headers: { 'Cache-Control': 'private, no-store' } });
   }
   const myOffer = await fetchMyOffer(db, id, user.id);
-  return json({ offers: null, myOffer, isOwner: false });
+  return json({ offers: null, myOffer, isOwner: false }, { headers: { 'Cache-Control': 'private, no-store' } });
 }
 
 export async function onRequestPost(context) {

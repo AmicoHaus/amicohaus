@@ -62,11 +62,16 @@ export async function sendPushUnlessQuiet(context, userId, nowMs = Date.now()) {
   return sendPushToUser(context, userId);
 }
 
+// The label on everything from the account that runs Amico Haus (an admin who is also an approved agent): its
+// proposals, price opinions, messages and posts, and the alerts about them.
+export const OPERATOR_LABEL = 'Platform operator: runs Amico Haus';
+
 // The DRE identity of a person for a point of contact: name, and (for an approved agent) license number and
-// brokerage. licenseNumber/brokerageName are '' for anyone else.
+// brokerage. licenseNumber/brokerageName are '' for anyone else. isOperator: the approved agent is also the admin
+// account that runs Amico Haus, so alerts about them carry OPERATOR_LABEL.
 export async function fetchAgentIdentity(db, userId) {
   const row = await db.prepare(
-    `SELECT users.display_name, agent_profiles.status AS agent_status, agent_profiles.license_number, agent_profiles.brokerage_name
+    `SELECT users.display_name, users.role, agent_profiles.status AS agent_status, agent_profiles.license_number, agent_profiles.brokerage_name
      FROM users LEFT JOIN agent_profiles ON agent_profiles.user_id = users.id WHERE users.id = ?`
   ).bind(userId).first();
   if (!row) return null;
@@ -76,18 +81,20 @@ export async function fetchAgentIdentity(db, userId) {
     isAgent: approved,
     licenseNumber: approved ? String(row.license_number || '').trim() : '',
     brokerageName: approved ? String(row.brokerage_name || '').trim() : '',
+    isOperator: approved && row.role === 'admin',
   };
 }
 
 // "Name · DRE #01234567 · Brokerage", leaving out a missing part and its dot. onFile (pages, cards and flyers):
 // "DRE #01234567 on file", never "verified": the site doesn't vouch for anyone's license status today.
-export function identityLine({ name, licenseNumber, brokerageName }, { onFile = false } = {}) {
-  return [name, licenseNumber ? `DRE #${licenseNumber}${onFile ? ' on file' : ''}` : '', brokerageName].filter(Boolean).join(' · ');
+// isOperator adds " · Platform operator: runs Amico Haus" (fetchAgentIdentity sets it; flyers and pages don't).
+export function identityLine({ name, licenseNumber, brokerageName, isOperator = false }, { onFile = false } = {}) {
+  return [name, licenseNumber ? `DRE #${licenseNumber}${onFile ? ' on file' : ''}` : '', brokerageName, isOperator ? OPERATOR_LABEL : ''].filter(Boolean).join(' · ');
 }
 
 // "Name (DRE #01234567, Brokerage)" for message alerts; just the name when neither is on file.
-export function identityParens({ name, licenseNumber, brokerageName }) {
-  const extra = [licenseNumber ? `DRE #${licenseNumber}` : '', brokerageName].filter(Boolean).join(', ');
+export function identityParens({ name, licenseNumber, brokerageName, isOperator = false }) {
+  const extra = [licenseNumber ? `DRE #${licenseNumber}` : '', brokerageName, isOperator ? 'platform operator: runs Amico Haus' : ''].filter(Boolean).join(', ');
   return extra ? `${name} (${extra})` : name;
 }
 

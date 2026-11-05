@@ -5,13 +5,15 @@ import { isEitherBlocked } from './blocks.js';
 import { json } from './util.js';
 
 // A pre-listing shows the inside of a home that isn't on the market yet, so only these people open one:
-// - the owner and admins: everything, as before, except that an admin who also competes as an approved agent (the
-//   operator account) respects a block like any other agent (Fair Play);
+// - the owner and admins: everything, as before. The operator account (an admin who is also an approved agent, so it
+//   competes for homes) sees exactly what any other agent sees (Rudy 11.05): blocks, suspended owners and closed
+//   pre-listings it never took part in apply to it too. Moderation is done from an admin account with no agent
+//   profile, which keeps full access;
 // - an approved agent: any open pre-listing, and one that's since been awarded or closed only if they took part in
 //   it (a proposal, a price vote or opinion, an invite from the owner, an interview). Never across a block, either
 //   way: they get the same 404 as a home that doesn't exist, never "you're blocked";
 // - anyone else signed in (homeowners, buyers, pending or rejected applicants): only the browse teaser.
-// A suspended owner's pre-listing is gone (404) for everyone but the owner and admins.
+// A suspended owner's pre-listing is gone (404) for everyone but the owner and admins without an agent profile.
 // row: the pre_listings row ({ id, user_id, status }). Returns access 'ok', 'hidden' (answer 404) or 'agents_only'
 // (answer agentsOnly()), plus what the caller needs to shape the answer.
 export async function preListingAccess(db, user, row) {
@@ -22,10 +24,10 @@ export async function preListingAccess(db, user, row) {
   const isApprovedAgent = !!agentProfile && agentProfile.status === 'approved';
   let access = 'ok';
   if (!isOwner) {
-    if (!isAdmin && !(await ownerIsActive(db, row.user_id))) access = 'hidden';
+    if ((!isAdmin || isApprovedAgent) && !(await ownerIsActive(db, row.user_id))) access = 'hidden';
     else if (!isAdmin && !isApprovedAgent) access = 'agents_only';
     else if (isApprovedAgent && await isEitherBlocked(db, user.id, row.user_id)) access = 'hidden';
-    else if (!isAdmin && row.status !== 'open' && !(await agentTookPart(db, row.id, user.id))) access = 'hidden';
+    else if ((!isAdmin || isApprovedAgent) && row.status !== 'open' && !(await agentTookPart(db, row.id, user.id))) access = 'hidden';
   }
   return { access, isOwner, isAdmin, agentProfile, isApprovedAgent };
 }

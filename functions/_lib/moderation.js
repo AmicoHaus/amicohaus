@@ -36,6 +36,22 @@ export async function unhideContent(db, kind, id) {
   return !!(r.meta && r.meta.changes);
 }
 
+// Pauses a listing for moderation (hidden_at marks it, so its owner can't simply reactivate it, see listings/[id].js
+// PUT) and tells the owner why. Shared by the report queue (admin/reports/[id].js hide_target) and an admin pausing
+// someone's listing directly (listings/[id].js PUT), so both send the same notice. A listing that was already paused
+// by moderation keeps its first date and gets the new reason, without a second notice. Returns true when it was
+// newly paused (the notice went out), false when it was already paused or doesn't exist.
+export async function pauseListingForModeration(db, listingId, reason) {
+  const row = await db.prepare('SELECT user_id, hidden_at FROM listings WHERE id = ?').bind(listingId).first();
+  if (!row) return false;
+  await db.prepare("UPDATE listings SET status = 'paused', hidden_at = COALESCE(hidden_at, datetime('now')), hidden_reason = ?, updated_at = datetime('now') WHERE id = ?")
+    .bind(reason, listingId).run();
+  if (row.hidden_at) return false;
+  await db.prepare("INSERT INTO notifications (user_id, type, body, link) VALUES (?, 'moderation', ?, '/app')")
+    .bind(row.user_id, `Your listing was paused by Amico Haus: ${reason}`).run();
+  return true;
+}
+
 // The owner of the home or project a deal-thread post belongs to (dealThreads.js), or null for a feed or group post.
 export async function threadOwnerId(db, postId) {
   const row = await db.prepare(
@@ -96,11 +112,16 @@ export async function reasonFrom(request) {
 export function authorAgentJoin(userCol) {
   return `LEFT JOIN agent_profiles author_agent ON author_agent.user_id = ${userCol} AND author_agent.status = 'approved'`;
 }
-export const AUTHOR_AGENT_COLUMNS = 'author_agent.license_number AS author_license, author_agent.brokerage_name AS author_brokerage, author_agent.user_id AS author_agent_id';
+// author_role marks the account that runs Amico Haus (an admin who is also an approved agent), so its posts and
+// comments carry the "Platform operator: runs Amico Haus" label (isPlatformOperator).
+export const AUTHOR_AGENT_COLUMNS = 'author_agent.license_number AS author_license, author_agent.brokerage_name AS author_brokerage, author_agent.user_id AS author_agent_id, (SELECT role FROM users author_u WHERE author_u.id = author_agent.user_id) AS author_role';
 
 export function authorAgentFrom(row) {
   if (!row.author_agent_id) return null;
-  return { licenseNumber: String(row.author_license || '').trim(), brokerageName: String(row.author_brokerage || '').trim() };
+  return {
+    licenseNumber: String(row.author_license || '').trim(), brokerageName: String(row.author_brokerage || '').trim(),
+    isPlatformOperator: row.author_role === 'admin',
+  };
 }
 
 // Shapes a post or comment row for the API: the agent identity, and the hidden state only for the author or an

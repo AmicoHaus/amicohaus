@@ -4,7 +4,8 @@ import { confirmTransactionRequest, notifyOpenerConfirmed } from '../../../_lib/
 import { notifyAgentsNewRequest } from '../../../_lib/marketplaceNotify.js';
 
 // POST: the partner who didn't open the trade request confirms it. Only then do approved agents hear about it, see
-// it, send proposals, or get hired (one agent for both homes is dual agency and needs both owners).
+// it, send proposals, or get hired (one agent for both homes, or two agents under the same brokerage, is dual agency
+// and needs both owners).
 export async function onRequestPost(context) {
   const user = await getSessionUser(context);
   if (!user) return unauthorized();

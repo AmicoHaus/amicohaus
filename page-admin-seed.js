@@ -161,7 +161,7 @@ async function loadLicenseRechecks() {
     el.innerHTML = sorted.length ? sorted.map(a => {
       const checked = a.licenseVerified && a.licenseCheckedAt;
       return `
-      <div class="card" data-id="${a.userId}" data-license="${escapeHtml(a.licenseNumber)}">
+      <div class="card" data-id="${a.userId}" data-license="${escapeHtml(a.licenseNumber)}" data-brokerage="${escapeHtml(a.brokerageName || '')}">
         <div class="card-head"><h3>${escapeHtml(a.displayName)}</h3><span class="badge ${checked ? 'badge-gold' : 'badge-paused'}">${checked ? `Checked ${escapeHtml(new Date(a.licenseCheckedAt + 'Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }))}` : 'Not checked'}</span></div>
         <p class="tiny">DRE #${escapeHtml(a.licenseNumber)} · ${escapeHtml(a.brokerageName)} · <a href="${escapeHtml(dreRecordUrl(a.licenseNumber))}" target="_blank" rel="noopener noreferrer">Open the DRE record →</a></p>
         <div class="card-actions">
@@ -260,7 +260,7 @@ async function loadAgentApplications() {
     const { applications, rejectionReasons: reasons } = await apiGet('/api/admin/agent-applications?status=pending');
     if (Array.isArray(reasons)) rejectionReasons = reasons;
     el.innerHTML = applications.length ? applications.map(a => `
-      <div class="card" data-id="${a.userId}" data-license="${escapeHtml(a.licenseNumber)}">
+      <div class="card" data-id="${a.userId}" data-license="${escapeHtml(a.licenseNumber)}" data-brokerage="${escapeHtml(a.brokerageName || '')}">
         <div class="card-head">
           <h3>${escapeHtml(a.displayName)}</h3>
           <span class="badge badge-gold">${escapeHtml(a.email)}</span>
@@ -382,17 +382,18 @@ async function loadAuditLog() {
     const card = btn.closest('[data-id]');
     const userId = card.dataset.id;
     const licenseNumber = card.dataset.license;
+    const brokerageName = card.dataset.brokerage;
     try {
       if (btn.dataset.action === 'approve-agent') {
         if (!confirm(`Did you open the DRE record for #${licenseNumber} and see LICENSED, a matching name, no expiration and the right broker?`)) return;
-        await apiPut(`/api/admin/agent-applications/${userId}/verify-license`, { verified: true, licenseNumber });
+        await apiPut(`/api/admin/agent-applications/${userId}/verify-license`, { verified: true, licenseNumber, brokerageName });
         await apiPut(`/api/admin/agent-applications/${userId}`, { decision: 'approve', licenseNumber });
         toast('Agent approved.');
       } else if (btn.dataset.action === 'reject-agent') {
         await apiPut(`/api/admin/agent-applications/${userId}`, { decision: 'reject', ...rejectionFrom(card) });
         toast('Agent application rejected.');
       } else if (btn.dataset.action === 'verify-license') {
-        await apiPut(`/api/admin/agent-applications/${userId}/verify-license`, { verified: true, licenseNumber });
+        await apiPut(`/api/admin/agent-applications/${userId}/verify-license`, { verified: true, licenseNumber, brokerageName });
         toast('License marked checked.');
       } else if (btn.dataset.action === 'unverify-license') {
         await apiPut(`/api/admin/agent-applications/${userId}/verify-license`, { verified: false });
@@ -411,7 +412,7 @@ async function loadAuditLog() {
     const licenseNumber = card.dataset.license;
     try {
       if (btn.dataset.action === 'recheck-license') {
-        await apiPut(`/api/admin/agent-applications/${userId}/verify-license`, { verified: true, licenseNumber });
+        await apiPut(`/api/admin/agent-applications/${userId}/verify-license`, { verified: true, licenseNumber, brokerageName });
         toast('License marked as checked today.');
       } else if (btn.dataset.action === 'unverify-license') {
         if (!confirm('Remove the DRE check from this agent? Their profile will stop saying the license was checked.')) return;

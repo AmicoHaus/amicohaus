@@ -4,6 +4,15 @@
 // membership, since a demo account has no password and can never reply.
 export const DEMO_EMAIL_PATTERN = '%@demo.amicohaus.local';
 
+// Accounts whose pages still open by direct link but stay out of search, the sitemap and the public counts (Rudy 11.05):
+// the authz test accounts (tools/authz-test.js signs up @resend.dev addresses) and the Google Play reviewer's sample
+// listing. The listing directory leaves out only the reviewer sample (the authz suite checks its test agent is listed).
+export const TEST_EMAIL_PATTERN = '%@resend.dev';
+export const REVIEW_SAMPLE_EMAIL = 'playstore-review@amicohaus.com';
+export function unlistedOwnerSql(emailCol) {
+  return `(lower(${emailCol}) LIKE '${TEST_EMAIL_PATTERN}' OR lower(${emailCol}) = '${REVIEW_SAMPLE_EMAIL}')`;
+}
+
 // Rough math behind rental matches (functions/_lib/matching.js): the seller's own home value, less a rough share
 // for selling costs, divided by a year's rent. It's only used to decide whether a rental is worth showing as a
 // match, never as advice. The site no longer adds any "extra time for paying it as a lump sum" (Rudy 11.04): a

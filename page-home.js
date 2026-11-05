@@ -167,8 +167,10 @@ function loadLeaflet() {
     });
     // A retry after a partial failure only adds back what didn't load.
     const cssLoaded = [...document.styleSheets].some(sheet => (sheet.href || '').startsWith(`${LEAFLET_BASE}leaflet`));
-    const css = Object.assign(document.createElement('link'), { rel: 'stylesheet', href: `${LEAFLET_BASE}leaflet.min.css` });
-    const script = Object.assign(document.createElement('script'), { src: `${LEAFLET_BASE}leaflet.min.js` });
+    // Subresource Integrity: the browser refuses either file if cdnjs ever serves different bytes. Integrity and
+    // crossOrigin are set before href/src (Object.assign sets keys in order).
+    const css = Object.assign(document.createElement('link'), { rel: 'stylesheet', integrity: 'sha512-h9FcoyWjHcOcmEVkxOfTLnmZFWIH0iZhZT1H2TbOq55xssQGEJHEaIm+PgoUaZbRvQTNTluNOEfb1ZRy6D3BOw==', crossOrigin: 'anonymous', href: `${LEAFLET_BASE}leaflet.min.css` });
+    const script = Object.assign(document.createElement('script'), { integrity: 'sha512-puJW3E/qXDqYp9IfhAI54BJEaWIfloJ7JWs7OeD5i6ruC9JZL1gERT1wjtwXFlh7CjE7ZJ+/vcRZRkIYIb6p4g==', crossOrigin: 'anonymous', src: `${LEAFLET_BASE}leaflet.min.js` });
     leafletLoading = Promise.all([cssLoaded ? null : load(css), typeof L !== 'undefined' ? null : load(script)])
       .then(() => { L.Icon.Default.imagePath = `${LEAFLET_BASE}images/`; leafletReady = true; })
       .catch((err) => { leafletLoading = null; throw err; });

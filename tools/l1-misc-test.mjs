@@ -141,7 +141,12 @@ exec("UPDATE users SET email = 'u13@example.test', status = 'suspended' WHERE id
 await savedLib.notifySavedSearches(DB, { id: 998, user_id: 13, city: 'Chula Vista', state: 'CA', neighborhood: '', property_type: 'Condo', estimated_value: 700000 });
 exec("UPDATE users SET status = 'active' WHERE id = 13");
 check("a demo or suspended owner's listing alerts nobody", q("SELECT id FROM notifications WHERE type = 'saved_search'").length === before);
-r = await call(bulkApi.onRequestPost, 'POST', '/api/listings/bulk', 1, {}, { listings: [
+// L1.1 (Y1): bulk upload is for approved agents only, so a homeowner's is refused and a new approved agent (15) uploads.
+r = await call(bulkApi.onRequestPost, 'POST', '/api/listings/bulk', 1, {}, { listings: [{ ...trade, neighborhood: '', title: 'BX', estimatedValue: 600000 }] });
+check("a homeowner's bulk upload is refused (403) and saves nothing", r.status === 403 && !one("SELECT 1 AS x FROM listings WHERE title = 'BX'"), r.text);
+user(15, 'Bulk Agent');
+exec("INSERT INTO agent_profiles (user_id, status, license_number, brokerage_name, license_verified) VALUES (15, 'approved', '01500015', 'Bulk Realty', 1)");
+r = await call(bulkApi.onRequestPost, 'POST', '/api/listings/bulk', 15, {}, { listings: [
   { ...trade, neighborhood: '', title: 'B1', estimatedValue: 600000 }, { ...trade, neighborhood: '', title: 'B2', estimatedValue: 610000 },
   { ...trade, neighborhood: '', title: 'B3', estimatedValue: 620000 }, { city: '' }] });
 const firstBulk = r.json.results[0].id;
@@ -375,7 +380,7 @@ exec('DELETE FROM founding_agents WHERE agent_user_id = 24');
 r = await call(usersAdmin.onRequestPost, 'POST', '/x', 8, { id: '21' }, { action: 'suspend' });
 r = await call(usersAdmin.onRequestPost, 'POST', '/x', 8, { id: '21' }, { action: 'unsuspend' });
 check('...and gets a spot again when one is open', r.status === 200 && r.json.foundingZips.join() === '91902');
-exec("INSERT INTO agent_profiles (user_id, status, license_number, brokerage_name, service_zips_json, rules_version) VALUES (26, 'pending', '06000026', 'Realty', '[\"91913\"]', '2026-11-04')");
+exec("INSERT INTO agent_profiles (user_id, status, license_number, brokerage_name, service_zips_json, rules_version, license_verified) VALUES (26, 'pending', '06000026', 'Realty', '[\"91913\"]', '2026-11-04', 1)"); // checked on the DRE (L1.1: approval needs it)
 r = await call(decide.onRequestPut, 'PUT', '/x', 8, { id: '26' }, { decision: 'approve', licenseNumber: '06000026' });
 const n26 = one("SELECT body FROM notifications WHERE user_id = 26 ORDER BY id DESC");
 check('the approval message keeps saying founding is recognition only', r.status === 200 && /founding agent in 91913/.test(n26.body) && /recognition only/.test(n26.body), n26 && n26.body);

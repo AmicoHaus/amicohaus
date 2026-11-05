@@ -24,8 +24,9 @@ export async function onRequestGet(context) {
 }
 
 // A block takes effect right away, both ways: shared contact info is unshared, the blocked person's RSVPs to the
-// other's upcoming broker previews are removed, waiting showing requests and open interviews are canceled, and
-// waiting invites are declined. Nobody is told. Proposals, price votes and opinions stay stored (the owner's lists
+// other's upcoming broker previews are removed, waiting showing requests and open interviews are canceled, waiting
+// invites are declined, and an open home-trade request between the two of them is closed (asking for that trade
+// again after an unblock starts it over, and the partner confirms again). Nobody is told. Proposals, price votes and opinions stay stored (the owner's lists
 // just leave them out), so unblocking brings those back; the rest doesn't come back.
 export async function onRequestPost(context) {
   const user = await getSessionUser(context);
@@ -58,6 +59,8 @@ export async function onRequestPost(context) {
             WHERE (p.user_id = ?1 AND i.agent_user_id = ?2) OR (p.user_id = ?2 AND i.agent_user_id = ?1))`),
     pair(`UPDATE agent_invites SET status = 'declined'
           WHERE status = 'pending' AND ((invited_by_user_id = ?1 AND agent_user_id = ?2) OR (invited_by_user_id = ?2 AND agent_user_id = ?1))`),
+    pair(`UPDATE transaction_requests SET status = 'closed', updated_at = datetime('now')
+          WHERE status = 'open' AND ((user_a_id = ?1 AND user_b_id = ?2) OR (user_a_id = ?2 AND user_b_id = ?1))`),
   ]);
   return json({ ok: true }, { status: 201 });
 }

@@ -15,11 +15,12 @@ export const FOUNDING_SPOTS = 3;
 
 // The founding agents who currently hold a spot: an approved, active, real (non-demo) agent who still lists that ZIP
 // in their service area, the first FOUNDING_SPOTS of them per ZIP in the order they were granted. A spot lasts while
-// all of that stays true. Used as a subquery (zip, agent_user_id), so every count and chip agrees.
+// all of that stays true. The account that runs Amico Haus (an admin) never takes a founding spot (Rudy 11.05).
+// Used as a subquery (zip, agent_user_id), so every count and chip agrees.
 export const LIVE_FOUNDERS_SQL = `SELECT zip, agent_user_id FROM (
   SELECT fa.zip, fa.agent_user_id, ROW_NUMBER() OVER (PARTITION BY fa.zip ORDER BY fa.id) AS rn
   FROM founding_agents fa JOIN agent_profiles ap ON ap.user_id = fa.agent_user_id JOIN users u ON u.id = fa.agent_user_id
-  WHERE ap.status = 'approved' AND u.status = 'active' AND u.email NOT LIKE '${DEMO_EMAIL_PATTERN}'
+  WHERE ap.status = 'approved' AND u.status = 'active' AND u.email NOT LIKE '${DEMO_EMAIL_PATTERN}' AND u.role <> 'admin'
     AND EXISTS (SELECT 1 FROM json_each(ap.service_zips_json) sz WHERE CAST(sz.value AS TEXT) = fa.zip)
 ) WHERE rn <= ${FOUNDING_SPOTS}`;
 
@@ -98,10 +99,10 @@ export function foundingGrantedLine(zips) {
 // When an admin approves an agent (or an approved agent adds a launch ZIP, or is reinstated), the agent takes any open
 // founding spot in their launch service ZIPs. First come, first served. Each insert counts the live holders inside the
 // same statement, so two approvals at once can't both take the last spot. Returns the ZIPs newly granted, for the
-// message.
+// message. The account that runs Amico Haus (an admin) never takes a founding spot.
 export async function grantFoundingSpots(db, agentUserId) {
   const profile = await db.prepare(
-    "SELECT ap.service_zips_json FROM agent_profiles ap JOIN users u ON u.id = ap.user_id WHERE ap.user_id = ? AND ap.status = 'approved' AND u.status = 'active' AND u.email NOT LIKE ?"
+    "SELECT ap.service_zips_json FROM agent_profiles ap JOIN users u ON u.id = ap.user_id WHERE ap.user_id = ? AND ap.status = 'approved' AND u.status = 'active' AND u.email NOT LIKE ? AND u.role <> 'admin'"
   ).bind(agentUserId, DEMO_EMAIL_PATTERN).first();
   if (!profile) return [];
   let zips = [];
@@ -114,7 +115,7 @@ export async function grantFoundingSpots(db, agentUserId) {
     await db.prepare(
       `DELETE FROM founding_agents WHERE zip = ?1 AND agent_user_id NOT IN (
          SELECT ap.user_id FROM agent_profiles ap JOIN users u ON u.id = ap.user_id
-         WHERE ap.status = 'approved' AND u.status = 'active' AND u.email NOT LIKE '${DEMO_EMAIL_PATTERN}'
+         WHERE ap.status = 'approved' AND u.status = 'active' AND u.email NOT LIKE '${DEMO_EMAIL_PATTERN}' AND u.role <> 'admin'
            AND EXISTS (SELECT 1 FROM json_each(ap.service_zips_json) sz WHERE CAST(sz.value AS TEXT) = ?1))`
     ).bind(zip).run();
     const r = await db.prepare(
@@ -128,15 +129,17 @@ export async function grantFoundingSpots(db, agentUserId) {
 
 // A founding spot ends when the agent stops serving that ZIP (or is no longer approved, or is suspended), so the next
 // approved agent there can take it. Called after a profile edit ({all: false}), and with {all: true} when an approval
-// is withdrawn or the account is suspended (a reinstated agent then goes to the back of the line).
+// is withdrawn or the account is suspended (a reinstated agent then goes to the back of the line). The account that
+// runs Amico Haus (an admin) never keeps a founding spot: any row it holds goes on its next profile save.
 export async function releaseFoundingSpots(db, agentUserId, { all = false } = {}) {
   if (all) {
     await db.prepare('DELETE FROM founding_agents WHERE agent_user_id = ?').bind(agentUserId).run();
     return;
   }
   await db.prepare(
-    `DELETE FROM founding_agents WHERE agent_user_id = ?1 AND zip NOT IN (
-       SELECT CAST(sz.value AS TEXT) FROM agent_profiles ap, json_each(ap.service_zips_json) sz WHERE ap.user_id = ?1)`
+    `DELETE FROM founding_agents WHERE agent_user_id = ?1 AND (zip NOT IN (
+       SELECT CAST(sz.value AS TEXT) FROM agent_profiles ap, json_each(ap.service_zips_json) sz WHERE ap.user_id = ?1)
+       OR EXISTS (SELECT 1 FROM users WHERE id = ?1 AND role = 'admin'))`
   ).bind(agentUserId).run();
 }
 

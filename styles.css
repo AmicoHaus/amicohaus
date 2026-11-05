@@ -338,6 +338,10 @@ main { flex: 1; width: 100%; max-width: 1080px; margin: 0 auto; padding: 28px 24
 .onboarding-banner { border-color: var(--gold); background: rgba(169,121,63,0.08); margin-bottom: 20px; }
 .onboarding-banner h3 { margin: 0 0 8px; }
 .onboarding-banner p { margin: 0 0 14px; color: var(--muted); }
+/* "We updated our Terms" prompt in /app (non-blocking; main.js shows it when user.termsCurrent is false). */
+.terms-update-banner { border-color: var(--gold); background: rgba(169,121,63,0.08); margin: 0 0 20px; }
+.terms-update-banner h3 { margin: 0 0 8px; }
+.terms-update-banner p { margin: 0 0 12px; }
 
 /* Matches / chains */
 .stack { display: flex; flex-direction: column; gap: 16px; margin-top: 18px; }

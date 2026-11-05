@@ -15,15 +15,18 @@ export async function onRequestPost(context) {
   const db = context.env.DB;
   const result = await submitAgentApplication(db, user.id, body);
   if (result.error) return result.code ? json({ error: result.error, code: result.code }, { status: 400 }) : badRequest(result.error);
-  if (!result.isNewApplication && result.licenseChanged) {
-    // The number the admin checked (or is about to check) changed: say so, so it gets looked up again.
+  if (!result.isNewApplication && (result.licenseChanged || result.brokerageChanged)) {
+    // The license number or broker the admin checked (or is about to check) changed: say so, so it gets looked up
+    // again (the DRE check was cleared for an approved agent, see submitAgentApplication).
     alertAdmin(context, user, {
       kind: 'agent_application',
-      subject: `License number changed: ${user.display_name}`,
+      subject: `License or broker changed: ${user.display_name}`,
       lines: [
-        `${user.display_name} (${user.email}) changed their DRE license number to ${result.licenseNumber} (${result.status === 'approved' ? 'approved agent; the DRE check was cleared' : 'application still pending'}).`,
+        `${user.display_name} (${user.email}) changed their DRE license number or broker (${result.status === 'approved' ? 'approved agent; the DRE check was cleared' : 'application still pending'}).`,
+        `License: ${result.oldLicense || '(none)'} → ${result.licenseNumber}`,
+        `Broker: ${result.oldBrokerage || '(none)'} → ${result.brokerageName || '(none)'}`,
         '',
-        `Check the new number on the DRE: ${dreLookupUrl(result.licenseNumber)}`,
+        `Check it on the DRE: ${dreLookupUrl(result.licenseNumber)}`,
       ],
     });
   }

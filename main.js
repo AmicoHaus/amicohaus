@@ -166,6 +166,25 @@ function setBuyerOnlyFieldsetState(isBuyerOnly) {
   for (const field of ['city', 'state', 'propertyType', 'estimatedValue', 'beds', 'baths']) {
     document.getElementById(field).required = !isBuyerOnly;
   }
+  syncOwnerConfirmListingRow();
+}
+
+// The "I own this home or have the owner's written permission" box (Y1): asked when a home is created, not on an
+// edit and not for a buyer profile (no home to own). Never part of the listing draft autosave.
+function syncOwnerConfirmListingRow() {
+  const row = document.getElementById('ownerConfirmListingRow');
+  if (!row) return;
+  const buyerOnly = document.getElementById('isBuyerOnly').checked;
+  row.classList.toggle('hidden', !!editingListingId || buyerOnly);
+}
+
+// Shows a toast and focuses the box when the ownership checkbox with this id isn't ticked. true = stop the post.
+function ownerConfirmMissing(id) {
+  const box = document.getElementById(id);
+  if (!box || box.checked) return false;
+  toast(OWNER_CONFIRM_REQUIRED);
+  box.focus();
+  return true;
 }
 
 // Rental mode swaps the "what would make you move" fieldset for a "rental
@@ -185,6 +204,9 @@ function setRentalFieldsetState(isRental) {
 // since duplicating every field for a separate edit UI would just be a second
 // place for the two to drift apart.
 let editingListingId = null;
+// The listing a "Duplicate" pre-filled the create form from (sent as cloneOf so the server can refuse copying a
+// listing that moderation paused).
+let cloneSourceListingId = null;
 let editingPortfolioId = null;
 let myListings = [];
 
@@ -268,10 +290,12 @@ function resetHomeCostsFields(containerId, prefix) {
 
 function resetListingFormToCreateMode() {
   editingListingId = null;
+  cloneSourceListingId = null;
   resetHomeCostsFields('listingCostsFields', 'lc');
   document.getElementById('listingSubmitBtn').textContent = 'Create Listing';
   document.getElementById('isBuyerOnly').disabled = false;
   document.getElementById('isRental').disabled = false;
+  syncOwnerConfirmListingRow();
 }
 
 // Shared by edit (same listing, kind locked) and clone (a fresh listing
@@ -320,6 +344,8 @@ function fillListingFormFields(l, { forClone } = {}) {
 
 function populateListingFormForEdit(l) {
   editingListingId = l.id;
+  cloneSourceListingId = null;
+  syncOwnerConfirmListingRow();
   document.getElementById('listingFormWrap').style.display = 'block';
   document.getElementById('listingSubmitBtn').textContent = 'Save Changes';
   // The listing's kind is fixed once created — editing only the data within
@@ -335,6 +361,8 @@ function populateListingFormForClone(l) {
   resetListingFormToCreateMode();
   document.getElementById('listingFormWrap').style.display = 'block';
   fillListingFormFields(l, { forClone: true });
+  cloneSourceListingId = l.id;
+  applyAgentOnlyListingTools();
   document.getElementById('listingFormWrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -1069,7 +1097,7 @@ async function loadMyListing() {
           ${l.hidden_at && l.status !== 'active' ? '' : `<button class="btn btn-ghost btn-sm" data-action="toggle-status" data-id="${l.id}" data-status="${l.status}">${l.status === 'active' ? 'Pause' : 'Reactivate'}</button>`}
           <button class="btn btn-danger btn-sm" data-action="delete-listing" data-id="${l.id}">${l.is_portfolio ? 'Dissolve Portfolio' : 'Delete'}</button>
           `}
-          ${l.is_portfolio ? '' : `<button class="btn btn-ghost btn-sm" data-action="clone-listing" data-id="${l.id}">Duplicate</button>`}
+          ${!l.is_portfolio && !l.hidden_at ? `<button class="btn btn-ghost btn-sm" data-action="clone-listing" data-id="${l.id}">Duplicate</button>` : ''}
           ${(l.is_buyer_only || l.is_portfolio) ? '' : `<a class="btn btn-ghost btn-sm" href="/listing/${l.id}/flyer" target="_blank" rel="noopener noreferrer">🖨️ Print Flyer</a> <a class="btn btn-ghost btn-sm" href="/api/listings/${l.id}/performance.csv" download>📊 Export Performance</a>`}
         </div>
       </div>
@@ -1129,10 +1157,10 @@ async function loadListingOffersInto(listingId) {
   if (!el) return;
   try {
     const { offers } = await apiGet(`/api/listings/${listingId}/offers`);
-    el.innerHTML = offers.length ? offers.map(o => `
+    el.innerHTML = offers.length ? `<p class="tiny">${escapeHtml(OFFER_OWNER_NOTE)}</p>` + offers.map(o => `
       <div class="side">
         <strong>${money(o.offerPrice)} — ${o.financingType === 'cash' ? 'Cash' : 'Financed'}</strong>
-        <span class="tiny">From <a class="profile-link" href="/profile/${o.buyerUserId}">${escapeHtml(o.buyerName)}</a> · <span class="badge ${o.status === 'accepted' ? 'badge-active' : o.status === 'declined' || o.status === 'withdrawn' ? 'badge-paused' : ''}">${o.status}</span></span>
+        <span class="tiny">From <a class="profile-link" href="/profile/${o.buyerUserId}">${escapeHtml(o.buyerName)}</a>${o.buyerLicense ? ` · DRE #${escapeHtml(o.buyerLicense)} on file${o.buyerBrokerage ? ' · ' + escapeHtml(o.buyerBrokerage) : ''}` : ''} · ${reportUserButtonHtml(o.buyerUserId)} · <span class="badge ${o.status === 'accepted' ? 'badge-active' : o.status === 'declined' || o.status === 'withdrawn' ? 'badge-paused' : ''}">${o.status}</span></span>
         ${o.closingTimeline ? `<p class="tiny"><span class="label">Timeline</span> ${escapeHtml(o.closingTimeline)}</p>` : ''}
         ${o.contingencies ? `<p class="tiny"><span class="label">Contingencies</span> ${escapeHtml(o.contingencies)}</p>` : ''}
         ${o.message ? `<p class="tiny">"${escapeHtml(o.message)}"</p>` : ''}
@@ -1146,7 +1174,7 @@ async function loadListingOffersInto(listingId) {
           <details class="panel">
             <summary>Counter this offer</summary>
             <div class="field"><label for="counterPrice-${o.id}">Counter price ($)</label><input type="number" id="counterPrice-${o.id}" min="1" max="500000000" step="1000"></div>
-            <div class="field"><label for="counterMsg-${o.id}">Message (optional)</label><textarea id="counterMsg-${o.id}" maxlength="1000"></textarea></div>
+            <div class="field"><label for="counterMsg-${o.id}">Message (optional)</label><textarea id="counterMsg-${o.id}" maxlength="1000"></textarea><p class="tiny field-hint composer-note">${escapeHtml(OFFER_MESSAGE_NOTE)}</p></div>
             <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="counter-offer" data-listing-id="${listingId}" data-id="${o.id}">Send Counter</button></div>
           </details>` : ''}
         ${o.status === 'countered' && o.counteredBy === 'owner' ? `<p class="tiny"><span class="label">Your counter</span> ${money(o.counterPrice)}${o.counterMessage ? ` — "${escapeHtml(o.counterMessage)}"` : ''} · waiting on buyer</p>` : ''}
@@ -1160,7 +1188,7 @@ async function loadListingOffersInto(listingId) {
           <details class="panel">
             <summary>Counter again</summary>
             <div class="field"><label for="counterPrice-${o.id}">Counter price ($)</label><input type="number" id="counterPrice-${o.id}" min="1" max="500000000" step="1000"></div>
-            <div class="field"><label for="counterMsg-${o.id}">Message (optional)</label><textarea id="counterMsg-${o.id}" maxlength="1000"></textarea></div>
+            <div class="field"><label for="counterMsg-${o.id}">Message (optional)</label><textarea id="counterMsg-${o.id}" maxlength="1000"></textarea><p class="tiny field-hint composer-note">${escapeHtml(OFFER_MESSAGE_NOTE)}</p></div>
             <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="counter-offer" data-listing-id="${listingId}" data-id="${o.id}">Send Counter</button></div>
           </details>` : ''}
       </div>
@@ -1562,7 +1590,8 @@ async function checkThreadOpenToBids(otherUserId) {
 function setThreadIdentity(other) {
   const el = document.getElementById('threadIdentity');
   if (!el) return;
-  const creds = other && other.agent ? agentCredentialsLine(other.agent.licenseNumber, other.agent.brokerageName) : '';
+  const line = other && other.agent ? agentCredentialsLine(other.agent.licenseNumber, other.agent.brokerageName) : '';
+  const creds = line && other.agent.isPlatformOperator ? `${line} · ${PLATFORM_OPERATOR_LABEL}` : line;
   el.textContent = creds;
   el.classList.toggle('hidden', !creds);
 }
@@ -1595,6 +1624,8 @@ function setComposerMode(mode) {
   form.classList.toggle('composer-off', off);
   const blockBtn = document.getElementById('threadBlockBtn');
   if (blockBtn) blockBtn.classList.toggle('hidden', mode === 'blocked' || !document.getElementById('messageThread').dataset.otherUserId);
+  const reportBtn = document.getElementById('threadReportBtn');
+  if (reportBtn) reportBtn.classList.toggle('hidden', !document.getElementById('messageThread').dataset.otherUserId);
 }
 
 async function renderMessages(conversationId) {
@@ -1766,6 +1797,13 @@ async function confirmAndBlock(userId, name) {
   } catch (err) { toastActionError(err); return false; }
 }
 
+// "Report" on a person (an offer's buyer, a seller, an agent's proposal or price opinion): opens the same inline
+// report form inside its own host. Handled by the document-level click listener below.
+function reportUserButtonHtml(userId) {
+  if (!userId) return '';
+  return `<span data-report-host><button type="button" class="link-btn" data-action="report-user" data-id="${Number(userId)}">Report</button></span>`;
+}
+
 // "Report" on a post or comment opens a short form right under it (a reason preset plus optional details).
 function submitReport(targetType, targetId, anchor) {
   const host = anchor && anchor.closest('[data-report-host], [data-comment-id], [data-post-id]');
@@ -1789,6 +1827,8 @@ async function sendInlineReport(btn) {
 }
 
 document.addEventListener('click', e => {
+  const reportUser = e.target.closest('[data-action="report-user"]');
+  if (reportUser) { if (reportUser.dataset.id) submitReport('user', reportUser.dataset.id, reportUser); return; }
   const send = e.target.closest('[data-action="send-report"]');
   if (send) { sendInlineReport(send); return; }
   const cancel = e.target.closest('[data-action="cancel-report"]');
@@ -1821,7 +1861,7 @@ function tradeOpenedToast(partnerConfirmed) {
     : 'Sent to your trade partner to confirm. Agents see it once they do.');
 }
 const AGENT_RULES_VERSION = '2026-11-04';
-const TRADE_CONFIRM_TEXT = "Confirm this trade request? Approved agents who serve your area can then see it and send proposals. One agent for both homes is dual agency and needs both owners' written consent; each of you can choose your own agent.";
+const TRADE_CONFIRM_TEXT = "Confirm this trade request? Approved agents who serve your area can then see it and send proposals. One agent for both homes, or two agents under the same brokerage, is dual agency and needs both owners' written consent; each of you can choose your own agent.";
 
 /* ---------------- Marketplace ---------------- */
 // Which item is currently open in the detail view — set by openPreListingDetail
@@ -1970,7 +2010,31 @@ function agentProfileProgress(profile, photos, packages, caseStudies) {
     </div>`;
 }
 
+// Posting a home for a client and bulk upload are for approved agents only (Y1; the server refuses them too).
+function applyAgentOnlyListingTools() {
+  const ok = !!currentAgentProfile && currentAgentProfile.status === 'approved';
+  document.getElementById('bulkUploadWrap')?.classList.toggle('hidden', !ok);
+  document.getElementById('clientNameField')?.classList.toggle('hidden', !ok);
+  if (!ok) { const input = document.getElementById('clientName'); if (input) input.value = ''; }
+}
+function isApprovedAgentNow() {
+  return !!currentAgentProfile && currentAgentProfile.status === 'approved';
+}
+// loadAgentStatus only runs on the marketplace tab, so the listing form asks once at boot.
+async function primeAgentListingTools() {
+  if (!currentAgentProfile) {
+    try {
+      const { profile } = await apiGet('/api/agents/me');
+      if (!currentAgentProfile) currentAgentProfile = profile || null;
+    } catch { /* signed out or offline: the tools stay hidden */ }
+  }
+  applyAgentOnlyListingTools();
+}
+
 async function loadAgentStatus() {
+  try { await loadAgentStatusInner(); } finally { applyAgentOnlyListingTools(); }
+}
+async function loadAgentStatusInner() {
   const statusEl = document.getElementById('agentApplicationStatus');
   const toolsSection = document.getElementById('agentToolsSection');
   const summaryEl = document.getElementById('becomeAgentSummary');
@@ -2259,7 +2323,7 @@ function contactDialHtml(name, mode) {
   return `
     <fieldset class="contact-dial">
       <legend>How can agents reach you?</legend>
-      <p class="tiny">You decide. Your phone, email and exact address stay private until you tap Share on an agent you like.</p>
+      <p class="tiny">You decide. Your phone number and exact address stay private until you tap Share on an agent you like. Rudy Flores, who runs Amico Haus and is also an agent, gets your name and email when you post so he can run the site, and doesn't use them to contact you about your home unless you share with him (<a href="/privacy">Privacy</a>).</p>
       <div class="dial-choices">${choices}</div>
     </fieldset>`;
 }
@@ -2565,7 +2629,7 @@ function renderBidCard(b, canAct, backLink) {
         nameHtml: `<a class="profile-link" href="/profile/${b.agentUserId}${backLink ? `?back=${encodeURIComponent(backLink)}` : ''}">${escapeHtml(b.agentName)}</a>`,
         // Name, DRE number and brokerage together, as California's DRE asks at a first point of contact.
         sub: agentLicenseOnFileLine(b.licenseNumber, b.brokerageName),
-        chips: [ratingChipHtml(b.rating, b.reviewCount), b.yearsExperience ? chipHtml(`${b.yearsExperience} yrs experience`, 'outline') : ''].filter(Boolean),
+        chips: [ratingChipHtml(b.rating, b.reviewCount), b.yearsExperience ? chipHtml(`${b.yearsExperience} yrs experience (self-reported)`, 'outline') : ''].filter(Boolean),
         aside: `${b.ownerPick ? `<span class="badge ${b.ownerPick === 'shortlist' ? 'badge-gold' : 'badge-paused'}">${b.ownerPick === 'shortlist' ? '★ Shortlisted' : 'Passed'}</span> ` : ''}${statusBadge}`,
       })}
       ${b.isStale ? `<p class="tiny gone-quiet-nudge">This proposal has been pending a while — consider reviewing it or letting the agent know where things stand.</p>` : ''}
@@ -2586,6 +2650,7 @@ function renderBidCard(b, canAct, backLink) {
         ${canAct && proposalView && proposalView.preListingId && b.status === 'pending' ? `<button class="btn btn-ghost btn-sm" data-action="pick-bid" data-bid-id="${b.id}" data-pick="${b.ownerPick === 'shortlist' ? 'clear' : 'shortlist'}">${b.ownerPick === 'shortlist' ? 'Remove from shortlist' : '★ Shortlist'}</button>` : ''}
         ${canAct && proposalView && proposalView.preListingId && (b.status === 'pending' || b.status === 'accepted' || isSharingWith(b.agentUserId)) ? shareContactSlotHtml(proposalView.preListingId, b.agentUserId, b.agentName) : ''}
         ${canAct ? blockButtonHtml(b.agentUserId, b.agentName) : ''}
+        ${canAct ? reportUserButtonHtml(b.agentUserId) : ''}
       </div>
     </div>
   `;
@@ -2777,7 +2842,7 @@ function deckHint(deck) {
 }
 
 // The agent's sealed price opinion: their vote on the asking price, the list price they'd suggest, up to 3 sold
-// comps, a note, and one presentation file. Only the homeowner ever sees any of it. When the homeowner hasn't set an
+// comps, a note, and one presentation file. The homeowner sees it; other agents never do. When the homeowner hasn't set an
 // asking price (priceOpen), there's nothing to vote on: the suggested list price is required instead.
 function renderPriceOpinionForm(myVote, { priceOpen = false } = {}) {
   const mine = myVote || { vote: null, note: '', priceOpinion: null, comps: [], deck: null };
@@ -2796,8 +2861,8 @@ function renderPriceOpinionForm(myVote, { priceOpen = false } = {}) {
     <div class="panel" id="priceOpinionPanel" data-vote="${priceOpen ? '' : v(mine.vote)}"${priceOpen ? ' data-price-open="1"' : ''}>
       <div class="card-head"><h3>Your price opinion</h3><span class="badge badge-gold">Sealed</span></div>
       <p class="tiny">${priceOpen
-        ? 'Only the homeowner sees your suggested price, comps, note and file. Other agents see only how many agents shared an opinion.'
-        : 'Only the homeowner sees your suggested price, comps, note and file. Your vote counts toward the too high / just right / too low totals, which other agents see only after casting their own.'}</p>
+        ? 'The homeowner sees your suggested price, comps, note and file; other agents never do. Other agents see only how many agents shared an opinion.'
+        : 'The homeowner sees your suggested price, comps, note and file; other agents never do. Your vote counts toward the too high / just right / too low totals, which other agents see only after casting their own.'}</p>
       ${voteHtml}
       <div class="field"><label for="opinionPrice">The list price you'd suggest ($)${priceOpen ? ' <span class="required-mark">*</span>' : ''}</label><input type="number" id="opinionPrice" min="10000" max="500000000" step="1000" inputmode="numeric" aria-describedby="opinionPriceNote" value="${v(mine.priceOpinion)}"${priceOpen ? ' required' : ''}><p class="tiny field-hint composer-note" id="opinionPriceNote">${escapeHtml(PRICE_BASIS_NOTE)}</p></div>
       <details class="score-breakdown"${mine.comps.length ? ' open' : ''}>
@@ -2846,7 +2911,7 @@ function renderPriceOpinionsPanel(data, preListingId) {
         ${prepListHtml(o.prep)}
         ${comps ? `<span class="label">Comps</span><ul class="comp-list">${comps}</ul>` : ''}
         ${o.deck ? `<p class="tiny">📎 <a href="/api/pre-listings/${preListingId}/votes/deck?agent=${o.agentUserId}">${escapeHtml(o.deck.name)}</a> · ${formatFileSize(o.deck.size)}</p>` : ''}
-        <div class="card-actions">${share}${blockButtonHtml(o.agentUserId, o.agentName)}</div>
+        <div class="card-actions">${share}${blockButtonHtml(o.agentUserId, o.agentName)}${reportUserButtonHtml(o.agentUserId)}</div>
       </div>`;
   }).join('');
   return `
@@ -2940,7 +3005,7 @@ function renderPreListingEditForm(p) {
       <div class="field"><label for="pleSpecialInstructions">Notes for agents (pets, sign preference, best showing times). Don't put lockbox, gate or alarm codes here.</label><textarea id="pleSpecialInstructions" maxlength="500">${v(p.specialInstructions)}</textarea><p class="tiny field-hint">Only you, the agent you hire, agents you share your contact info with, and Amico Haus admins see these notes.</p></div>
       <p class="tiny"><strong>Optional preferences for agents (informational only):</strong></p>
       <div class="form-row three-col">
-        <div class="field"><label for="pleMinYearsExperience">Min. years of experience</label><input type="number" id="pleMinYearsExperience" min="0" max="80" value="${v(p.minYearsExperience)}"></div>
+        <div class="field"><label for="pleMinYearsExperience">Min. years of experience (agent-reported)</label><input type="number" id="pleMinYearsExperience" min="0" max="80" value="${v(p.minYearsExperience)}"></div>
         <div class="field"><label for="plePreferredLanguage">Preferred language</label><input type="text" id="plePreferredLanguage" maxlength="40" value="${v(p.preferredLanguage)}"></div>
         <div class="field"><label for="plePreferredAgreementMonths">Preferred agreement length (months)</label><input type="number" id="plePreferredAgreementMonths" min="1" max="60" value="${v(p.preferredAgreementMonths)}"></div>
       </div>
@@ -3490,7 +3555,7 @@ async function openAugmentedHomeDetail(id) {
       apiGet(`/api/augmented-homes/${id}`),
       apiGet(`/api/augmented-homes/${id}/thread`),
     ]);
-    augmentedDetail = { id, isOwner };
+    augmentedDetail = { id, isOwner, ownerId: h.userId };
     showAugmentedDetail();
     const photosHtml = h.photoIds.length
       ? `<div class="photo-gallery">${h.photoIds.map(pid => isOwner
@@ -3570,10 +3635,10 @@ async function loadAugmentedOffersInto(homeId, isOwner) {
   try {
     const { offers, myOffer } = await apiGet(`/api/augmented-homes/${homeId}/offers`);
     if (isOwner) {
-      el.innerHTML = offers.length ? offers.map(o => `
+      el.innerHTML = offers.length ? `<p class="tiny">${escapeHtml(OFFER_OWNER_NOTE)}</p>` + offers.map(o => `
         <div class="side">
           <strong>${money(o.offerPrice)} — ${o.financingType === 'cash' ? 'Cash' : 'Financed'}</strong>
-          <span class="tiny">From <a class="profile-link" href="/profile/${o.buyerUserId}">${escapeHtml(o.buyerName)}</a> · <span class="badge ${o.status === 'accepted' ? 'badge-active' : o.status === 'declined' || o.status === 'withdrawn' ? 'badge-paused' : ''}">${o.status}</span></span>
+          <span class="tiny">From <a class="profile-link" href="/profile/${o.buyerUserId}">${escapeHtml(o.buyerName)}</a>${o.buyerLicense ? ` · DRE #${escapeHtml(o.buyerLicense)} on file${o.buyerBrokerage ? ' · ' + escapeHtml(o.buyerBrokerage) : ''}` : ''} · ${reportUserButtonHtml(o.buyerUserId)} · <span class="badge ${o.status === 'accepted' ? 'badge-active' : o.status === 'declined' || o.status === 'withdrawn' ? 'badge-paused' : ''}">${o.status}</span></span>
           ${o.closingTimeline ? `<p class="tiny"><span class="label">Timeline</span> ${escapeHtml(o.closingTimeline)}</p>` : ''}
           ${o.contingencies ? `<p class="tiny"><span class="label">Contingencies</span> ${escapeHtml(o.contingencies)}</p>` : ''}
           ${o.message ? `<p class="tiny">"${escapeHtml(o.message)}"</p>` : ''}
@@ -3587,7 +3652,7 @@ async function loadAugmentedOffersInto(homeId, isOwner) {
             <details class="panel">
               <summary>Counter this offer</summary>
               <div class="field"><label for="augCounterPrice-${o.id}">Counter price ($)</label><input type="number" id="augCounterPrice-${o.id}" min="1" max="500000000" step="1000"></div>
-              <div class="field"><label for="augCounterMsg-${o.id}">Message (optional)</label><textarea id="augCounterMsg-${o.id}" maxlength="1000"></textarea></div>
+              <div class="field"><label for="augCounterMsg-${o.id}">Message (optional)</label><textarea id="augCounterMsg-${o.id}" maxlength="1000"></textarea><p class="tiny field-hint composer-note">${escapeHtml(OFFER_MESSAGE_NOTE)}</p></div>
               <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="counter-augmented-offer" data-home-id="${homeId}" data-id="${o.id}">Send Counter</button></div>
             </details>` : ''}
           ${o.status === 'countered' && o.counteredBy === 'owner' ? `<p class="tiny"><span class="label">Your counter</span> ${money(o.counterPrice)}${o.counterMessage ? ` — "${escapeHtml(o.counterMessage)}"` : ''} · waiting on buyer</p>` : ''}
@@ -3601,7 +3666,7 @@ async function loadAugmentedOffersInto(homeId, isOwner) {
             <details class="panel">
               <summary>Counter again</summary>
               <div class="field"><label for="augCounterPrice-${o.id}">Counter price ($)</label><input type="number" id="augCounterPrice-${o.id}" min="1" max="500000000" step="1000"></div>
-              <div class="field"><label for="augCounterMsg-${o.id}">Message (optional)</label><textarea id="augCounterMsg-${o.id}" maxlength="1000"></textarea></div>
+              <div class="field"><label for="augCounterMsg-${o.id}">Message (optional)</label><textarea id="augCounterMsg-${o.id}" maxlength="1000"></textarea><p class="tiny field-hint composer-note">${escapeHtml(OFFER_MESSAGE_NOTE)}</p></div>
               <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="counter-augmented-offer" data-home-id="${homeId}" data-id="${o.id}">Send Counter</button></div>
             </details>` : ''}
         </div>
@@ -3630,7 +3695,7 @@ async function loadAugmentedOffersInto(homeId, isOwner) {
           <details class="panel">
             <summary>Counter back</summary>
             <div class="field"><label for="augCounterBackPrice-${myOffer.id}">Counter price ($)</label><input type="number" id="augCounterBackPrice-${myOffer.id}" min="1" max="500000000" step="1000"></div>
-            <div class="field"><label for="augCounterBackMsg-${myOffer.id}">Message (optional)</label><textarea id="augCounterBackMsg-${myOffer.id}" maxlength="1000"></textarea></div>
+            <div class="field"><label for="augCounterBackMsg-${myOffer.id}">Message (optional)</label><textarea id="augCounterBackMsg-${myOffer.id}" maxlength="1000"></textarea><p class="tiny field-hint composer-note">${escapeHtml(OFFER_MESSAGE_NOTE)}</p></div>
             <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="counter-augmented-offer" data-home-id="${homeId}" data-id="${myOffer.id}">Send Counter</button></div>
           </details>
         </div>`;
@@ -3649,11 +3714,13 @@ async function loadAugmentedOffersInto(homeId, isOwner) {
         <div class="field"><label for="augOfferFinancingType-${homeId}">Financing</label><select id="augOfferFinancingType-${homeId}"><option value="financed">Financed</option><option value="cash">Cash</option></select></div>
         <div class="field"><label for="augOfferClosingTimeline-${homeId}">Proposed closing timeline</label><input type="text" id="augOfferClosingTimeline-${homeId}" maxlength="100" placeholder="e.g. 30 days"></div>
         <div class="field"><label for="augOfferContingencies-${homeId}">Contingencies</label><input type="text" id="augOfferContingencies-${homeId}" maxlength="500" placeholder="e.g. subject to inspection, financing approval"></div>
-        <div class="field"><label for="augOfferMessage-${homeId}">Message to the seller</label><textarea id="augOfferMessage-${homeId}" maxlength="1000"></textarea></div>
+        <div class="field"><label for="augOfferMessage-${homeId}">Note about your terms (optional)</label><textarea id="augOfferMessage-${homeId}" maxlength="1000"></textarea><p class="tiny field-hint composer-note">${escapeHtml(OFFER_MESSAGE_NOTE)}</p></div>
         <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="submit-augmented-offer" data-home-id="${homeId}">Submit Offer</button></div>
         ${offerToolsNoteHtml()}
       `;
     }
+    const sellerId = augmentedDetail && String(augmentedDetail.id) === String(homeId) ? augmentedDetail.ownerId : null;
+    if (myOffer && sellerId) el.insertAdjacentHTML('beforeend', `<div class="tiny">Problem with this seller? ${reportUserButtonHtml(sellerId)}</div>`);
   } catch { el.innerHTML = '<span class="tiny">Could not load offers.</span>'; }
 }
 
@@ -3797,7 +3864,7 @@ async function openGreenHomeDetail(id) {
       apiGet(`/api/green-homes/${id}`),
       apiGet(`/api/green-homes/${id}/thread`),
     ]);
-    greenDetail = { id, isOwner };
+    greenDetail = { id, isOwner, ownerId: h.userId };
     showGreenDetail();
     const photosHtml = h.photoIds.length
       ? `<div class="photo-gallery">${h.photoIds.map(pid => isOwner
@@ -3877,10 +3944,10 @@ async function loadGreenOffersInto(homeId, isOwner) {
   try {
     const { offers, myOffer } = await apiGet(`/api/green-homes/${homeId}/offers`);
     if (isOwner) {
-      el.innerHTML = offers.length ? offers.map(o => `
+      el.innerHTML = offers.length ? `<p class="tiny">${escapeHtml(OFFER_OWNER_NOTE)}</p>` + offers.map(o => `
         <div class="side">
           <strong>${money(o.offerPrice)} — ${o.financingType === 'cash' ? 'Cash' : 'Financed'}</strong>
-          <span class="tiny">From <a class="profile-link" href="/profile/${o.buyerUserId}">${escapeHtml(o.buyerName)}</a> · <span class="badge ${o.status === 'accepted' ? 'badge-active' : o.status === 'declined' || o.status === 'withdrawn' ? 'badge-paused' : ''}">${o.status}</span></span>
+          <span class="tiny">From <a class="profile-link" href="/profile/${o.buyerUserId}">${escapeHtml(o.buyerName)}</a>${o.buyerLicense ? ` · DRE #${escapeHtml(o.buyerLicense)} on file${o.buyerBrokerage ? ' · ' + escapeHtml(o.buyerBrokerage) : ''}` : ''} · ${reportUserButtonHtml(o.buyerUserId)} · <span class="badge ${o.status === 'accepted' ? 'badge-active' : o.status === 'declined' || o.status === 'withdrawn' ? 'badge-paused' : ''}">${o.status}</span></span>
           ${o.closingTimeline ? `<p class="tiny"><span class="label">Timeline</span> ${escapeHtml(o.closingTimeline)}</p>` : ''}
           ${o.contingencies ? `<p class="tiny"><span class="label">Contingencies</span> ${escapeHtml(o.contingencies)}</p>` : ''}
           ${o.message ? `<p class="tiny">"${escapeHtml(o.message)}"</p>` : ''}
@@ -3894,7 +3961,7 @@ async function loadGreenOffersInto(homeId, isOwner) {
             <details class="panel">
               <summary>Counter this offer</summary>
               <div class="field"><label for="greenCounterPrice-${o.id}">Counter price ($)</label><input type="number" id="greenCounterPrice-${o.id}" min="1" max="500000000" step="1000"></div>
-              <div class="field"><label for="greenCounterMsg-${o.id}">Message (optional)</label><textarea id="greenCounterMsg-${o.id}" maxlength="1000"></textarea></div>
+              <div class="field"><label for="greenCounterMsg-${o.id}">Message (optional)</label><textarea id="greenCounterMsg-${o.id}" maxlength="1000"></textarea><p class="tiny field-hint composer-note">${escapeHtml(OFFER_MESSAGE_NOTE)}</p></div>
               <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="counter-green-offer" data-home-id="${homeId}" data-id="${o.id}">Send Counter</button></div>
             </details>` : ''}
           ${o.status === 'countered' && o.counteredBy === 'owner' ? `<p class="tiny"><span class="label">Your counter</span> ${money(o.counterPrice)}${o.counterMessage ? ` — "${escapeHtml(o.counterMessage)}"` : ''} · waiting on buyer</p>` : ''}
@@ -3908,7 +3975,7 @@ async function loadGreenOffersInto(homeId, isOwner) {
             <details class="panel">
               <summary>Counter again</summary>
               <div class="field"><label for="greenCounterPrice-${o.id}">Counter price ($)</label><input type="number" id="greenCounterPrice-${o.id}" min="1" max="500000000" step="1000"></div>
-              <div class="field"><label for="greenCounterMsg-${o.id}">Message (optional)</label><textarea id="greenCounterMsg-${o.id}" maxlength="1000"></textarea></div>
+              <div class="field"><label for="greenCounterMsg-${o.id}">Message (optional)</label><textarea id="greenCounterMsg-${o.id}" maxlength="1000"></textarea><p class="tiny field-hint composer-note">${escapeHtml(OFFER_MESSAGE_NOTE)}</p></div>
               <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="counter-green-offer" data-home-id="${homeId}" data-id="${o.id}">Send Counter</button></div>
             </details>` : ''}
         </div>
@@ -3936,7 +4003,7 @@ async function loadGreenOffersInto(homeId, isOwner) {
           <details class="panel">
             <summary>Counter back</summary>
             <div class="field"><label for="greenCounterBackPrice-${myOffer.id}">Counter price ($)</label><input type="number" id="greenCounterBackPrice-${myOffer.id}" min="1" max="500000000" step="1000"></div>
-            <div class="field"><label for="greenCounterBackMsg-${myOffer.id}">Message (optional)</label><textarea id="greenCounterBackMsg-${myOffer.id}" maxlength="1000"></textarea></div>
+            <div class="field"><label for="greenCounterBackMsg-${myOffer.id}">Message (optional)</label><textarea id="greenCounterBackMsg-${myOffer.id}" maxlength="1000"></textarea><p class="tiny field-hint composer-note">${escapeHtml(OFFER_MESSAGE_NOTE)}</p></div>
             <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="counter-green-offer" data-home-id="${homeId}" data-id="${myOffer.id}">Send Counter</button></div>
           </details>
         </div>`;
@@ -3955,11 +4022,13 @@ async function loadGreenOffersInto(homeId, isOwner) {
         <div class="field"><label for="greenOfferFinancingType-${homeId}">Financing</label><select id="greenOfferFinancingType-${homeId}"><option value="financed">Financed</option><option value="cash">Cash</option></select></div>
         <div class="field"><label for="greenOfferClosingTimeline-${homeId}">Proposed closing timeline</label><input type="text" id="greenOfferClosingTimeline-${homeId}" maxlength="100" placeholder="e.g. 30 days"></div>
         <div class="field"><label for="greenOfferContingencies-${homeId}">Contingencies</label><input type="text" id="greenOfferContingencies-${homeId}" maxlength="500" placeholder="e.g. subject to inspection, financing approval"></div>
-        <div class="field"><label for="greenOfferMessage-${homeId}">Message to the seller</label><textarea id="greenOfferMessage-${homeId}" maxlength="1000"></textarea></div>
+        <div class="field"><label for="greenOfferMessage-${homeId}">Note about your terms (optional)</label><textarea id="greenOfferMessage-${homeId}" maxlength="1000"></textarea><p class="tiny field-hint composer-note">${escapeHtml(OFFER_MESSAGE_NOTE)}</p></div>
         <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="submit-green-offer" data-home-id="${homeId}">Submit Offer</button></div>
         ${offerToolsNoteHtml()}
       `;
     }
+    const sellerId = greenDetail && String(greenDetail.id) === String(homeId) ? greenDetail.ownerId : null;
+    if (myOffer && sellerId) el.insertAdjacentHTML('beforeend', `<div class="tiny">Problem with this seller? ${reportUserButtonHtml(sellerId)}</div>`);
   } catch { el.innerHTML = '<span class="tiny">Could not load offers.</span>'; }
 }
 
@@ -4165,7 +4234,7 @@ function renderPackagesEditor(packages) {
           <div class="field"><label>Title</label><input type="text" class="pkg-title" data-tier="${tier}" maxlength="80" value="${escapeHtml(p ? p.title : '')}" placeholder="${PACKAGE_TIER_LABELS[tier]}"></div>
           <div class="field"><label>Turnaround (days)</label><input type="number" class="pkg-turnaround" data-tier="${tier}" min="1" max="365" value="${p && p.turnaroundDays ? p.turnaroundDays : ''}"></div>
         </div>
-        <div class="field"><label>Description</label><textarea class="pkg-description" data-tier="${tier}" maxlength="500">${escapeHtml(p ? p.description : '')}</textarea></div>
+        <div class="field"><label>Description</label><textarea class="pkg-description" data-tier="${tier}" maxlength="500">${escapeHtml(p ? p.description : '')}</textarea><p class="tiny field-hint composer-note">${escapeHtml(AGENT_TEXT_NOTE)}</p></div>
         <div class="form-row two-col">
           <div class="field"><label>Commission (%)</label><input type="number" class="pkg-commission" data-tier="${tier}" min="0" max="100" step="0.1" value="${p && p.commissionPct ? p.commissionPct : ''}"></div>
           <div class="field"><label>…or flat fee ($)</label><input type="number" class="pkg-flatfee" data-tier="${tier}" min="0" max="500000" step="50" value="${p && p.flatFee ? p.flatFee : ''}"></div>
@@ -4199,7 +4268,7 @@ function renderAgentStatsPanel(stats, pendingCount) {
     <div class="mini-block"><span class="label">Proposals</span>${stats.totalBids} submitted, ${stats.acceptedBids} accepted</div>
     <div class="mini-block"><span class="label">Typical proposal speed</span>${respLabel || 'Not enough data yet'}</div>
     ${stats.finalistCount > 0 ? `<div class="mini-block"><span class="label">Finalist</span>On ${stats.finalistCount} home${stats.finalistCount === 1 ? '' : 's'} (the homeowner interviewed you, or shortlisted you before deciding)</div>` : ''}
-    <div class="mini-block"><span class="label">Who sees your proposals</span>Only the homeowner you send them to. Amico Haus has no staff screen for your proposals, price opinions, pitch reels or files.</div>
+    <div class="mini-block"><span class="label">Who sees your proposals</span>The homeowner you send them to. Other agents never do, and Amico Haus has no staff screen for your proposals, price opinions, pitch reels or files.</div>
     ${pendingCount !== undefined ? `<div class="mini-block"><span class="label">Your pipeline</span>${pendingCount} proposal${pendingCount === 1 ? '' : 's'} awaiting a homeowner's decision right now</div>` : ''}
   `;
 }
@@ -4694,11 +4763,46 @@ async function searchInviteAgents() {
   } catch (e) { resultsEl.innerHTML = `<span class="tiny">${escapeHtml(e.message)}</span>`; }
 }
 
+/* ---------------- Updated Terms prompt (F11) ---------------- */
+// A one-time, non-blocking card at the top of /app for accounts that haven't agreed to the current Terms version
+// (/api/me: termsCurrent false). "Not now" hides it for this browser session; nothing else waits on it.
+const TERMS_LATER_KEY = 'amicohaus_terms_later';
+function initTermsUpdateBanner(user) {
+  const banner = document.getElementById('termsUpdateBanner');
+  const needsAgreement = !!user && user.termsCurrent === false && !!user.currentTermsVersion;
+  if (!banner || !needsAgreement) return;
+  let later = null;
+  try { later = sessionStorage.getItem(TERMS_LATER_KEY); } catch { /* storage off: show it */ }
+  if (later === user.currentTermsVersion) return;
+  const dateEl = document.getElementById('termsUpdateDate');
+  if (dateEl && user.termsUpdatedLabel) dateEl.textContent = user.termsUpdatedLabel;
+  banner.classList.remove('hidden');
+  const agreeBtn = document.getElementById('termsAgreeBtn');
+  agreeBtn.addEventListener('click', async () => {
+    agreeBtn.disabled = true;
+    try {
+      await apiPost('/api/account/accept-terms', { version: user.currentTermsVersion });
+      banner.classList.add('hidden');
+      toast('Thanks for agreeing to the updated Terms.');
+    } catch (err) {
+      // A newer Terms version shipped after this page loaded: reload so the person sees the latest first.
+      if (err && err.data && err.data.code === 'terms_changed') { toast(err.message); setTimeout(() => window.location.reload(), 1500); return; }
+      agreeBtn.disabled = false; toastActionError(err);
+    }
+  });
+  document.getElementById('termsLaterBtn').addEventListener('click', () => {
+    try { sessionStorage.setItem(TERMS_LATER_KEY, user.currentTermsVersion); } catch { /* ignore */ }
+    banner.classList.add('hidden');
+  });
+}
+
 /* ---------------- Wiring ---------------- */
 document.addEventListener('DOMContentLoaded', async () => {
   const user = await requireAuthOrRedirect();
   if (!user) return;
   document.getElementById('whoami').textContent = user.displayName;
+  initTermsUpdateBanner(user);
+  primeAgentListingTools();
 
   fillTypeSelect(document.getElementById('propertyType'), false);
   fillTypeSelect(document.getElementById('desiredType'), true);
@@ -4809,6 +4913,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('listingForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = document.getElementById('listingSubmitBtn');
+    if (!editingListingId && !document.getElementById('isBuyerOnly').checked && ownerConfirmMissing('ownerConfirmListing')) { btn.disabled = false; return; }
     btn.disabled = true;
     const virtualTourUrl = document.getElementById('virtualTourUrl').value.trim();
     const links = [
@@ -4821,7 +4926,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       rentAmount: document.getElementById('rentAmount').value || 0,
       minLeaseMonths: document.getElementById('minLeaseMonths').value || 12,
       title: document.getElementById('title').value.trim(),
-      clientName: document.getElementById('clientName').value.trim(),
+      clientName: isApprovedAgentNow() ? document.getElementById('clientName').value.trim() : '',
       city: document.getElementById('city').value.trim(),
       state: document.getElementById('state').value.trim(),
       neighborhood: document.getElementById('neighborhood').value.trim(),
@@ -4850,7 +4955,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (editingListingId) {
         await apiPut(`/api/listings/${editingListingId}`, { ...payload, action: 'edit' });
       } else {
-        ({ id: listingId } = await apiPost('/api/listings', payload));
+        ({ id: listingId } = await apiPost('/api/listings', cloneSourceListingId ? { ...payload, cloneOf: cloneSourceListingId } : payload));
       }
 
       await saveHomeCosts('listing', listingId, costs);
@@ -4858,6 +4963,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       toastWithPhotoResult(wasEditing ? 'Listing updated!' : 'Listing created!', photoResult);
       document.getElementById('listingForm').reset();
+      document.getElementById('ownerConfirmListing').checked = false;
       setBuyerOnlyFieldsetState(false);
       setRentalFieldsetState(false);
       resetListingFormToCreateMode();
@@ -4913,7 +5019,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const fileInput = document.getElementById('bulkCsvInput');
     const resultsEl = document.getElementById('bulkUploadResults');
     const file = fileInput.files[0];
+    if (!isApprovedAgentNow()) { toast('Bulk upload is for approved agents.'); return; }
     if (!file) { toast('Choose a CSV file first.'); return; }
+    if (ownerConfirmMissing('ownerConfirmBulk')) return;
 
     const listings = csvToListings(await file.text());
     if (listings.length === 0) { toast('No valid rows found in that CSV.'); return; }
@@ -4927,6 +5035,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       `;
       toast(`${created} of ${total} listings created.`);
       fileInput.value = '';
+      document.getElementById('ownerConfirmBulk').checked = false;
       loadMyListing();
     } catch (err) {
       resultsEl.innerHTML = '';
@@ -5131,6 +5240,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     const card = e.target.closest('[data-action="open-conversation"]');
     if (card) openConversation(card.dataset.id, card.dataset.name, card.dataset.userId);
   });
+  document.getElementById('threadReportBtn').addEventListener('click', e => {
+    const otherId = document.getElementById('messageThread').dataset.otherUserId;
+    if (otherId) submitReport('user', otherId, e.currentTarget);
+  });
   document.getElementById('threadBlockBtn').addEventListener('click', async () => {
     const thread = document.getElementById('messageThread');
     if (await confirmAndBlock(thread.dataset.otherUserId, thread.dataset.otherName)) renderMessages(thread.dataset.conversationId);
@@ -5282,6 +5395,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const btn = document.getElementById('createPreListingBtn');
     const problem = preListingFormProblem('pl');
     if (problem) { toast(problem.message); problem.field.focus(); return; }
+    if (ownerConfirmMissing('ownerConfirmPreListing')) return;
     const chosenMode = selectedDialMode('plContactMode');
     btn.disabled = true;
     try {
@@ -5329,6 +5443,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.getElementById('plRequireDedicatedContact').checked = false;
       document.getElementById('plPrefersExclusive').checked = false;
       document.getElementById('plPrefersLocalSpecialist').checked = false;
+      document.getElementById('ownerConfirmPreListing').checked = false;
       renderPostFormDial(true);
       loadMyPreListings();
       loadMarketplaceBrowse();
@@ -5820,7 +5935,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           comps,
           prep: selectedPrepItems(),
         });
-        toast('Price opinion saved. Only the homeowner can see it.');
+        toast('Price opinion saved. The homeowner can see it; other agents can\'t.');
         openPreListingDetail(id);
       } else if (removeDeckBtn) {
         if (!confirm('Remove your presentation file?')) return;
@@ -5884,7 +5999,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const { deck } = await apiUpload(`/api/pre-listings/${marketplaceDetail.id}/votes/deck`, formData);
         document.getElementById('deckCurrent').innerHTML = deckLineHtml(deck);
         hint.textContent = deckHint(deck);
-        toast('Presentation attached. Only the homeowner can open it.');
+        toast('Presentation attached. The homeowner can open it; other agents can\'t.');
       } catch (err) { hint.textContent = err.message; }
       input.disabled = false;
       input.value = '';
@@ -5938,6 +6053,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   /* ---------------- AugmentedHomes wiring ---------------- */
   document.getElementById('createAugmentedHomeBtn').addEventListener('click', async () => {
     const btn = document.getElementById('createAugmentedHomeBtn');
+    if (ownerConfirmMissing('ownerConfirmAugmented')) return;
     btn.disabled = true;
     try {
       const adaptations = [...document.querySelectorAll('.augmented-create-check:checked')].map(c => c.value);
@@ -5970,6 +6086,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.getElementById('augPhotos').value = '';
       document.querySelectorAll('.augmented-create-check').forEach(c => c.checked = false);
       document.querySelectorAll('.aug-life-event-check').forEach(c => c.checked = false);
+      document.getElementById('ownerConfirmAugmented').checked = false;
       loadMyAugmentedHomes();
       loadAugmentedBrowse();
     } catch (err) { toast(err.message); } finally { btn.disabled = false; }
@@ -6109,6 +6226,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   /* ---------------- GreenHomes wiring ---------------- */
   document.getElementById('createGreenHomeBtn').addEventListener('click', async () => {
     const btn = document.getElementById('createGreenHomeBtn');
+    if (ownerConfirmMissing('ownerConfirmGreen')) return;
     btn.disabled = true;
     try {
       const greenFeatures = [...document.querySelectorAll('.green-create-check:checked')].map(c => c.value);
@@ -6141,6 +6259,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.getElementById('greenPhotos').value = '';
       document.querySelectorAll('.green-create-check').forEach(c => c.checked = false);
       document.querySelectorAll('.green-life-event-check').forEach(c => c.checked = false);
+      document.getElementById('ownerConfirmGreen').checked = false;
       loadMyGreenHomes();
       loadGreenBrowse();
     } catch (err) { toast(err.message); } finally { btn.disabled = false; }

@@ -36,8 +36,9 @@ export async function insertOffer(db, listingId, buyerUserId, d) {
 // buyer: the site doesn't vouch for anyone.
 export async function fetchOffersForOwner(db, listingId) {
   const rows = await db.prepare(
-    `SELECT listing_offers.*, users.display_name AS buyer_name
+    `SELECT listing_offers.*, users.display_name AS buyer_name, ap.license_number AS buyer_license, ap.brokerage_name AS buyer_brokerage
      FROM listing_offers JOIN users ON users.id = listing_offers.buyer_user_id
+     LEFT JOIN agent_profiles ap ON ap.user_id = users.id AND ap.status = 'approved'
      WHERE listing_offers.listing_id = ? ORDER BY listing_offers.created_at DESC`
   ).bind(listingId).all();
   return rows.results.map(mapOfferRow);
@@ -60,6 +61,8 @@ function mapOfferRow(r) {
     offerPrice: r.offer_price, financingType: r.financing_type, closingTimeline: r.closing_timeline,
     contingencies: r.contingencies, message: r.message, status: r.status,
     counterPrice: r.counter_price, counterMessage: r.counter_message, counteredBy: r.countered_by, createdAt: r.created_at,
+    // An approved agent buyer's DRE # and broker (a point of contact), on the owner's list only; null for anyone else.
+    buyerLicense: r.buyer_license || null, buyerBrokerage: r.buyer_brokerage || null,
   };
 }
 

@@ -1,5 +1,5 @@
 import { getSessionUser } from '../_lib/auth.js';
-import { json, parseJsonSafe, DEMO_EMAIL_PATTERN } from '../_lib/util.js';
+import { json, parseJsonSafe, DEMO_EMAIL_PATTERN, REVIEW_SAMPLE_EMAIL } from '../_lib/util.js';
 import { fetchPortfolioMembers } from '../_lib/portfolios.js';
 import { fetchRecentActivityBatch } from '../_lib/marketEvents.js';
 import { fetchListingFavoriteCountBatch } from '../_lib/priceSeries.js';
@@ -47,6 +47,10 @@ export async function onRequestGet(context) {
     `listings.status = 'active'`, `listings.is_buyer_only = 0`, `users.email NOT LIKE ?`, `users.status = 'active'`,
     `listings.id NOT IN (SELECT member_listing_id FROM portfolio_members)`,
   ];
+  // The Google Play reviewer's sample listing opens by direct link but isn't browsable (Rudy 11.05); this also keeps
+  // it off the home page, which reads this list. The @resend.dev authz test accounts stay (the authz suite checks
+  // its test agent is listed); they're left out of the sitemap and public counts instead. Literal from util, not bound.
+  conditions.push(`lower(users.email) <> '${REVIEW_SAMPLE_EMAIL}'`);
   const params = [DEMO_EMAIL_PATTERN];
   if (kind === 'rental') conditions.push('listings.is_rental = 1');
   else if (kind === 'trade') conditions.push('listings.is_rental = 0 AND listings.is_portfolio = 0');

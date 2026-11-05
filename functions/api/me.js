@@ -1,9 +1,22 @@
 import { getSessionUser, publicUser } from '../_lib/auth.js';
 import { json, badRequest, unauthorized, clampString } from '../_lib/util.js';
+import { CURRENT_TERMS_VERSION, TERMS_UPDATED_LABEL, termsCurrent } from '../_lib/terms.js';
 
+// Per viewer, so never cached. termsCurrent / currentTermsVersion drive the one-time "We updated our Terms" notice in
+// /app (accepted through /api/account/accept-terms).
 export async function onRequestGet(context) {
   const user = await getSessionUser(context);
-  return json({ user: publicUser(user) });
+  const headers = { 'Cache-Control': 'private, no-store' };
+  if (!user) return json({ user: null }, { headers });
+  return json({
+    user: {
+      ...publicUser(user),
+      termsVersion: user.terms_version || null,
+      termsCurrent: termsCurrent(user),
+      currentTermsVersion: CURRENT_TERMS_VERSION,
+      termsUpdatedLabel: TERMS_UPDATED_LABEL,
+    },
+  }, { headers });
 }
 
 export async function onRequestPut(context) {

@@ -37,6 +37,7 @@
     const respondCounterBtn = e.target.closest('[data-action="respond-counter"]');
     const counterBackBtn = e.target.closest('[data-action="counter-back"]');
     const reportCommentBtn = e.target.closest('[data-action="report-comment"]');
+    const reportListingBtn = e.target.closest('[data-action="report-listing"]');
     const unhideBtn = e.target.closest('[data-action="unhide-content"]');
     const deleteCommentBtn = e.target.closest('[data-action="delete-comment"]');
     const likeCommentBtn = e.target.closest('[data-action="like-comment"]');
@@ -107,6 +108,12 @@
       const open = host.querySelector(':scope > .inline-report');
       if (open) { open.remove(); return; }
       host.insertAdjacentHTML('beforeend', inlineReportFormHtml('comment', reportCommentBtn.dataset.id));
+    } else if (reportListingBtn) {
+      // Report on the listing itself (beside "Listed by"): same form, same send/cancel branches below.
+      const host = reportListingBtn.closest('[data-report-host]');
+      const open = host && host.querySelector(':scope > .inline-report');
+      if (open) { open.remove(); return; }
+      if (host) host.insertAdjacentHTML('beforeend', inlineReportFormHtml('listing', reportListingBtn.dataset.id));
     } else if (sendReportBtn) {
       const box = sendReportBtn.closest('.inline-report');
       const preset = box.querySelector('.report-reason').value;

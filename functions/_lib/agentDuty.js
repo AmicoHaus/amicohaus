@@ -2,7 +2,7 @@
 // (Fair Play rule 1); only EMAILS that arrive while an agent is off duty wait until their next on-duty time, then
 // go out from the lazy job runner (functions/api/_middleware.js). Homeowners can see how many agents who serve
 // their ZIP are on duty right now (only when that's at least one).
-import { sendEmail } from './email.js';
+import { sendEmail, EMAIL_POSTAL_LINE } from './email.js';
 import { DEMO_EMAIL_PATTERN } from './util.js';
 
 const TZ = 'America/Los_Angeles';
@@ -176,9 +176,11 @@ export async function runDueHeldEmails(context, { limit = 40, budgetMs = 15000 }
     const lines = rows.slice(0, 10).map(r => `- ${r.text_body.split('\n').filter(Boolean)[0]}`);
     const subject = rows.length === 1 ? lead.subject
       : offDuty ? `${rows.length} updates from Amico Haus while you were off duty` : `${rows.length} updates from Amico Haus`;
+    // A bundle is our own email (not one message passed along), so it carries the postal line and a settings link.
+    const bundleText = offDuty ? [`Hi ${lead.display_name || 'there'}, here's what came in while you were off duty:`, '', ...lines].join('\n')
+      : ["Here's what came in during your quiet hours:", '', ...lines].join('\n');
     const text = rows.length === 1 ? lead.text_body
-      : offDuty ? [`Hi ${lead.display_name || 'there'}, here's what came in while you were off duty:`, '', ...lines].join('\n')
-        : ["Here's what came in during your quiet hours:", '', ...lines].join('\n');
+      : bundleText + '\n\n' + EMAIL_POSTAL_LINE + '\nEmail settings: https://amicohaus.com/account-security';
     const ok = await sendEmail(context, { to: lead.email, subject, text }).catch(() => false);
     if (!ok) {
       // Put them back for another try (until they've had 3).

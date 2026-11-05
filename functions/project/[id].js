@@ -71,6 +71,7 @@ function renderShell(title, bodyHtml, authCta) {
   </footer>
 </div>
 <script src="/client.js?v=${ASSET_VERSIONS['/client.js']}"></script>
+<script src="/report-actions.js?v=${ASSET_VERSIONS['/report-actions.js']}"></script>
 <!-- Cloudflare Web Analytics -->
 <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "91a193988b2d45e58aa1c27d5abf6bdb"}'></script>
 <!-- End Cloudflare Web Analytics -->
@@ -132,6 +133,11 @@ async function renderPage(context) {
   const title = `${project.title} — FinderMine on Amico Haus`;
   const authCta = `<span class="tiny">Hi, ${escapeHtml(viewer.display_name)}</span> <a class="btn btn-primary btn-sm" href="/app#findermine">Go to App</a>`;
 
+  // Report (fair housing or a rules problem) on the person who posted it, for any signed-in member but the poster
+  // (report-actions.js). The page is sign-in only, so there's no signed-out version.
+  const reportHtml = viewer.id === project.owner_id ? ''
+    : ` · <span data-report-host><button type="button" class="link-btn" data-action="report-owner" data-id="${project.owner_id}" data-prefill="FinderMine project #${id}: ">Report</button></span>`;
+
   const body = `
     <div id="entityMeta" class="hidden" data-kind="dev_project" data-id="${id}" data-title="${escapeHtml(project.title)}" data-amount="" data-city="${escapeHtml(project.city)}" data-state="${escapeHtml(project.state)}"></div>
     <div class="card">
@@ -139,7 +145,7 @@ async function renderPage(context) {
       <div class="card-head">
         <div>
           <h1>${escapeHtml(project.title)}</h1>
-          <div class="card-agent">Posted by <a class="profile-link" href="/profile/${project.owner_id}">${escapeHtml(ownerIdentity || project.owner_name)}</a></div>
+          <div class="card-agent">Posted by <a class="profile-link" href="/profile/${project.owner_id}">${escapeHtml(ownerIdentity || project.owner_name)}</a>${reportHtml}</div>
         </div>
         <span class="badge badge-gold">FinderMine</span>
       </div>

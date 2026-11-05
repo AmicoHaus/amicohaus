@@ -24,6 +24,7 @@ async function zipsNearService(db, serviceZips) {
 }
 import { pacificParts, pacificToUtcMs, dutyFromRow, sendOrHoldEmail } from './agentDuty.js';
 import { confirmationCodeHash } from './emailConfirmation.js';
+import { EMAIL_POSTAL_LINE } from './email.js';
 
 const MIN_PEERS = 3;
 const MIN_PROPOSALS = 3;
@@ -159,7 +160,7 @@ export async function scorecardEmail(context, userId, card, nowMs = Date.now()) 
     `One next step: ${card.nextStep}`, '',
     `Open your dashboard: ${origin}/app#become-agent`, '',
     `You get this every Monday as an approved agent on Amico Haus. Stop these emails: ${origin}/api/agents/scorecard-unsubscribe?u=${userId}&t=${await unsubscribeToken(context.env, userId)}`,
-    'Presented by Rudy Flores, Realtor® · DRE #02257808 · Coldwell Banker West',
+    EMAIL_POSTAL_LINE,
   ];
   const subject = `Your Amico Haus week: ${plural(c.proposals, 'proposal', 'proposals')}, ${plural(c.newNearby, 'new home', 'new homes')} near you`;
   return { subject, text: lines.join('\n') };

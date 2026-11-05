@@ -1,6 +1,6 @@
 import { getSessionUser, phoneVisibleTo } from '../_lib/auth.js';
 import { identityLine } from '../_lib/contactPolicy.js';
-import { escapeHtml } from '../_lib/util.js';
+import { escapeHtml, unlistedOwnerSql } from '../_lib/util.js';
 import { ASSET_VERSIONS } from '../_lib/assetVersions.js';
 import { withSecurityHeaders } from '../_lib/withSecurityHeaders.js';
 import { homeCostsFromRow, homeCostsLines, HOME_COSTS_HEADING, HOME_COSTS_CONFIRM_LINE } from '../_lib/homeCosts.js';
@@ -23,13 +23,16 @@ function notFoundPage() {
   `), { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 
-function renderShell(title, description, bodyHtml, authCta, { jsonLd = '', image = '', url = '' } = {}) {
+// noindex: the page still opens by direct link but asks search engines to leave it out (unlisted owners, see
+// unlistedOwnerSql in _lib/util.js); the Response also carries X-Robots-Tag.
+function renderShell(title, description, bodyHtml, authCta, { jsonLd = '', image = '', url = '', noindex = false } = {}) {
   return `<!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${escapeHtml(title)}</title>
+${noindex ? '<meta name="robots" content="noindex">' : ''}
 ${description ? `<meta name="description" content="${escapeHtml(description)}">` : ''}
 ${url ? `<link rel="canonical" href="${escapeHtml(url)}">` : ''}
 <meta property="og:type" content="website">
@@ -72,6 +75,7 @@ ${jsonLd}
   </footer>
 </div>
 <script src="/client.js?v=${ASSET_VERSIONS['/client.js']}"></script>
+<script src="/report-actions.js?v=${ASSET_VERSIONS['/report-actions.js']}"></script>
 <!-- Cloudflare Web Analytics -->
 <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "91a193988b2d45e58aa1c27d5abf6bdb"}'></script>
 <!-- End Cloudflare Web Analytics -->
@@ -92,7 +96,8 @@ async function renderPage(context) {
     `SELECT green_homes.*, users.id AS owner_id, users.display_name AS owner_name, users.phone AS owner_phone,
             users.phone_public AS owner_phone_public,
             owner_agent.license_number AS owner_license, owner_agent.brokerage_name AS owner_brokerage,
-            (SELECT id FROM green_home_photos WHERE green_home_photos.green_home_id = green_homes.id ORDER BY position ASC LIMIT 1) AS photo_id
+            (SELECT id FROM green_home_photos WHERE green_home_photos.green_home_id = green_homes.id ORDER BY position ASC LIMIT 1) AS photo_id,
+            ${unlistedOwnerSql('users.email')} AS unlisted_owner
      FROM green_homes JOIN users ON users.id = green_homes.user_id
      LEFT JOIN agent_profiles AS owner_agent ON owner_agent.user_id = users.id AND owner_agent.status = 'approved'
      WHERE green_homes.id = ? AND green_homes.status = 'active' AND users.status = 'active'`
@@ -119,6 +124,12 @@ async function renderPage(context) {
     ? `<span class="tiny">Hi, ${escapeHtml(viewer.display_name)}</span> <a class="btn btn-primary btn-sm" href="/app#greenhomes">Go to App</a>`
     : null;
 
+  // Report (fair housing or a rules problem) on the person who posted it: signed-in visitors other than the owner get
+  // the inline report form (report-actions.js), signed-out visitors the contact form, the owner nothing.
+  const reportHtml = !viewer
+    ? ' · <a class="link-btn" href="/contact">Report a concern</a>'
+    : viewer.id === home.owner_id ? '' : ` · <span data-report-host><button type="button" class="link-btn" data-action="report-owner" data-id="${home.owner_id}" data-prefill="GreenHomes home #${id}: ">Report</button></span>`;
+
   const body = `
     <div id="entityMeta" class="hidden" data-kind="green_home" data-id="${id}" data-title="${escapeHtml(home.title || home.property_type)}" data-amount="${home.asking_price}" data-city="${escapeHtml(home.city)}" data-state="${escapeHtml(home.state)}"></div>
     <div class="card">
@@ -126,7 +137,7 @@ async function renderPage(context) {
       <div class="card-head">
         <div>
           <h1>${escapeHtml(home.title || home.property_type)}</h1>
-          <div class="card-agent">Listed by <a class="profile-link" href="/profile/${home.owner_id}">${escapeHtml(ownerIdentity || home.owner_name)}</a></div>
+          <div class="card-agent">Listed by <a class="profile-link" href="/profile/${home.owner_id}">${escapeHtml(ownerIdentity || home.owner_name)}</a>${reportHtml}</div>
         </div>
         <span class="badge badge-gold">GreenHomes</span>
       </div>
@@ -181,7 +192,8 @@ async function renderPage(context) {
     beds: home.beds, baths: home.baths, sqft: home.sqft, price: home.asking_price,
   });
 
-  return new Response(renderShell(title, description, body, authCta, { jsonLd, image: shareImage, url: pageUrl }), {
-    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+  const noindex = !!home.unlisted_owner;
+  return new Response(renderShell(title, description, body, authCta, { jsonLd, image: shareImage, url: pageUrl, noindex }), {
+    headers: { 'Content-Type': 'text/html; charset=utf-8', ...(noindex ? { 'X-Robots-Tag': 'noindex' } : {}) },
   });
 }

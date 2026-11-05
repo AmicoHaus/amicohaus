@@ -104,12 +104,12 @@ export async function submitAgentApplication(db, userId, body) {
     if (unknown.length > 0) return { error: `Not a recognized US zip code: ${unknown.join(', ')}.` };
   }
 
-  const existing = await db.prepare('SELECT status, license_number FROM agent_profiles WHERE user_id = ?').bind(userId).first();
+  const existing = await db.prepare('SELECT status, license_number, brokerage_name FROM agent_profiles WHERE user_id = ?').bind(userId).first();
   const nextStatus = existing && existing.status === 'approved' ? 'approved' : 'pending';
 
-  // An admin verified the license number they were shown, so an approved agent
-  // (free to edit their profile) changing it voids that check — see the
-  // license_verified CASE expressions in the upsert below.
+  // An admin checked the license number and broker they were shown on the DRE, so an approved agent (free to edit
+  // their profile) changing either one voids that check (the DRE record ties a license to its broker) -- see the
+  // license_verified CASE expressions in the upsert below. apply.js alerts the admin so it gets looked up again.
 
   await db.prepare(
     `INSERT INTO agent_profiles (user_id, status, brokerage_name, license_number, years_experience, bio, default_commission_pct, default_flat_fee, services_json, service_zips_json, open_house_days_json, avg_days_on_market, homes_sold_last_year, notify_new_requests, specialty_tags_json, certifications, languages_json, sale_to_list_ratio, solo_agent, accepting_clients, carries_eo_insurance)
@@ -124,9 +124,9 @@ export async function submitAgentApplication(db, userId, body) {
        specialty_tags_json = excluded.specialty_tags_json, certifications = excluded.certifications,
        languages_json = excluded.languages_json, sale_to_list_ratio = excluded.sale_to_list_ratio, solo_agent = excluded.solo_agent,
        accepting_clients = excluded.accepting_clients, carries_eo_insurance = excluded.carries_eo_insurance,
-       license_verified = CASE WHEN excluded.license_number IS NOT agent_profiles.license_number THEN 0 ELSE agent_profiles.license_verified END,
-       license_verified_at = CASE WHEN excluded.license_number IS NOT agent_profiles.license_number THEN NULL ELSE agent_profiles.license_verified_at END,
-       license_verified_by = CASE WHEN excluded.license_number IS NOT agent_profiles.license_number THEN NULL ELSE agent_profiles.license_verified_by END,
+       license_verified = CASE WHEN excluded.license_number IS NOT agent_profiles.license_number OR excluded.brokerage_name IS NOT agent_profiles.brokerage_name THEN 0 ELSE agent_profiles.license_verified END,
+       license_verified_at = CASE WHEN excluded.license_number IS NOT agent_profiles.license_number OR excluded.brokerage_name IS NOT agent_profiles.brokerage_name THEN NULL ELSE agent_profiles.license_verified_at END,
+       license_verified_by = CASE WHEN excluded.license_number IS NOT agent_profiles.license_number OR excluded.brokerage_name IS NOT agent_profiles.brokerage_name THEN NULL ELSE agent_profiles.license_verified_by END,
        applied_at = CASE WHEN status = 'pending' THEN datetime('now') ELSE agent_profiles.applied_at END,
        rejection_reason = CASE WHEN excluded.status = 'pending' THEN NULL ELSE agent_profiles.rejection_reason END`
   ).bind(
@@ -146,6 +146,10 @@ export async function submitAgentApplication(db, userId, body) {
   return {
     status: nextStatus, isNewApplication: !existing || existing.status === 'rejected', licenseNumber: d.licenseNumber,
     licenseChanged: !!existing && existing.license_number !== d.licenseNumber,
+    brokerageChanged: !!existing && (existing.brokerage_name || '') !== (d.brokerageName || ''),
+    oldLicense: existing ? existing.license_number : null,
+    oldBrokerage: existing ? existing.brokerage_name : null,
+    brokerageName: d.brokerageName,
   };
 }
 

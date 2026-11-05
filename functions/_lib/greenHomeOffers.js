@@ -32,8 +32,9 @@ export async function insertOffer(db, homeId, buyerUserId, d) {
 
 export async function fetchOffersForOwner(db, homeId) {
   const rows = await db.prepare(
-    `SELECT green_home_offers.*, users.display_name AS buyer_name
+    `SELECT green_home_offers.*, users.display_name AS buyer_name, ap.license_number AS buyer_license, ap.brokerage_name AS buyer_brokerage
      FROM green_home_offers JOIN users ON users.id = green_home_offers.buyer_user_id
+     LEFT JOIN agent_profiles ap ON ap.user_id = users.id AND ap.status = 'approved'
      WHERE green_home_offers.green_home_id = ? ORDER BY green_home_offers.created_at DESC`
   ).bind(homeId).all();
   return rows.results.map(mapOfferRow);
@@ -53,6 +54,8 @@ function mapOfferRow(r) {
     offerPrice: r.offer_price, financingType: r.financing_type, closingTimeline: r.closing_timeline,
     contingencies: r.contingencies, message: r.message, status: r.status,
     counterPrice: r.counter_price, counterMessage: r.counter_message, counteredBy: r.countered_by, createdAt: r.created_at,
+    // An approved agent buyer's DRE # and broker (a point of contact), on the owner's list only; null for anyone else.
+    buyerLicense: r.buyer_license || null, buyerBrokerage: r.buyer_brokerage || null,
   };
 }
 

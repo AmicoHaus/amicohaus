@@ -45,6 +45,13 @@ export function validateDesiredCriteria(body) {
   };
 }
 
+// California fair housing law (Gov. Code 12955) protects a renter's source of income, including a Section 8 or VASH
+// voucher, so a rental can't post limits like "no vouchers" or "Section 8 not accepted". Checked on create, edit and
+// bulk upload of a rental (validateListingInput's rental branch and the plain-description edit in listings/[id].js).
+export const SOURCE_OF_INCOME_LIMIT = /\b(no|not accepting|won['’]?t accept|don['’]?t accept)\s+(section\s*8|sec\.?\s*8|s8|vouchers?|housing (assistance|subsidies)|government assistance)\b|\b(section\s*8|vouchers?)\s+not\s+(accepted|allowed|welcome)\b/i;
+export const SOURCE_OF_INCOME_ERROR = "Listings can't limit renters by source of income, such as housing vouchers (California law).";
+export function sourceOfIncomeLimitError(...texts) { return SOURCE_OF_INCOME_LIMIT.test(texts.filter(Boolean).join(' ')) ? SOURCE_OF_INCOME_ERROR : null; }
+
 // Shared by the single-listing form (api/listings/index.js) and the broker
 // bulk-upload endpoint (api/listings/bulk.js) — one place for the validation
 // rules so the two paths can't silently drift apart.
@@ -70,6 +77,9 @@ export function validateListingInput(body) {
       return { error: 'Fill in city, state, property type, value, beds, and baths.' };
     }
     if (rentAmount === null) return { error: 'Enter a monthly rent amount.' };
+    const sourceOfIncomeError = sourceOfIncomeLimitError(
+      clampString(body.title, 120), clampString(body.neighborhood, 80), clampString(body.description, 2000), clampString(body.mustHaves, 200));
+    if (sourceOfIncomeError) return { error: sourceOfIncomeError };
 
     return {
       data: {

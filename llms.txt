@@ -7,7 +7,7 @@ Each user creates a profile describing their current home (location, type, price
 ## Where it's live
 
 - **Launch area**: San Diego County, starting with Chula Vista (ZIPs 91910, 91911, 91913, 91914, 91915) and Bonita (91902).
-- **Founding agents**: the first 3 approved agents in each launch ZIP. It's recognition only: no agent is promised leads, clients or business, and founding agents get alerts at the same moment as every other agent.
+- **Founding agents**: the first 3 approved agents in each launch ZIP. It's recognition only: no agent is promised leads, clients or business, and founding agents get alerts at the same moment as every other agent. The account that runs Amico Haus never takes a founding spot.
 
 ## Key concepts (Agent Strategy)
 

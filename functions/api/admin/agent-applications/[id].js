@@ -32,17 +32,21 @@ export async function onRequestPut(context) {
 
   const applicantId = context.params.id;
   const db = context.env.DB;
-  const existing = await db.prepare('SELECT status, license_number FROM agent_profiles WHERE user_id = ?').bind(applicantId).first();
+  const existing = await db.prepare('SELECT status, license_number, license_verified FROM agent_profiles WHERE user_id = ?').bind(applicantId).first();
   if (!existing) return notFound('No application from this user.');
 
   let body;
   try { body = await context.request.json(); } catch { return badRequest('Invalid request body.'); }
   if (!['approve', 'reject'].includes(body.decision)) return badRequest('decision must be "approve" or "reject".');
-  // Approval goes with the license number the admin was shown (and checked on the DRE).
+  // Approval goes with the license number the admin was shown, and only after it was marked checked on the DRE
+  // (PUT .../verify). A license or broker change by the agent clears that check, so it has to be done again first.
   if (body.decision === 'approve') {
     if (!body.licenseNumber) return badRequest('Send the license number you checked.');
     if (String(body.licenseNumber) !== existing.license_number) {
       return json({ error: "This agent's license number changed since the page loaded. Reload, then check the new number on the DRE." }, { status: 409 });
+    }
+    if (!Number(existing.license_verified)) {
+      return json({ error: 'Mark the license checked on the DRE before approving.', code: 'license_not_checked' }, { status: 409 });
     }
   }
   // A rejection uses the fixed list of reasons (REJECTION_REASONS in agents.js, also sent with the application list).

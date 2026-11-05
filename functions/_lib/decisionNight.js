@@ -116,6 +116,25 @@ export async function countFinalistHomes(db, agentUserId) {
   return row ? row.n : 0;
 }
 
+// countFinalistHomes for several agents in one query. Returns Map(agentId -> count).
+export async function countFinalistHomesBatch(db, agentUserIds) {
+  const out = new Map();
+  const ids = [...new Set(agentUserIds || [])];
+  if (ids.length === 0) return out;
+  const rows = await db.prepare(
+    `SELECT agent, COUNT(*) AS n FROM (
+       SELECT i.agent_user_id AS agent, i.pre_listing_id AS pl FROM pre_listing_interviews i JOIN pre_listings p ON p.id = i.pre_listing_id JOIN users o ON o.id = p.user_id
+       WHERE i.agent_user_id IN (SELECT value FROM json_each(?1)) AND i.status IN ('scheduled','done') AND o.email NOT LIKE ?2
+       UNION
+       SELECT b.agent_user_id AS agent, b.request_id AS pl FROM service_bids b JOIN pre_listings p ON p.id = b.request_id JOIN users o ON o.id = p.user_id
+       WHERE b.agent_user_id IN (SELECT value FROM json_each(?1)) AND b.request_type = 'pre_listing' AND b.owner_pick = 'shortlist' AND b.status != 'withdrawn' AND o.email NOT LIKE ?2
+         AND p.status IN ('awarded','closed')
+     ) GROUP BY agent`
+  ).bind(JSON.stringify(ids), DEMO_EMAIL_PATTERN).all();
+  for (const r of rows.results) out.set(r.agent, r.n);
+  return out;
+}
+
 // Tells homeowners whose Decision Night has arrived that their proposals are open. Each pre-listing is claimed with
 // one conditional UPDATE, so two runs at once can't both send. Called from the API middleware (throttled) and safe to
 // call anywhere.

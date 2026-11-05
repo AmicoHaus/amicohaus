@@ -140,6 +140,33 @@ export async function notifyNewPriceOpinion(context, ownerId, agentUserId, preLi
     'New price opinion on Amico Haus', 'see what they said');
 }
 
+// Opinion Refresh (R3-1b): the homeowner asked these agents for a fresh look at their price opinion. The email waits
+// for each agent's duty (or quiet) hours as an 'opinion_refresh' hold, which runDueHeldEmails drops once the ask is
+// answered or replaced, the home closes, either side blocks the other, or the owner is suspended (agentDuty.js
+// stillWanted). The contact dial governs agents reaching people, so it doesn't cover an owner's ask. Never a number.
+export const OPINION_REFRESH_ASK_BODY = 'A homeowner you gave a price opinion to would like a fresh look. Is your number the same, or would you update it?';
+export async function notifyOpinionRefreshAsked(context, preListingId, agentUserIds) {
+  const db = context.env.DB;
+  const recipients = await fetchRecipients(db, agentUserIds, { holdKind: 'opinion_refresh', holdRef: `pre_listing:${preListingId}` });
+  await Promise.allSettled(recipients.map(r => notifyAndMaybeEmail(context, r, OPINION_REFRESH_ASK_BODY, `/app#pre-listing-${preListingId}`,
+    'A homeowner asked for a fresh price opinion on Amico Haus', 'tap Same or Update')));
+}
+
+// The agent's answer reaches the homeowner in every dial mode (price opinions always arrive), with the agent's DRE
+// identity line. An update is worth an email (quiet hours and the daily cap apply); a "same" stays in-app. Never a number.
+export async function notifyOpinionRefreshAnswered(context, ownerId, agentUserId, preListingId, answer) {
+  const db = context.env.DB;
+  const link = `/app#pre-listing-${preListingId}`;
+  if (answer === 'update') {
+    const owner = await fetchRecipient(db, ownerId);
+    if (!owner) return;
+    await notifyAndMaybeEmail(context, owner, `${await senderLabel(db, agentUserId)} updated their price opinion.`, link,
+      'Updated price opinion on Amico Haus', 'see your price opinion history');
+  } else {
+    await notify(db, ownerId, `${await senderLabel(db, agentUserId)} says their price opinion is the same.`, link);
+  }
+}
+
 // A new showing request is the same kind of "homeowner should come back and look" event a vote or proposal is,
 // so it gets the same email treatment. The decision on it (accept/decline) stays in-app only, matching
 // notifyBidDecision below — the agent who asked is already watching for an answer, same reasoning as there.

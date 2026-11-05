@@ -156,6 +156,23 @@ export function validateComps(raw) {
   return { comps };
 }
 
+// Price opinion history (R3-1b, migration_v44): every number an agent gives a home is kept as a version, the
+// owner's private per-agent history (functions/_lib/opinionTrail.js reads it). Never averaged across agents.
+// The number already on file becomes this agent's first version before anything changes it (opinions from before
+// the history began, migration_v44).
+export function ensureFirstVersionStmt(db, preListingId, agentUserId) {
+  return db.prepare(`INSERT INTO pre_listing_opinion_versions (pre_listing_id, agent_user_id, price_opinion, source, created_at)
+    SELECT o.pre_listing_id, o.agent_user_id, o.price_opinion, 'first', o.updated_at FROM pre_listing_price_opinions o
+    WHERE o.pre_listing_id = ?1 AND o.agent_user_id = ?2 AND o.price_opinion IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM pre_listing_opinion_versions v WHERE v.pre_listing_id = ?1 AND v.agent_user_id = ?2)`).bind(Number(preListingId), agentUserId);
+}
+// A new version: 'first' when this agent has none yet, else the given source.
+export function addVersionStmt(db, preListingId, agentUserId, price, source, { reason = '', comp = null, askId = null } = {}) {
+  return db.prepare(`INSERT INTO pre_listing_opinion_versions (pre_listing_id, agent_user_id, price_opinion, source, reason, comp_json, ask_id)
+    SELECT ?1, ?2, ?3, CASE WHEN EXISTS (SELECT 1 FROM pre_listing_opinion_versions WHERE pre_listing_id = ?1 AND agent_user_id = ?2) THEN ?4 ELSE 'first' END, ?5, ?6, ?7`)
+    .bind(Number(preListingId), agentUserId, price, source, reason, comp ? JSON.stringify(comp) : null, askId);
+}
+
 // The vote itself, plus (when the form sends them) the agent's suggested list price and comps, which are saved
 // to pre_listing_price_opinions. The presentation file is uploaded separately
 // (functions/api/pre-listings/[id]/votes/deck.js) and is left alone here.
@@ -184,6 +201,8 @@ export async function castPriceVote(db, preListingId, agentUserId, body, { price
     comps = checked.comps;
   }
   if (beforeWrite && !(await beforeWrite())) return { rateLimited: true };
+  // The number on file (if any, from before the history began) is kept as the first version before it changes.
+  if (withOpinion) await ensureFirstVersionStmt(db, preListingId, agentUserId).run();
 
   const opinionBefore = await db.prepare('SELECT price_opinion FROM pre_listing_price_opinions WHERE pre_listing_id = ? AND agent_user_id = ?').bind(preListingId, agentUserId).first();
   const opinionNew = priceOpinion !== null && !(opinionBefore && opinionBefore.price_opinion !== null);
@@ -204,6 +223,11 @@ export async function castPriceVote(db, preListingId, agentUserId, body, { price
        ON CONFLICT(pre_listing_id, agent_user_id) DO UPDATE SET price_opinion = excluded.price_opinion,
          comps_json = excluded.comps_json, note = excluded.note, prep_json = excluded.prep_json, updated_at = datetime('now')`
     ).bind(preListingId, agentUserId, priceOpinion, JSON.stringify(comps), note, JSON.stringify(prep)).run();
+    // A changed number is a new version. Re-saving the same number, clearing it (the history keeps the last one) and
+    // deck uploads add nothing.
+    if (priceOpinion !== null && !(opinionBefore && opinionBefore.price_opinion === priceOpinion)) {
+      await addVersionStmt(db, preListingId, agentUserId, priceOpinion, 'edit').run();
+    }
   }
 
   // Re-saving the same vote (to add a comp or fix a typo) shouldn't notify the homeowner again.
@@ -295,8 +319,9 @@ export async function fetchVotedIds(db, agentUserId) {
   return new Set(rows.results.map(r => r.pre_listing_id));
 }
 
-// For the homeowner only: every agent's suggested price, comps and presentation file, plus the range and middle
-// once at least 3 agents have suggested a price (fewer than that isn't a range worth showing). Suspended agents'
+// For the homeowner only: every agent's suggested price, comps and presentation file, plus the low-to-high range
+// once at least 3 agents have suggested a price (fewer than that isn't a range worth showing). There is no middle,
+// average or other number worked out across agents (Rudy 11.04): each opinion is one agent's own. Suspended agents'
 // opinions are left out, same as their proposals, and so are agents blocked either way with the homeowner (from the
 // list, the range and the "fix before you list" counts; the rows stay, so unblocking brings them back).
 export const OPINION_SUMMARY_MIN = 3;
@@ -304,13 +329,13 @@ export async function fetchPriceOpinions(db, preListingId) {
   // The agent's DRE number and brokerage ride along: an opinion is a first point of contact, so the homeowner
   // always sees who it's from (California DRE rule).
   const opinionRows = await db.prepare(
-    `SELECT o.agent_user_id, o.price_opinion, o.comps_json, o.note, o.prep_json, o.deck_name, o.deck_size, o.updated_at, users.display_name AS agent_name, users.role AS agent_role,
+    `SELECT o.agent_user_id, o.price_opinion, o.comps_json, o.note, o.prep_json, o.deck_name, o.deck_size, o.created_at, o.updated_at, users.display_name AS agent_name, users.role AS agent_role,
             ap.license_number, ap.brokerage_name
      FROM pre_listing_price_opinions o JOIN users ON users.id = o.agent_user_id LEFT JOIN agent_profiles ap ON ap.user_id = o.agent_user_id
      WHERE o.pre_listing_id = ?1 AND users.status = 'active' AND ${notBlockedByOwnersSql('pre_listing', '?1', 'o.agent_user_id')}`
   ).bind(preListingId).all();
   const voteRows = await db.prepare(
-    `SELECT v.agent_user_id, v.vote, v.note, users.display_name AS agent_name, users.role AS agent_role,
+    `SELECT v.agent_user_id, v.vote, v.note, v.created_at, users.display_name AS agent_name, users.role AS agent_role,
             ap.license_number, ap.brokerage_name
      FROM pre_listing_price_votes v JOIN users ON users.id = v.agent_user_id LEFT JOIN agent_profiles ap ON ap.user_id = v.agent_user_id
      WHERE v.pre_listing_id = ?1 AND users.status = 'active' AND ${notBlockedByOwnersSql('pre_listing', '?1', 'v.agent_user_id')}`
@@ -328,23 +353,25 @@ export async function fetchPriceOpinions(db, preListingId) {
     }
     return byAgent.get(id);
   };
-  for (const r of voteRows.results) Object.assign(entry(r), { vote: r.vote, note: r.note });
+  // When each agent weighed in: their opinion row's created_at (an edit never resets it), else their vote's.
+  const arrived = new Map();
+  for (const r of voteRows.results) { Object.assign(entry(r), { vote: r.vote, note: r.note }); arrived.set(r.agent_user_id, r.created_at || ''); }
   for (const r of opinionRows.results) {
+    arrived.set(r.agent_user_id, r.created_at || arrived.get(r.agent_user_id) || '');
     const e = entry(r);
     Object.assign(e, {
       note: r.note || e.note, priceOpinion: r.price_opinion, comps: parseComps(r.comps_json), prep: validatePrep(parseComps(r.prep_json)),
       deck: r.deck_name ? { name: r.deck_name, size: r.deck_size } : null, updatedAt: r.updated_at,
     });
   }
-  // Agents who put a number on it first, highest suggested price first.
-  const opinions = [...byAgent.values()].sort((a, b) => (b.priceOpinion ?? -1) - (a.priceOpinion ?? -1));
+  // In the order they arrived, oldest first (never by the number, so the biggest one isn't put on top).
+  const opinions = [...byAgent.values()].sort((a, b) => {
+    const at = arrived.get(a.agentUserId) || '';
+    const bt = arrived.get(b.agentUserId) || '';
+    return at < bt ? -1 : at > bt ? 1 : a.agentUserId - b.agentUserId;
+  });
   const prices = opinions.map(o => o.priceOpinion).filter(p => Number.isInteger(p)).sort((a, b) => a - b);
-  let summary = null;
-  if (prices.length >= OPINION_SUMMARY_MIN) {
-    const mid = Math.floor(prices.length / 2);
-    const median = prices.length % 2 ? prices[mid] : Math.round((prices[mid - 1] + prices[mid]) / 2);
-    summary = { count: prices.length, low: prices[0], high: prices[prices.length - 1], median };
-  }
+  const summary = prices.length >= OPINION_SUMMARY_MIN ? { count: prices.length, low: prices[0], high: prices[prices.length - 1] } : null;
   // "Fix before you list": each recommended item with how many agents suggested it, most-agreed first.
   const counts = new Map();
   for (const o of opinions) for (const k of o.prep) counts.set(k, (counts.get(k) || 0) + 1);

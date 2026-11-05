@@ -300,6 +300,10 @@ CREATE TABLE IF NOT EXISTS saved_searches (
   property_type TEXT NOT NULL DEFAULT 'Any',
   price_min INTEGER NOT NULL DEFAULT 0,
   price_max INTEGER NOT NULL DEFAULT 0,
+  -- Timing Match (migration_v44): the move-in window this buyer needs and the stay-after days they could offer.
+  move_from TEXT,
+  move_to TEXT,
+  stay_offer_days INTEGER NOT NULL DEFAULT 0 CHECK(stay_offer_days BETWEEN 0 AND 29),
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -474,6 +478,17 @@ CREATE TABLE IF NOT EXISTS pre_listings (
   proposals_open_notified_at TEXT,
   -- Pause new proposals (migration_v42): agents with a proposal can still update it; no new ones start.
   proposals_paused INTEGER NOT NULL DEFAULT 0,
+  -- Timing Match (migration_v44): ideal closing window (Pacific dates) and stay-after-closing days (capped at 29).
+  close_from TEXT,
+  close_to TEXT,
+  stay_after_days INTEGER NOT NULL DEFAULT 0 CHECK(stay_after_days BETWEEN 0 AND 29),
+  -- Ready Meter (migration_v44): progress sharing opt-in, weekly nudge settings and claim.
+  share_readiness INTEGER NOT NULL DEFAULT 0,
+  ready_reminders_off INTEGER NOT NULL DEFAULT 0,
+  ready_nudge_week TEXT,
+  ready_nudges_unanswered INTEGER NOT NULL DEFAULT 0,
+  -- Opinion Refresh (migration_v44): when the owner last asked for fresh price opinions.
+  opinions_refreshed_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -1253,8 +1268,8 @@ CREATE INDEX IF NOT EXISTS idx_past_client_reviews_agent ON past_client_reviews(
 CREATE TABLE IF NOT EXISTS held_emails (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  -- What it's about, so it's re-checked when it goes out: 'new_request' | 'interview' | 'scorecard', and ref like
-  -- 'pre_listing:10' or 'transaction:4'.
+  -- What it's about, so it's re-checked when it goes out: 'new_request' | 'interview' | 'scorecard' |
+  -- 'opinion_refresh' (R3-1b), and ref like 'pre_listing:10' or 'transaction:4'.
   kind TEXT NOT NULL DEFAULT 'other',
   ref TEXT,
   subject TEXT NOT NULL,
@@ -1307,3 +1322,49 @@ CREATE TABLE IF NOT EXISTS user_action_log (
 );
 CREATE INDEX IF NOT EXISTS idx_user_action_log ON user_action_log(user_id, kind, created_at);
 CREATE INDEX IF NOT EXISTS idx_saved_searches_user ON saved_searches(user_id, created_at);
+
+-- Batch R3-1b (migration_v44)
+-- The owner's weekly two-tap check-in. Private to the owner (admins see only totals across 20+ homeowners). One per
+-- home per Pacific week (week_key = that week's Monday); a changed answer the same week replaces it. readiness (1-5)
+-- and topic are checked in code (functions/_lib/readyMeter.js), so a reworded topic never needs a table rebuild.
+CREATE TABLE IF NOT EXISTS pre_listing_checkins (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pre_listing_id INTEGER NOT NULL REFERENCES pre_listings(id) ON DELETE CASCADE,
+  week_key TEXT NOT NULL,
+  readiness INTEGER NOT NULL,
+  topic TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(pre_listing_id, week_key)
+);
+CREATE INDEX IF NOT EXISTS idx_pre_listing_checkins_updated ON pre_listing_checkins(updated_at);
+-- Each agent asked in a round (asked_at = that round's opinions_refreshed_at) and their answer. Seen only by the
+-- owner and that agent.
+CREATE TABLE IF NOT EXISTS pre_listing_opinion_asks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pre_listing_id INTEGER NOT NULL REFERENCES pre_listings(id) ON DELETE CASCADE,
+  agent_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  asked_at TEXT NOT NULL,
+  answer TEXT CHECK(answer IN ('same','update')),
+  answered_at TEXT,
+  UNIQUE(pre_listing_id, agent_user_id, asked_at)
+);
+CREATE INDEX IF NOT EXISTS idx_opinion_asks_agent ON pre_listing_opinion_asks(agent_user_id, asked_at);
+-- Every version of an agent's price opinion on a home: the owner's private per-agent history. Never averaged across
+-- agents and never published. source: 'first' (their first number, or the number on file when history began),
+-- 'edit' (changed on the opinion form), 'same' / 'update' (answers to a refresh). comp_json: an optional new
+-- comparable sale given with an update. ask_id: the refresh ask it answered (informational, no foreign key).
+-- No storage (R2) keys here.
+CREATE TABLE IF NOT EXISTS pre_listing_opinion_versions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pre_listing_id INTEGER NOT NULL REFERENCES pre_listings(id) ON DELETE CASCADE,
+  agent_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  price_opinion INTEGER NOT NULL,
+  source TEXT NOT NULL CHECK(source IN ('first','edit','same','update')),
+  reason TEXT NOT NULL DEFAULT '',
+  comp_json TEXT,
+  ask_id INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_opinion_versions_home ON pre_listing_opinion_versions(pre_listing_id, agent_user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_opinion_versions_agent ON pre_listing_opinion_versions(agent_user_id);

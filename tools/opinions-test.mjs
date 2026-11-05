@@ -106,7 +106,9 @@ await call(votes.onRequestPost, 'POST', '/api/pre-listings/10/votes', 4, P, { vo
 await call(votes.onRequestPost, 'POST', '/api/pre-listings/10/votes', 5, P, { vote: 'too_low', priceOpinion: 950000, comps: [] });
 r = await call(detail.onRequestGet, 'GET', '/api/pre-listings/10', 1, P);
 const sum = r.json.priceOpinions.summary;
-check('with 3+ prices the owner gets the range and middle', sum && sum.low === 850000 && sum.high === 1000000 && sum.median === 925000 && sum.count === 4, JSON.stringify(sum));
+// Rudy 2026-11-04: no "Middle" (median) across agents, and the list is in arrival order, never by the number.
+check('with 3+ prices the owner gets the range (no middle)', sum && sum.low === 850000 && sum.high === 1000000 && !('median' in sum) && sum.count === 4 && Object.keys(sum).sort().join() === 'count,high,low', JSON.stringify(sum));
+check('...and the opinions come in arrival order, not by price', r.json.priceOpinions.opinions.map(o => o.agentUserId).join() === '2,3,4,5' && !/median|middle|average/i.test(JSON.stringify(r.json.priceOpinions)), JSON.stringify(r.json.priceOpinions.opinions.map(o => o.agentUserId)));
 sqlite.prepare("INSERT INTO pre_listing_price_opinions (pre_listing_id, agent_user_id, price_opinion) VALUES (10, 7, 2000000)").run();
 r = await call(detail.onRequestGet, 'GET', '/api/pre-listings/10', 1, P);
 check("a suspended agent's opinion is left out", !r.json.priceOpinions.opinions.some(o => o.agentUserId === 7) && r.json.priceOpinions.summary.high === 1000000);

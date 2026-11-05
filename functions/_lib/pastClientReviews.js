@@ -76,6 +76,18 @@ export async function fetchPastClientReviews(db, agentUserId, { limit = 50 } = {
   }));
 }
 
+// fetchPastClientSummary for several agents in one query. Returns Map(agentId -> { avgRating, count }).
+export async function fetchPastClientSummaryBatch(db, agentUserIds) {
+  const out = new Map();
+  const ids = [...new Set(agentUserIds || [])];
+  if (ids.length === 0) return out;
+  const rows = await db.prepare(
+    "SELECT agent_user_id, ROUND(AVG(rating), 1) AS avg_rating, COUNT(*) AS n FROM past_client_reviews WHERE agent_user_id IN (SELECT value FROM json_each(?)) AND status = 'published' GROUP BY agent_user_id"
+  ).bind(JSON.stringify(ids)).all();
+  for (const r of rows.results) out.set(r.agent_user_id, { avgRating: r.n ? r.avg_rating : null, count: r.n });
+  return out;
+}
+
 export async function fetchPastClientSummary(db, agentUserId) {
   const row = await db.prepare(
     "SELECT ROUND(AVG(rating), 1) AS avg_rating, COUNT(*) AS n FROM past_client_reviews WHERE agent_user_id = ? AND status = 'published'"

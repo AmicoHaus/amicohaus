@@ -9,8 +9,8 @@ import { validateServices } from './agents.js';
 import { seedDefaultMilestones } from './milestones.js';
 import { markInviteResponded } from './agentInvites.js';
 import { fetchFoundingZips } from './zipBoard.js';
-import { countFinalistHomes, DEBRIEF_REASONS } from './decisionNight.js';
-import { fetchPastClientSummary } from './pastClientReviews.js';
+import { countFinalistHomes, countFinalistHomesBatch, DEBRIEF_REASONS } from './decisionNight.js';
+import { fetchPastClientSummary, fetchPastClientSummaryBatch } from './pastClientReviews.js';
 import { priceIsOpen, shownAskingPrice } from './preListings.js';
 import { notBlockedByOwnersSql } from './blocks.js';
 import { REMOVE_ACTION, RESTORE_ACTION } from './agentReviewAdmin.js';
@@ -129,12 +129,18 @@ export async function fetchBids(db, requestType, requestId, { dueAt = null } = {
 
   // Response time and hire counts come from the single shared fetchAgentStats (below) rather than SQL subqueries
   // here, so there's one source of truth for them.
-  const founding = await fetchFoundingZips(db, rows.results.map(r => r.agent_user_id));
-  return Promise.all(rows.results.map(async r => ({
-    ...mapBidRow(r, await fetchAgentStats(db, r.agent_user_id, { approvedAt: r.agent_approved_at || null }), dueAt),
+  // A fixed number of queries however many proposals there are (D1 caps queries per request).
+  const agentIds = rows.results.map(r => r.agent_user_id);
+  const [founding, statsByAgent, pastClientsByAgent] = await Promise.all([
+    fetchFoundingZips(db, agentIds),
+    fetchAgentStatsBatch(db, rows.results.map(r => ({ id: r.agent_user_id, approvedAt: r.agent_approved_at || null }))),
+    fetchPastClientSummaryBatch(db, agentIds),
+  ]);
+  return rows.results.map(r => ({
+    ...mapBidRow(r, statsByAgent.get(r.agent_user_id), dueAt),
     foundingZips: founding.get(r.agent_user_id) || [],
-    pastClients: await fetchPastClientSummary(db, r.agent_user_id),
-  })));
+    pastClients: pastClientsByAgent.get(r.agent_user_id) || { avgRating: null, count: 0 },
+  }));
 }
 
 export async function fetchMyBid(db, requestType, requestId, agentUserId) {
@@ -294,27 +300,16 @@ const NEW_AGENT_DAYS = 60;
 
 // options.rating is no longer used (it fed the removed Top Rated badge); callers may still pass it.
 // options.approvedAt: the agent's agent_profiles.reviewed_at, if the caller already has it (saves a query).
-export async function fetchAgentStats(db, agentUserId, options = {}) {
-  const approvedAt = options.approvedAt !== undefined ? options.approvedAt
-    : ((await db.prepare('SELECT reviewed_at FROM agent_profiles WHERE user_id = ?').bind(agentUserId).first()) || {}).reviewed_at || null;
-  // The invite (if any) rides along so an invited agent's clock starts when they were invited, not when the
-  // request first opened -- otherwise an agent invited to a weeks-old listing looks slow for a delay that wasn't theirs.
-  const bidRows = await db.prepare(
-    `SELECT service_bids.id, service_bids.request_type, service_bids.request_id, service_bids.status, service_bids.created_at,
+// The bid rows an agent's stats are built from (withdrawn ones left out), with the invite time when there was one.
+const STATS_BIDS_SQL = `SELECT service_bids.agent_user_id, service_bids.id, service_bids.request_type, service_bids.request_id, service_bids.status, service_bids.created_at,
             agent_invites.created_at AS invited_at
      FROM service_bids
      LEFT JOIN agent_invites ON agent_invites.request_type = service_bids.request_type
-       AND agent_invites.request_id = service_bids.request_id AND agent_invites.agent_user_id = service_bids.agent_user_id
-     WHERE service_bids.agent_user_id = ? AND service_bids.status != 'withdrawn'`
-  ).bind(agentUserId).all();
-  const bids = bidRows.results;
-  const totalBids = bids.length;
-  const acceptedBids = bids.filter(b => b.status === 'accepted').length;
-  // Decided = accepted or declined (a still-pending proposal isn't decided yet).
-  const decidedBids = bids.filter(b => b.status === 'accepted' || b.status === 'declined').length;
+       AND agent_invites.request_id = service_bids.request_id AND agent_invites.agent_user_id = service_bids.agent_user_id`;
 
-  const preListingIds = bids.filter(b => b.request_type === 'pre_listing').map(b => b.request_id);
-  const transactionIds = bids.filter(b => b.request_type === 'transaction').map(b => b.request_id);
+async function openedAtFor(db, bids) {
+  const preListingIds = [...new Set(bids.filter(b => b.request_type === 'pre_listing').map(b => b.request_id))];
+  const transactionIds = [...new Set(bids.filter(b => b.request_type === 'transaction').map(b => b.request_id))];
   const openedAtById = new Map();
   if (preListingIds.length > 0) {
     const rows = await db.prepare('SELECT id, created_at FROM pre_listings WHERE id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(preListingIds)).all();
@@ -324,6 +319,15 @@ export async function fetchAgentStats(db, agentUserId, options = {}) {
     const rows = await db.prepare('SELECT id, created_at FROM transaction_requests WHERE id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(transactionIds)).all();
     for (const r of rows.results) openedAtById.set(`transaction:${r.id}`, r.created_at);
   }
+  return openedAtById;
+}
+
+// The one calculation behind fetchAgentStats and fetchAgentStatsBatch, so the two can never disagree.
+function computeAgentStats(bids, openedAtById, approvedAt, finalistCount) {
+  const totalBids = bids.length;
+  const acceptedBids = bids.filter(b => b.status === 'accepted').length;
+  // Decided = accepted or declined (a still-pending proposal isn't decided yet).
+  const decidedBids = bids.filter(b => b.status === 'accepted' || b.status === 'declined').length;
 
   const responseHours = [];
   for (const b of bids) {
@@ -349,8 +353,38 @@ export async function fetchAgentStats(db, agentUserId, options = {}) {
   // Tenure, not track record: an agent who's been approved for months but never picked is not "new".
   const isNewAgent = !!approvedAt && Date.now() - new Date(approvedAt + 'Z').getTime() < NEW_AGENT_DAYS * 86400000;
 
+  return { totalBids, acceptedBids, decidedBids, avgResponseHours, isNewAgent, finalistCount };
+}
+
+export async function fetchAgentStats(db, agentUserId, options = {}) {
+  const approvedAt = options.approvedAt !== undefined ? options.approvedAt
+    : ((await db.prepare('SELECT reviewed_at FROM agent_profiles WHERE user_id = ?').bind(agentUserId).first()) || {}).reviewed_at || null;
+  // The invite (if any) rides along so an invited agent's clock starts when they were invited, not when the
+  // request first opened -- otherwise an agent invited to a weeks-old listing looks slow for a delay that wasn't theirs.
+  const bids = (await db.prepare(`${STATS_BIDS_SQL}
+     WHERE service_bids.agent_user_id = ? AND service_bids.status != 'withdrawn'`).bind(agentUserId).all()).results;
+  const openedAtById = await openedAtFor(db, bids);
   // Homes where the homeowner interviewed or shortlisted them (see decisionNight.js).
   const finalistCount = await countFinalistHomes(db, agentUserId);
+  return computeAgentStats(bids, openedAtById, approvedAt, finalistCount);
+}
 
-  return { totalBids, acceptedBids, decidedBids, avgResponseHours, isNewAgent, finalistCount };
+// The same stats for several agents in a fixed number of queries (4 at most, however many agents), for lists like
+// a home's proposals: one round of queries per agent used to push a busy home past D1's per-request query limit.
+// agents: [{ id, approvedAt }]. Returns Map(agentId -> stats).
+export async function fetchAgentStatsBatch(db, agents) {
+  const out = new Map();
+  const ids = [...new Set((agents || []).map(a => a.id))];
+  if (ids.length === 0) return out;
+  const bids = (await db.prepare(`${STATS_BIDS_SQL}
+     WHERE service_bids.agent_user_id IN (SELECT value FROM json_each(?)) AND service_bids.status != 'withdrawn'`).bind(JSON.stringify(ids)).all()).results;
+  const openedAtById = await openedAtFor(db, bids);
+  const finalists = await countFinalistHomesBatch(db, ids);
+  const bidsByAgent = new Map(ids.map(id => [id, []]));
+  for (const b of bids) { const list = bidsByAgent.get(b.agent_user_id); if (list) list.push(b); }
+  for (const a of agents) {
+    if (out.has(a.id)) continue;
+    out.set(a.id, computeAgentStats(bidsByAgent.get(a.id) || [], openedAtById, a.approvedAt || null, finalists.get(a.id) || 0));
+  }
+  return out;
 }

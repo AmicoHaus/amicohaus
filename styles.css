@@ -1163,6 +1163,37 @@ body.reel-open .toast { z-index: 1100; }
 .help-box p { margin: 0; }
 .reel-report .inline-report { max-width: 420px; margin: 10px auto 0; }
 
+/* ---- R3-1b: Timing Match, Ready Meter, price opinion history ---- */
+/* Timing Match (timing-match.js): the owner's closing window line, the "Timing fits" tag, saved-search timing. */
+.timing-line { margin: 6px 0; }
+.timing-fits { background: var(--success-bg); color: var(--success); }
+.timing-fits::before { content: none; display: none; }
+.saved-timing { color: var(--muted); }
+.saved-timing-form { flex-basis: 100%; margin: 8px 0 4px; }
+/* Ready Meter (ready-meter.js): the weekly check-in, the owner's tools, "What agents see". */
+.ready-checkin { margin: 0 0 14px; }
+.ready-compact { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.ready-scale, .ready-topics { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.ready-scale button[aria-pressed="true"], .ready-topics button[aria-pressed="true"] { background: var(--gold); border-color: var(--gold); color: #201404; }
+.ready-scale-ends { display: flex; justify-content: space-between; gap: 8px; font-size: 0.78rem; color: var(--muted); }
+.ready-moved { color: var(--muted); }
+.agent-view-strip { margin: 8px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--cream); }
+.agent-view-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 14px; list-style: none; padding: 0; margin: 6px 0; font-size: 0.85rem; }
+.agent-view-tips { margin: 6px 0 0; padding-left: 18px; font-size: 0.85rem; color: var(--muted); }
+.owner-tool { display: block; }
+/* Price opinion history (opinion-refresh.js): the refresh bar, the agent's ask, each card's history. */
+.refresh-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 6px 0 10px; }
+.refresh-ask-panel { border-color: var(--gold); }
+.refresh-update-form { margin: 8px 0 0; }
+.opinion-label, .ask-status { font-size: 0.78rem; color: var(--muted); }
+.opinion-trail { margin: 6px 0 0; }
+.opinion-trail summary { cursor: pointer; color: var(--muted); font-weight: 600; font-size: 0.85rem; }
+.trail-list { list-style: none; padding: 0; margin: 6px 0; font-size: 0.85rem; }
+.trail-list li { margin: 4px 0; }
+.trail-date { color: var(--muted); font-size: 0.78rem; margin-right: 6px; }
+.trail-spark { display: block; width: 120px; height: 28px; color: var(--muted); }
+:root[data-theme="dark"] .agent-view-strip { background: var(--navy-2); }
+
 /* Phones. Kept at the END of the file on purpose: several rules it overrides (e.g. #globalSearchInput) appear
    after the main 720px block above, so source order matters here. */
 @media (max-width: 720px) {
@@ -1176,5 +1207,6 @@ body.reel-open .toast { z-index: 1100; }
   #globalSearchInput { width: 100%; }
   .opinion-summary { grid-template-columns: 1fr; }
   .prep-grid { grid-template-columns: 1fr; }
+  .agent-view-list { grid-template-columns: 1fr; }
 }
 

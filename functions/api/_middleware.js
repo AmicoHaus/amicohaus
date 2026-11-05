@@ -3,6 +3,7 @@ import { withSecurityHeaders } from '../_lib/withSecurityHeaders.js';
 import { runDueDecisionNights } from '../_lib/decisionNight.js';
 import { runDueHeldEmails } from '../_lib/agentDuty.js';
 import { runDueScorecards } from '../_lib/scorecard.js';
+import { runDueReadyNudges } from '../_lib/readyMeter.js';
 import { runDueWeeklyMessages } from '../_lib/contactPolicy.js';
 import { runPruneActionLogs } from '../_lib/rateLimits.js';
 import { runPurgeExpiredTrash } from '../_lib/trash.js';
@@ -18,15 +19,19 @@ const DUE_JOBS_EVERY_MS = 5 * 60 * 1000;
 let lastDueJobsRun = 0;
 function maybeRunDueJobs(context) {
   if (!context.env || !context.env.DB || typeof context.waitUntil !== 'function') return;
+  // The data export runs 44 statements in one batch; the jobs run in the same invocation and would count against D1's
+  // per-invocation query limit.
+  if (new URL(context.request.url).pathname === '/api/account/export') return;
   const now = Date.now();
   if (now - lastDueJobsRun < DUE_JOBS_EVERY_MS) return;
   lastDueJobsRun = now;
   // One after another (the email provider allows about 2 a second, and the background work about 30 seconds).
   context.waitUntil((async () => {
     // The weekly agent-message delivery runs right after held emails (its emails can be held by quiet hours too).
+    // The weekly check-in nudge (in-app only, Thursday to Saturday) after the scorecards.
     // Then listings past their 7 days in the trash go for good (trash.js). Last: old per-person action and sign-in
     // attempt rows are pruned (rateLimits.js). Neither sends anything.
-    for (const job of [runDueDecisionNights, runDueHeldEmails, runDueWeeklyMessages, runDueScorecards, runPurgeExpiredTrash, runPruneActionLogs]) {
+    for (const job of [runDueDecisionNights, runDueHeldEmails, runDueWeeklyMessages, runDueScorecards, runDueReadyNudges, runPurgeExpiredTrash, runPruneActionLogs]) {
       if (Date.now() - now > 22000) break;
       try { await job(context); } catch (err) { console.log(`[due jobs failed] ${err && err.message}`); }
     }

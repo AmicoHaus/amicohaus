@@ -20,6 +20,9 @@ Each user creates a profile describing their current home (location, type, price
 - **Agent profile**: service packages (Basic / Standard / Premium), case studies, an optional video, service area, specialties, languages and response time.
 - **You're in Control (contact controls)**: homeowners pick how agents can reach them (Open, Weekly or Quiet), set quiet hours, pause new proposals, and share their phone, email and exact address with one agent at a time ("Share my contact info"), with a "Who saw my address" list. Any member can block another.
 - **Progress checklist and reviews**: once a proposal is accepted, a shared checklist tracks the work and the homeowner can review the agent they hired. Amico Haus doesn't decide disputes between homeowners and agents; members can report a rules problem.
+- **Timing Match**: a homeowner can pick an ideal closing window and a stay after closing of up to 29 days (their agents write any rent-back terms); buyers can add a move-in window to a saved search and see a "Timing fits" tag. Homeowners see only a count of buyers whose timing fits, and only once there are 3 or more.
+- **Weekly check-in**: a private two-tap check-in that moves a homeowner's matching tools to the top of their dashboard. Agents see a readiness band only if the homeowner chooses to share it.
+- **Price opinion history**: every 90 days a homeowner can ask the agents who gave a price opinion for a fresh look (Same or Update). Each agent's history is shown per agent only, to the homeowner and that agent. Every number is an agent price opinion, not an appraisal.
 
 ## Key concepts (home trading)
 

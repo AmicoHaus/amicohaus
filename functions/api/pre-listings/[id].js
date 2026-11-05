@@ -4,7 +4,10 @@ import { validatePreListingInput, updatePreListing, fetchPreListingPhotos, getVo
 import { fetchContactShares, fetchAddressViews, fetchSharedContact } from '../../_lib/addressViews.js';
 import { fetchBids, fetchMyBid } from '../../_lib/marketplace.js';
 import { lookupZipCoords, nearestServiceDistance, SERVICE_RADIUS_MILES } from '../../_lib/geo.js';
-import { buyerDemandForDisplay } from '../../_lib/buyerDemand.js';
+import { buyerDemandDetailForDisplay } from '../../_lib/buyerDemand.js';
+import { timingForViewer } from '../../_lib/timingMatch.js';
+import { readyMeterForOwner, agentViewFor } from '../../_lib/readyMeter.js';
+import { attachOpinionTrails, fetchMyOpinionTrail, fetchMyRefreshAsk } from '../../_lib/opinionTrail.js';
 import { homeCostsFromRow } from '../../_lib/homeCosts.js';
 import { wrapUpSellerPrep } from '../../_lib/sellerPrepWrapUp.js';
 import { LAUNCH_ZIPS, FOUNDING_SPOTS, LIVE_FOUNDERS_SQL } from '../../_lib/zipBoard.js';
@@ -28,7 +31,7 @@ export async function onRequestGet(context) {
 
   // Only the owner, admins and approved agents open a pre-listing (see visibility.js); everyone else gets the browse
   // teaser, and a blocked agent gets the same 404 as a home that doesn't exist.
-  const { access, isOwner, agentProfile, isApprovedAgent: isApprovedAgentViewer } = await preListingAccess(db, user, row);
+  const { access, isOwner, isAdmin, agentProfile, isApprovedAgent: isApprovedAgentViewer } = await preListingAccess(db, user, row);
   if (access === 'agents_only') return agentsOnly();
   if (access === 'hidden') return notFound('Pre-listing not found.');
   // Notes for agents go only to the owner, admins, the agent they hired and agents they shared their contact info
@@ -59,6 +62,8 @@ export async function onRequestGet(context) {
     preferredAgreementMonths: row.preferred_agreement_months, prefersLocalSpecialist: !!row.prefers_local_specialist,
     address: isOwner ? row.address : undefined,
     disclosureChecklist: isOwner ? JSON.parse(row.disclosure_checklist_json || '[]') : undefined,
+    // The target list date and checklist stay owner-only here; the Ready Meter shares a count and the month with agents
+    // only if the owner opts in (readyMeter.js agentViewFor).
     listingReady: isOwner ? JSON.parse(row.listing_ready_json || '[]') : undefined,
     targetListDate: isOwner ? row.target_list_date : undefined,
     hasVideo: !!row.video_r2_key, videoVersion: row.video_r2_key ? row.video_r2_key.slice(-8) : null,
@@ -70,6 +75,9 @@ export async function onRequestGet(context) {
     photoIds: photos.map(p => p.id), votes, costs: homeCostsFromRow(row),
     priceHistory: priceHistoryRows.results.map(r => ({ oldPrice: r.old_price, newPrice: r.new_price, changedAt: r.changed_at })),
   };
+  // Timing Match: the owner's closing window and stay (always for the owner; for admins and approved agents once set).
+  const timing = timingForViewer(row, { isOwner, isAdmin, isAgent: isApprovedAgentViewer });
+  if (timing) preListing.timing = timing;
 
   // The owner sees every proposal; an agent sees only their own (they're not
   // meant to see competitors' numbers, same as a real proposal marketplace);
@@ -78,6 +86,8 @@ export async function onRequestGet(context) {
   let myBid = null;
   let myVote = null;
   let priceOpinions = null;
+  let myOpinionTrail = null;
+  let myRefreshAsk = null;
 
   // Decision Night: the owner and agents both see the time; until then the owner sees how many proposals came in,
   // not the proposals themselves.
@@ -98,6 +108,10 @@ export async function onRequestGet(context) {
       }
     }
     priceOpinions = await fetchPriceOpinions(db, id);
+    // Opinion Refresh: each agent's price opinion history and the refresh status (owner only).
+    await attachOpinionTrails(db, row, priceOpinions);
+    // Ready Meter: this week's check-in and the owner's settings. Owner only: never an agent, never an admin.
+    preListing.readyMeter = await readyMeterForOwner(db, row);
     // You're in Control: who the owner shared their contact info with, and every agent the exact address was shown
     // to (by a share or a broker preview RSVP). Never sent to anyone but the owner.
     preListing.contactShares = await fetchContactShares(db, id);
@@ -112,6 +126,9 @@ export async function onRequestGet(context) {
   } else if (isApprovedAgentViewer) {
     myBid = await fetchMyBid(db, 'pre_listing', id, user.id);
     myVote = await fetchMyVote(db, id, user.id);
+    // Opinion Refresh: this agent's own history on this home and any refresh request waiting for them (never anyone else's).
+    myOpinionTrail = await fetchMyOpinionTrail(db, id, user.id);
+    myRefreshAsk = await fetchMyRefreshAsk(db, row, user.id);
     // Sealed until this agent has voted: they see how many agents weighed in, not how. No exception for staff
     // (Fair Play): an admin account that also competes as an agent plays by the same rule.
     if (!(myVote && myVote.vote)) preListing.votes = sealTally(votes);
@@ -135,13 +152,20 @@ export async function onRequestGet(context) {
     preListing.inServiceArea = d === null ? null : d <= SERVICE_RADIUS_MILES;
   }
 
-  // The owner and approved agents see how many buyers are looking for a home like this (3 or more only).
+  // The owner and approved agents see how many buyers are looking for a home like this (3 or more only). Only the
+  // owner sees how many of them have a move-in window that fits theirs (3 or more only).
   if (isOwner || isApprovedAgentViewer) {
-    preListing.buyerDemand = await buyerDemandForDisplay(db, {
+    const demand = await buyerDemandDetailForDisplay(db, {
       userId: row.user_id, city: row.city, state: row.state, neighborhood: row.neighborhood,
       propertyType: row.property_type, price: row.asking_price, priceOpen, beds: row.beds, baths: row.baths,
+      closeFrom: row.close_from, closeTo: row.close_to, stayAfterDays: row.stay_after_days,
     });
+    preListing.buyerDemand = demand.buyerDemand;
+    if (isOwner) preListing.timingDemand = demand.timingDemand;
   }
+  // Ready Meter: "What agents see" (open homes; the owner sees exactly what agents see).
+  const agentView = await agentViewFor(db, row, { isOwner, isAgent: isApprovedAgentViewer, photoCount: photos.length });
+  if (agentView) preListing.agentView = agentView;
 
   // Founding agents in this ZIP aim to send a first price opinion within 48 hours of posting; the owner also sees how
   // many approved agents serve the ZIP, to invite more when there are few.
@@ -162,7 +186,7 @@ export async function onRequestGet(context) {
   if (isOwner && row.status === 'open' && row.zip) preListing.agentsOnDuty = await countAgentsOnDuty(db, row.zip);
 
   // Per-viewer (the owner's address, a shared phone and email): never stored by a browser or the edge.
-  return json({ preListing, bids, myBid, myVote, priceOpinions, isOwner: !!isOwner }, { headers: { 'Cache-Control': 'private, no-store' } });
+  return json({ preListing, bids, myBid, myVote, priceOpinions, isOwner: !!isOwner, myOpinionTrail, myRefreshAsk }, { headers: { 'Cache-Control': 'private, no-store' } });
 }
 
 export async function onRequestPut(context) {

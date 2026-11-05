@@ -44,6 +44,16 @@ const QUERIES = {
       submitted_at, created_at, updated_at
     FROM service_bids WHERE request_type = 'pre_listing' AND request_id IN ${MY_PRE_LISTINGS}`,
   agentInvitesSent: 'SELECT id, request_type, request_id, agent_user_id, message, status, created_at FROM agent_invites WHERE invited_by_user_id = ?1',
+  // Ready Meter: your weekly check-ins on your own pre-listings.
+  readyCheckIns: `SELECT pre_listing_id, week_key, readiness, topic, created_at, updated_at FROM pre_listing_checkins WHERE pre_listing_id IN ${MY_PRE_LISTINGS}`,
+  // Price opinions agents sent you, every version of them, and the fresh looks you asked for.
+  priceOpinionsReceived: `SELECT pre_listing_id, agent_user_id, price_opinion, comps_json, note, deck_name, deck_type, deck_size, prep_json, created_at, updated_at
+    FROM pre_listing_price_opinions WHERE pre_listing_id IN ${MY_PRE_LISTINGS}`,
+  priceOpinionHistoryOnMyHomes: `SELECT 'version' AS kind, pre_listing_id, agent_user_id,
+      json_object('price_opinion', price_opinion, 'source', source, 'reason', reason, 'comp_json', comp_json) AS details_json, created_at AS at
+    FROM pre_listing_opinion_versions WHERE pre_listing_id IN ${MY_PRE_LISTINGS}
+    UNION ALL SELECT 'refresh_ask', pre_listing_id, agent_user_id, json_object('answer', answer, 'answered_at', answered_at), asked_at
+    FROM pre_listing_opinion_asks WHERE pre_listing_id IN ${MY_PRE_LISTINGS}`,
 
   // As an agent.
   agentProfile: 'SELECT * FROM agent_profiles WHERE user_id = ?1',
@@ -56,6 +66,12 @@ const QUERIES = {
   priceVotesMade: 'SELECT id, pre_listing_id, vote, note, created_at FROM pre_listing_price_votes WHERE agent_user_id = ?1',
   priceOpinionsMade: `SELECT id, pre_listing_id, price_opinion, comps_json, note, deck_name, deck_type, deck_size, prep_json, created_at, updated_at
     FROM pre_listing_price_opinions WHERE agent_user_id = ?1`,
+  // Every version of the price opinions you shared, and the fresh looks homeowners asked you for.
+  priceOpinionHistoryMade: `SELECT 'version' AS kind, pre_listing_id,
+      json_object('price_opinion', price_opinion, 'source', source, 'reason', reason, 'comp_json', comp_json) AS details_json, created_at AS at
+    FROM pre_listing_opinion_versions WHERE agent_user_id = ?1
+    UNION ALL SELECT 'refresh_ask', pre_listing_id, json_object('answer', answer, 'answered_at', answered_at), asked_at
+    FROM pre_listing_opinion_asks WHERE agent_user_id = ?1`,
   foundingSpots: 'SELECT zip, granted_at FROM founding_agents WHERE agent_user_id = ?1',
   teamMemberships: `SELECT m.team_id, t.name AS team_name, m.role, m.status, m.created_at FROM agent_team_members m
     JOIN agent_teams t ON t.id = m.team_id WHERE m.agent_user_id = ?1`,
@@ -91,7 +107,7 @@ const QUERIES = {
 };
 
 // Columns that never leave the database, even in the person's own file (storage keys, tokens, who reviewed them).
-const NEVER_EXPORTED = ['video_r2_key', 'license_photo_r2_key', 'review_invite_token', 'reviewed_by', 'license_verified_by'];
+const NEVER_EXPORTED = ['video_r2_key', 'license_photo_r2_key', 'review_invite_token', 'reviewed_by', 'license_verified_by', 'deck_r2_key', 'pitch_video_r2_key'];
 const withoutSecrets = rows => rows.map(r => {
   const out = { ...r };
   for (const col of NEVER_EXPORTED) delete out[col];

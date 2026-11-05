@@ -296,7 +296,7 @@
       <div class="stack" id="archivedMatchesList"></div>
 
       <h2>Saved Searches</h2>
-      <p class="section-sub">Get notified the moment a new listing matches these criteria. Name a city or a neighborhood. You can keep up to 10.</p>
+      <p class="section-sub">Get notified the moment a new listing matches these criteria. Name a city or a neighborhood. You can keep up to 10. Add a move-in window to see which upcoming pre-listings' timing fits yours.</p>
       <form id="savedSearchForm">
         <div class="form-row two-col">
           <div class="field"><label for="savedLocations">Locations</label><input type="text" id="savedLocations" required maxlength="200" placeholder="e.g. Chula Vista, CA or EastLake"></div>
@@ -306,6 +306,12 @@
           <div class="field"><label for="savedPriceMin">Min price ($)</label><input type="number" id="savedPriceMin" min="0" max="500000000" step="1000"></div>
           <div class="field"><label for="savedPriceMax">Max price ($)</label><input type="number" id="savedPriceMax" min="0" max="500000000" step="1000"></div>
         </div>
+        <div class="form-row three-col">
+          <div class="field"><label for="savedMoveFrom">Move-in window starts</label><input type="date" id="savedMoveFrom"></div>
+          <div class="field"><label for="savedMoveTo">Move-in window ends</label><input type="date" id="savedMoveTo"></div>
+          <div class="field"><label for="savedStayOffer">Seller could stay after closing</label><select id="savedStayOffer"><option value="0">No stay</option><option value="7">Up to 7 days</option><option value="14">Up to 14 days</option><option value="29">Up to 29 days</option></select></div>
+        </div>
+        <p class="tiny field-hint">Optional. Shows a "Timing fits" tag on upcoming pre-listings whose timing lines up with yours. Your dates are never shown to anyone; homeowners only see a count once 3 or more buyers fit.</p>
       </form>
       <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="addSavedSearchBtn">Add Saved Search</button></div>
       <div class="stack" id="savedSearchList"></div>
@@ -365,6 +371,12 @@
             </div>
             <div class="field"><label for="plShowingNoticeHours">Showing notice required (hours)</label><input type="number" id="plShowingNoticeHours" min="0" max="336" placeholder="0 = no notice needed"></div>
           </div>
+          <div class="form-row three-col">
+            <div class="field"><label for="plCloseFrom">Ideal closing window starts</label><input type="date" id="plCloseFrom"></div>
+            <div class="field"><label for="plCloseTo">Ideal closing window ends</label><input type="date" id="plCloseTo"></div>
+            <div class="field"><label for="plStayAfterDays">Stay after closing</label><select id="plStayAfterDays"><option value="0">No stay</option><option value="7">Up to 7 days</option><option value="14">Up to 14 days</option><option value="29">Up to 29 days</option></select></div>
+          </div>
+          <p class="tiny field-hint">Optional. Your agents write the rent-back terms. Stays are capped at 29 days. Approved agents see your window and stay; buyers never see your dates.</p>
           <div class="field"><label for="plSpecialInstructions">Notes for agents (pets, sign preference, best showing times). Don't put lockbox, gate or alarm codes here.</label><textarea id="plSpecialInstructions" maxlength="500"></textarea><p class="tiny field-hint">Only you, the agent you hire, agents you share your contact info with, and Amico Haus admins see these notes.</p></div>
 
           <p class="tiny"><strong>Optional preferences for agents (informational only — not a contract term or a hard requirement):</strong></p>
@@ -957,6 +969,9 @@
 <script src="agent-cards.js"></script>
 <script src="seller-prep.js"></script>
 <script src="decision-night.js"></script>
+<script src="timing-match.js"></script>
+<script src="ready-meter.js"></script>
+<script src="opinion-refresh.js"></script>
 <script src="agent-growth.js"></script>
 <script src="main.js"></script>
 <!-- Cloudflare Web Analytics -->

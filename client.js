@@ -412,13 +412,6 @@ function parseAskingPriceInput(raw) {
   if (!Number.isInteger(n) || n < 1000 || n > 500000000) return { error: 'Enter an asking price as a whole-dollar amount, or leave it blank.' };
   return { value: n };
 }
-// The middle of a list of numbers (blanks and non-numbers skipped), rounded to whole dollars; null when empty.
-function medianOf(values) {
-  const nums = (values || []).map(Number).filter(n => Number.isFinite(n) && n > 0).sort((a, b) => a - b);
-  if (!nums.length) return null;
-  const mid = Math.floor(nums.length / 2);
-  return nums.length % 2 ? nums[mid] : Math.round((nums[mid - 1] + nums[mid]) / 2);
-}
 
 // Every agent shown to a homeowner at a point of contact carries this (California DRE rule):
 // "Name · DRE #01234567 on file · Brokerage", leaving out any missing part. "On file", never "verified": the site

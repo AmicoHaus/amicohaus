@@ -1502,7 +1502,7 @@ async function loadSavedSearches() {
     const { searches } = await apiGet('/api/saved-searches');
     el.innerHTML = searches.length ? searches.map(s => `
       <div class="side">
-        ${escapeHtml(savedSearchLabel(s))}
+        ${escapeHtml(savedSearchLabel(s))}${savedSearchTimingHtml(s)}
         <button class="link-btn danger" data-action="delete-saved-search" data-id="${s.id}">Remove</button>
       </div>
     `).join('') : '<span class="tiny">No saved searches yet.</span>';
@@ -1840,13 +1840,13 @@ function preListingTeaserNoteHtml() {
   return `<p class="form-note teaser-note">${escapeHtml(PRE_LISTING_TEASER_NOTE)} <a href="/app#post-home" data-action="goto-post-home">Post yours free.</a></p>`;
 }
 
-function preListingTeaserCardHtml(p, isNewSinceLastVisit = false) {
+function preListingTeaserCardHtml(p, isNewSinceLastVisit = false, timingFits = false) {
   const price = isPriceOpen(p) ? `<span class="price-open">${PRICE_OPEN_LABEL}</span>` : `${money(p.askingPrice)} asking`;
   return `
       <div class="card teaser-card">
         <div class="card-head">
           <h3>${escapeHtml(p.propertyType)} in ${escapeHtml(p.city)}</h3>
-          <span class="card-badges"><span class="badge badge-gold">Pre-Listing</span>${isNewSinceLastVisit ? '<span class="badge badge-active">New</span>' : ''}</span>
+          <span class="card-badges"><span class="badge badge-gold">Pre-Listing</span>${isNewSinceLastVisit ? '<span class="badge badge-active">New</span>' : ''}${timingFits ? timingFitsBadgeHtml() : ''}</span>
         </div>
         <div class="mini-block">${Number(p.beds) || 0}bd/${Number(p.baths) || 0}ba · ${escapeHtml(p.city)}, ${escapeHtml(p.state)} ${escapeHtml(p.zip || '')}<br>${price}</div>
         <p class="tiny">${daysOnMarketLabel(p.createdAt)}</p>
@@ -2237,7 +2237,7 @@ async function loadMarketplaceBrowse() {
   if (city) params.set('city', city);
   if (state) params.set('state', state);
   try {
-    const [{ preListings }, { transactions }] = await Promise.all([
+    const [{ preListings, timingFitIds }, { transactions }] = await Promise.all([
       apiGet(`/api/pre-listings?${params.toString()}`),
       apiGet('/api/transactions'),
     ]);
@@ -2248,6 +2248,8 @@ async function loadMarketplaceBrowse() {
     document.getElementById('marketOnlyInArea').closest('.checkbox-row').classList.toggle('hidden', teaserMode);
     const onlyInArea = !teaserMode && document.getElementById('marketOnlyInArea').checked;
     const filteredPreListings = onlyInArea ? preListings.filter(p => p.inServiceArea) : preListings;
+    // Pre-listings whose owner's timing fits one of this member's saved-search move-in windows (ids only).
+    const fits = new Set(timingFitIds || []);
 
     // "New since your last visit" — per-device only (never shared, never read by the server), same spirit as
     // remembering the last tab. Read before overwriting, so this visit's count reflects the *previous* visit,
@@ -2258,11 +2260,11 @@ async function loadMarketplaceBrowse() {
     const newCount = lastVisit ? filteredPreListings.filter(isNew).length : 0;
     try { localStorage.setItem('ah_browse_last_visit', new Date().toISOString()); } catch {}
 
-    const plCards = filteredPreListings.map(p => p.teaser ? preListingTeaserCardHtml(p, isNew(p)) : `
+    const plCards = filteredPreListings.map(p => p.teaser ? preListingTeaserCardHtml(p, isNew(p), fits.has(p.id)) : `
       <div class="card">
         <div class="card-head">
           <h3>${escapeHtml(p.title || p.propertyType)}</h3>
-          <span class="card-badges">${pausedBadgeHtml(p)}<span class="badge badge-gold">Pre-Listing</span>${isNew(p) ? '<span class="badge badge-active">New</span>' : ''}</span>
+          <span class="card-badges">${pausedBadgeHtml(p)}<span class="badge badge-gold">Pre-Listing</span>${isNew(p) ? '<span class="badge badge-active">New</span>' : ''}${fits.has(p.id) ? timingFitsBadgeHtml() : ''}</span>
         </div>
         <div class="mini-block">${preListingFactsHtml(p, { zip: p.zip })}</div>
         <p class="tiny">${daysOnMarketLabel(p.createdAt)}</p>
@@ -2715,12 +2717,10 @@ function takeHomePrice() {
   return proposalView && proposalView.startPrice ? proposalView.startPrice : 0;
 }
 
-// The middle of the agents' price opinions once 3+ have priced it; else the asking price. With no asking price yet
-// ("Open to price opinions"), the middle of whatever opinions are in, or nothing (the owner types a price).
-function takeHomeStartPrice(p, opinions) {
-  if (opinions && opinions.summary) return opinions.summary.median;
-  if (!isPriceOpen(p)) return p.askingPrice;
-  return medianOf(((opinions && opinions.opinions) || []).map(o => o.priceOpinion)) || 0;
+// The home's asking price. With no asking price yet ("Open to price opinions") it starts blank and the owner types
+// their own guess. Never a number worked out from the agents' price opinions.
+function takeHomeStartPrice(p) {
+  return !isPriceOpen(p) && Number(p.askingPrice) > 0 ? Number(p.askingPrice) : 0;
 }
 
 function keepMoney(n) {
@@ -2750,18 +2750,17 @@ function takeHomeResultHtml(bids, inp) {
     ${rows ? `<div class="comparison-table-wrap"><table class="comparison-table"><thead><tr><th>Agent</th><th>Your estimate after their fee</th><th>Their fee</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<p class="tiny">Proposals will show up here with your estimate for each.</p>`}`;
 }
 
-function renderTakeHomePanel(p, bids, opinions) {
-  const startPrice = takeHomeStartPrice(p, opinions);
+function renderTakeHomePanel(p, bids) {
+  const startPrice = takeHomeStartPrice(p);
   let payoff = '';
   try { payoff = localStorage.getItem(`ah_payoff_${p.id}`) || ''; } catch { /* storage blocked */ }
   const inp = { price: startPrice, payoff: Number(payoff) || 0, buyerPct: 0, transfer: 1.1, closingPct: 1 };
-  const fromOpinions = (opinions && opinions.summary) || (isPriceOpen(p) && startPrice);
   return `
     <details class="panel" id="takeHomePanel" data-pre-listing-id="${p.id}" open>
       <summary>Your take-home estimate</summary>
-      <p class="tiny">Compare proposals in dollars using your own numbers${fromOpinions ? ". The sale price starts at the middle of the agents' price opinions; change it to your own" : ''}. Your loan payoff stays on this device. Your escrow officer will give you the real numbers.</p>
+      <p class="tiny">Compare proposals in dollars using your own numbers. ${startPrice ? 'The sale price starts at your asking price; change it to your own guess anytime.' : 'Type your own guess for the sale price.'} Your loan payoff stays on this device. Your escrow officer will give you the real numbers.</p>
       <div class="form-row three-col">
-        <div class="field"><label for="thPrice">Expected sale price ($)</label><input type="number" id="thPrice" data-take-home min="0" step="1000" inputmode="numeric" value="${startPrice ? Number(startPrice) : ''}"></div>
+        <div class="field"><label for="thPrice">Expected sale price ($)</label><input type="number" id="thPrice" data-take-home min="0" step="1000" inputmode="numeric" placeholder="Your own guess" value="${startPrice ? Number(startPrice) : ''}"></div>
         <div class="field"><label for="thPayoff">Loan payoff ($)</label><input type="number" id="thPayoff" data-take-home min="0" step="1000" inputmode="numeric" placeholder="0 if paid off" value="${escapeHtml(payoff)}"></div>
         <div class="field"><label for="thBuyerPct">Buyer's agent pay you plan to offer (%)</label><input type="number" id="thBuyerPct" data-take-home min="0" max="10" step="0.25" inputmode="decimal" value="0"></div>
       </div>
@@ -2865,6 +2864,7 @@ function renderPriceOpinionForm(myVote, { priceOpen = false } = {}) {
         : 'The homeowner sees your suggested price, comps, note and file; other agents never do. Your vote counts toward the too high / just right / too low totals, which other agents see only after casting their own.'}</p>
       ${voteHtml}
       <div class="field"><label for="opinionPrice">The list price you'd suggest ($)${priceOpen ? ' <span class="required-mark">*</span>' : ''}</label><input type="number" id="opinionPrice" min="10000" max="500000000" step="1000" inputmode="numeric" aria-describedby="opinionPriceNote" value="${v(mine.priceOpinion)}"${priceOpen ? ' required' : ''}><p class="tiny field-hint composer-note" id="opinionPriceNote">${escapeHtml(PRICE_BASIS_NOTE)}</p></div>
+      <p class="tiny">The homeowner keeps a private history of each number you share here. Other agents never see it.</p>
       <details class="score-breakdown"${mine.comps.length ? ' open' : ''}>
         <summary>Comps that back it up (up to 3)</summary>
         ${comps.map((c, i) => `
@@ -2889,15 +2889,16 @@ function renderPriceOpinionForm(myVote, { priceOpen = false } = {}) {
     </div>`;
 }
 
-// What the homeowner sees: each agent's sealed opinion, and the range and middle once 3+ agents have suggested a
-// price. Opinions, not appraisals.
+// What the homeowner sees: each agent's sealed opinion on its own card, in the order they arrived, and the low-to-high
+// range once 3+ agents have suggested a price. No middle, average or other number worked out across agents (Rudy
+// 11.04). Opinions, not appraisals.
 function renderPriceOpinionsPanel(data, preListingId) {
   if (!data) return '';
   const { opinions, summary } = data;
   const priced = opinions.filter(o => o.priceOpinion).length;
   const summaryHtml = summary
-    ? `<div class="opinion-summary"><div><span class="label">Range</span>${money(summary.low)} to ${money(summary.high)}</div><div><span class="label">Middle</span>${money(summary.median)}</div><div><span class="label">From</span>${summary.count} agents</div></div>`
-    : `<p class="tiny">The range and middle show up once 3 agents have suggested a price (${priced} so far).</p>`;
+    ? `<div class="opinion-summary"><div><span class="label">Range</span>${money(summary.low)} to ${money(summary.high)}</div><div><span class="label">From</span>${summary.count} agents</div></div>`
+    : `<p class="tiny">The range shows up once 3 agents have suggested a price (${priced} so far).</p>`;
   const cards = opinions.map(o => {
     const comps = (o.comps || []).map(c => `<li><strong>${escapeHtml(c.address)}</strong> sold for ${money(c.soldPrice)}${c.soldDate ? ` on ${escapeHtml(compDateLabel(c.soldDate))}` : ''}${c.sqft ? ` · ${c.sqft.toLocaleString('en-US')} sq ft (${money(Math.round(c.soldPrice / c.sqft))}/sq ft)` : ''}</li>`).join('');
     // Name, DRE number and brokerage together (California DRE rule for a first point of contact).
@@ -2907,6 +2908,7 @@ function renderPriceOpinionsPanel(data, preListingId) {
       <div class="card opinion-card">
         <div class="card-head"><h4><a class="profile-link" href="/profile/${o.agentUserId}">${escapeHtml(o.agentName)}</a>${creds ? `<span class="agent-id-rest"> · ${escapeHtml(creds)}</span>` : ''}${o.isPlatformOperator ? ` ${chipHtml('Platform operator: runs Amico Haus', 'outline')}` : ''}</h4>${o.vote ? `<span class="badge badge-gold">${VOTE_LABELS[o.vote] || ''}</span>` : ''}</div>
         ${o.priceOpinion ? `<p class="opinion-price">Suggests ${money(o.priceOpinion)}</p>` : '<p class="tiny">No suggested price yet.</p>'}
+        ${opinionCardExtrasHtml(o)}
         ${o.note ? `<p>${escapeHtml(o.note)}</p>` : ''}
         ${prepListHtml(o.prep)}
         ${comps ? `<span class="label">Comps</span><ul class="comp-list">${comps}</ul>` : ''}
@@ -2917,7 +2919,8 @@ function renderPriceOpinionsPanel(data, preListingId) {
   return `
     <div class="panel" id="priceOpinionsPanel">
       <h3>Agents' price opinions (${opinions.length})</h3>
-      <p class="tiny">Agents never see each other's suggested prices, comps or files, and can't see the vote totals until they've voted. These are professional opinions, not appraisals.</p>
+      ${opinionRefreshBarHtml(data, preListingId)}
+      <p class="tiny">Agents never see each other's suggested prices, comps or files, and can't see the vote totals until they've voted. Every number here is an agent price opinion, not an appraisal.</p>
       ${opinions.length ? summaryHtml + prepSummaryHtml(data.prepSummary, opinions.length) + cards : '<div class="empty-state">No agent has weighed in yet. You\'ll get a notification when one does.</div>'}
     </div>`;
 }
@@ -3266,7 +3269,7 @@ async function openPreListingDetail(id, opts = {}) {
   const contentEl = document.getElementById('marketplaceDetailContent');
   try {
     const data = await apiGet(`/api/pre-listings/${id}`);
-    const { preListing: p, bids, myBid, myVote, priceOpinions, isOwner } = data;
+    const { preListing: p, bids, myBid, myVote, priceOpinions, isOwner, myOpinionTrail, myRefreshAsk } = data;
     marketplaceDetail = { kind: 'pre_listing', id };
     showMarketplaceDetail();
 
@@ -3283,6 +3286,26 @@ async function openPreListingDetail(id, opts = {}) {
     const sharedContact = !isOwner ? (data.sharedContact || p.sharedContact || null) : null;
     const opinionCount = isOwner && priceOpinions ? priceOpinions.opinions.filter(o => o.priceOpinion).length : null;
     lastPriceOpinions = isOwner ? priceOpinions : null;
+    // The owner's tools, one segment each. ownerToolsHtml (ready-meter.js) orders them by the owner's latest check-in;
+    // the facts card above (with the lender note) never moves.
+    const ownerSegments = isOwner ? {
+      video: renderVideoTourPanel(p, true),
+      opinions: renderPriceOpinionsPanel(priceOpinions, id),
+      agent_view: agentViewOwnerPanelHtml(p),
+      address: `<div id="addressPrivacyPanel">${addressPrivacyPanelHtml()}</div>`,
+      edit: p.status === 'open' ? renderPreListingEditForm(p) : '',
+      disclosures: renderDisclosuresChecklist(p),
+      listing_ready: renderListingReadyPanel(p),
+      timing: renderTimingPanel(p),
+      previews: '<div id="previewsPanel"></div>',
+      interviews: '<div id="interviewsPanel"></div>',
+      showings: '<div id="showingsPanel"></div>',
+      decision_night: decisionNightOwnerHtml(p, bids),
+      proposals: `${p.decisionNight && p.decisionNight.sealed ? sealedProposalsHtml(p.decisionNight)
+          : `${renderTakeHomePanel(p, bids)}${renderProposalsSection(bids, `pre-listing-${id}`, { feeSort: true, startPrice: takeHomeStartPrice(p), preListingId: id })}`}
+        ${p.status === 'open' ? renderInviteAgentPanel() : ''}
+        ${p.status === 'awarded' ? `<div id="milestonesPanel"></div>${renderRulesReportPanel(hiredAgentOf(bids))}${renderReviewForm()}` : ''}`,
+    } : null;
 
     contentEl.innerHTML = `
       <div class="card" id="preListingViewCard">
@@ -3293,6 +3316,7 @@ async function openPreListingDetail(id, opts = {}) {
           <div class="mini-block"><span class="label">Occupancy</span>${p.occupancyStatus === 'vacant' ? 'Vacant' : 'Occupied'} during the sale</div>
           <div class="mini-block"><span class="label">Showing notice</span>${p.showingNoticeHours > 0 ? `${p.showingNoticeHours} hours required` : 'None required'}</div>
         </div>
+        ${timingFactsHtml(p, isOwner)}
         ${p.specialInstructions ? `<p class="tiny"><span class="label">Notes for agents</span> ${escapeHtml(p.specialInstructions)}</p>` : ''}
         ${homeCostsDetailHtml(p.costs)}
         ${renderStipulations(p)}
@@ -3301,32 +3325,24 @@ async function openPreListingDetail(id, opts = {}) {
         ${photosHtml}
         <p class="tiny">${voteSummary(p.votes, 'Agent votes', p.status, { priceOpen, opinionCount })}</p>
         ${zipCoverageHtml(p, isOwner, myVote)}
+        ${!isOwner && p.agentView ? agentViewStripHtml(p.agentView) : ''}
         ${isOwner && p.agentsOnDuty > 0 ? `<p class="tiny on-duty-line">🟢 ${p.agentsOnDuty} agent${p.agentsOnDuty === 1 ? '' : 's'} who serve${p.agentsOnDuty === 1 ? 's' : ''} ${escapeHtml(p.zip)} ${p.agentsOnDuty === 1 ? 'is' : 'are'} on duty right now.</p>` : ''}
         ${p.buyerDemand ? `<p class="demand-meter">👀 <strong>${p.buyerDemand} buyers</strong> on Amico Haus are looking for a home like this in ${escapeHtml(p.city)}${priceOpen ? '' : ' at this price'}.</p>` : ''}
+        ${isOwner ? timingDemandHtml(p) : ''}
         ${renderPriceHistory(p.priceHistory)}
         ${isOwner ? `<p class="form-note trust"><strong>Talk to a lender.</strong> If selling here means financing your next place, rates, loan programs and approvals come from lenders, not from websites or real estate agents. Talk to your own mortgage broker, or use our preferred lender, <strong>Point Mortgage Corporation</strong> (NMLS #231073), at <a href="tel:+16194754095">(619) 475-4095</a>. You are always free to choose any lender you like, and you can verify any lender's license at nmlsconsumeraccess.org.</p>` : ''}
         ${isOwner ? renderPreListingOwnerBar(p) : ''}
       </div>
-      ${sharedContactHtml(sharedContact)}
-      ${isOwner || isApprovedAgentViewer ? renderVideoTourPanel(p, isOwner) : ''}
-      ${isOwner ? renderPriceOpinionsPanel(priceOpinions, id) : ''}
-      ${isOwner ? `<div id="addressPrivacyPanel">${addressPrivacyPanelHtml()}</div>` : ''}
-      ${isOwner && p.status === 'open' ? renderPreListingEditForm(p) : ''}
-      ${isOwner ? renderDisclosuresChecklist(p) : ''}
-      ${isOwner ? renderListingReadyPanel(p) : ''}
-      ${isOwner || isApprovedAgentViewer ? '<div id="previewsPanel"></div><div id="interviewsPanel"></div>' : ''}
-      ${isOwner ? '<div id="showingsPanel"></div>' : ''}
-      ${isOwner ? decisionNightOwnerHtml(p, bids) : ''}
       ${isOwner
-        ? `${p.decisionNight && p.decisionNight.sealed ? sealedProposalsHtml(p.decisionNight)
-            : `${renderTakeHomePanel(p, bids, priceOpinions)}${renderProposalsSection(bids, `pre-listing-${id}`, { feeSort: true, startPrice: takeHomeStartPrice(p, priceOpinions), preListingId: id })}`}
-           ${p.status === 'open' ? renderInviteAgentPanel() : ''}
-           ${p.status === 'awarded' ? `<div id="milestonesPanel"></div>${renderRulesReportPanel(hiredAgentOf(bids))}${renderReviewForm()}` : ''}`
-        : (currentAgentProfile && currentAgentProfile.status === 'approved'
+        ? `${readyCheckInHtml(p)}${ownerToolsHtml(ownerSegments, p.readyMeter)}`
+        : `${sharedContactHtml(sharedContact)}
+      ${isApprovedAgentViewer ? renderVideoTourPanel(p, false) : ''}
+      ${isApprovedAgentViewer ? '<div id="previewsPanel"></div><div id="interviewsPanel"></div>' : ''}
+      ${currentAgentProfile && currentAgentProfile.status === 'approved'
           ? (isAwardedAgent
             ? `<div id="milestonesPanel"></div>${renderRulesReportPanel({ userId: p.userId, name: p.owner, isHomeowner: true })}`
-            : `${agentDecisionLineHtml(p)}${renderBidFormAndVote(myBid, myVote, p.status === 'open', { paused: p.status === 'open' && !!p.proposalsPaused && !p.invitedByOwner, priceOpen })}${agentPitchHtml(p, myBid)}${p.status === 'open' ? renderRequestShowingForm() : ''}`)
-          : `<p class="tiny">Only approved agents can submit proposals or vote on pricing.</p>${preListingTeaserNoteHtml()}`)}
+            : `${agentDecisionLineHtml(p)}${agentRefreshHtml(p, myRefreshAsk, myOpinionTrail, myVote)}${renderBidFormAndVote(myBid, myVote, p.status === 'open', { paused: p.status === 'open' && !!p.proposalsPaused && !p.invitedByOwner, priceOpen })}${agentPitchHtml(p, myBid)}${p.status === 'open' ? renderRequestShowingForm() : ''}`)
+          : `<p class="tiny">Only approved agents can submit proposals or vote on pricing.</p>${preListingTeaserNoteHtml()}`}`}
     `;
     if (!isOwner && currentAgentProfile && currentAgentProfile.status === 'approved' && !isAwardedAgent && document.getElementById('bidServicesEditor')) {
       renderServicesEditor('bidServicesEditor', myBid ? myBid.services : []);
@@ -5209,8 +5225,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         propertyType: document.getElementById('savedType').value,
         priceMin: priceMin || 0,
         priceMax: priceMax || 0,
+        ...savedSearchTimingFromForm(),
       });
       ['savedLocations', 'savedPriceMin', 'savedPriceMax'].forEach(id => { document.getElementById(id).value = ''; });
+      resetSavedSearchTimingForm();
       toast('Saved search added.');
       loadSavedSearches();
     } catch (err) { toastActionError(err); } finally { btn.disabled = false; }
@@ -5422,6 +5440,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         requireDedicatedContact: document.getElementById('plRequireDedicatedContact').checked,
         prefersExclusive: document.getElementById('plPrefersExclusive').checked,
         prefersLocalSpecialist: document.getElementById('plPrefersLocalSpecialist').checked,
+        ...timingFromPostForm(),
       });
       await saveHomeCosts('pre_listing', id, costs);
       resetHomeCostsFields('plCostsFields', 'plc');
@@ -5444,6 +5463,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.getElementById('plPrefersExclusive').checked = false;
       document.getElementById('plPrefersLocalSpecialist').checked = false;
       document.getElementById('ownerConfirmPreListing').checked = false;
+      resetPostFormTiming();
       renderPostFormDial(true);
       loadMyPreListings();
       loadMarketplaceBrowse();

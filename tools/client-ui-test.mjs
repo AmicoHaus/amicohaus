@@ -20,7 +20,7 @@ const check = (label, cond, detail = '') => {
 };
 
 const JS_FILES = ['main.js', 'client.js', 'seller-prep.js', 'decision-night.js', 'agent-cards.js', 'page-account-security.js',
-  'page-sell-buy.js', 'page-calculator.js', 'page-home.js', 'page-profile.js'];
+  'page-sell-buy.js', 'page-calculator.js', 'page-home.js', 'page-profile.js', 'timing-match.js', 'ready-meter.js', 'opinion-refresh.js'];
 const HTML_FILES = ['app.html', 'account-security.html', 'sell-or-buy-first.html', 'calculator.html', 'whats-new.html'];
 
 // ---- 1. Syntax ----
@@ -32,6 +32,8 @@ for (const f of JS_FILES) {
 
 // ---- 2. CSP: nothing added uses inline styles, inline handlers or inline scripts ----
 function addedLines(file) {
+  // A file git doesn't track yet (a new one) has no diff against HEAD, so it's checked whole.
+  try { execFileSync('git', ['-C', root, 'ls-files', '--error-unmatch', '--', file], { stdio: 'ignore' }); } catch { return read(file).split('\n'); }
   try {
     const diff = execFileSync('git', ['-C', root, 'diff', '--unified=0', 'HEAD', '--', file], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
     return diff.split('\n').filter(l => l.startsWith('+') && !l.startsWith('+++')).map(l => l.slice(1));
@@ -190,7 +192,7 @@ check('rent math: no rent -> 0 years', t.rentMath({ homeValue: 500000, sellingCo
 // ---- 3b. The app's own renderers, with API-shaped data (catches a name used before it exists, too) ----
 const app2 = { ...sandbox, document: { ...sandbox.document } };
 vm.createContext(app2);
-for (const f of ['client.js', 'agent-cards.js', 'seller-prep.js', 'decision-night.js', 'main.js']) vm.runInContext(read(f), app2, { filename: f });
+for (const f of ['client.js', 'agent-cards.js', 'seller-prep.js', 'decision-night.js', 'timing-match.js', 'ready-meter.js', 'opinion-refresh.js', 'main.js']) vm.runInContext(read(f), app2, { filename: f });
 vm.runInContext(`currentUser = { id: 1 }; this.__r = { renderBidCard, renderBidComparisonTable, renderPriceOpinionsPanel, renderShowingRow,
   renderRulesReportPanel, hiredAgentOf, preListingTeaserCardHtml, preListingTeaserNoteHtml, renderMatchCard, projectCardHtml,
   renderTakeHomePanel, renderPriceOpinionForm, renderBidFormAndVote, renderAgentStatsPanel, renderTeamPanel, ownerInterviewsHtml,
@@ -301,7 +303,11 @@ check('main.js only looks up ids that exist', missingIds.length === 0, missingId
 // ---- 6. Every new class used in the markup has a style, and gold text is the darker shade ----
 const css = read('styles.css');
 for (const cls of ['footer-legal', 'composer-note', 'offer-tools-note', 'teaser-card', 'teaser-note', 'inline-report', 'help-box', 'rules-report',
-  'founding-caption', 'operator-note', 'estimate-label', 'money-tool-note', 'home-costs-heading', 'thread-tools', 'app-footer', 'agents-strip-note', 'dual-agency-note', 'terms-update-banner']) {
+  'founding-caption', 'operator-note', 'estimate-label', 'money-tool-note', 'home-costs-heading', 'thread-tools', 'app-footer', 'agents-strip-note', 'dual-agency-note', 'terms-update-banner',
+  // R3-1b
+  'timing-line', 'timing-fits', 'saved-timing', 'saved-timing-form', 'ready-checkin', 'ready-compact', 'ready-scale', 'ready-scale-ends', 'ready-topics',
+  'ready-moved', 'agent-view-strip', 'agent-view-list', 'agent-view-tips', 'owner-tool', 'refresh-bar', 'refresh-ask-panel', 'refresh-update-form',
+  'opinion-label', 'ask-status', 'opinion-trail', 'trail-list', 'trail-date', 'trail-spark']) {
   check(`styles.css has .${cls}`, new RegExp(`\\.${cls}\\b`).test(css));
 }
 check('gold text uses --gold-text (#8a5f2c), fills keep --gold', css.includes('--gold-text: #8a5f2c') && !/(^|[;{\s])color: var\(--gold\)/.test(css) && css.includes('background: var(--gold)'));

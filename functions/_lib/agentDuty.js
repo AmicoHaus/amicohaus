@@ -4,6 +4,7 @@
 // their ZIP are on duty right now (only when that's at least one).
 import { sendEmail, EMAIL_POSTAL_LINE } from './email.js';
 import { DEMO_EMAIL_PATTERN } from './util.js';
+import { notBlockedByOwnersSql } from './blocks.js';
 
 const TZ = 'America/Los_Angeles';
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -93,7 +94,8 @@ export async function sendOrHoldEmail(context, { userId, to, subject, text, duty
 // What a held email is about. Agent kinds wait for on-duty hours (or quiet hours, for an agent with no duty hours
 // set) and are re-timed when the agent changes their duty hours; the person kinds wait for quiet hours (a homeowner's
 // alerts, the weekly agent-message delivery) and are re-timed when quiet hours change.
-export const AGENT_HOLD_KINDS = ['new_request', 'interview', 'scorecard'];
+// opinion_refresh: a homeowner asked the agent for a fresh look at their price opinion (R3-1b).
+export const AGENT_HOLD_KINDS = ['new_request', 'interview', 'scorecard', 'opinion_refresh'];
 export const PERSON_HOLD_KINDS = ['owner_alert', 'weekly_messages'];
 
 // Is a held email still worth sending? The person must still be an active real account (approved, for agent emails,
@@ -116,6 +118,15 @@ async function stillWanted(db, row) {
     if (row.kind === 'interview') {
       const iv = await db.prepare('SELECT status FROM pre_listing_interviews WHERE pre_listing_id = ? AND agent_user_id = ?').bind(Number(m[2]), row.user_id).first();
       if (!iv || iv.status !== 'requested') return false;
+    }
+    // A refresh request the agent already answered (or that a newer round replaced) needs no email, and neither does
+    // one to an agent the owner has since blocked (or who blocked the owner), or for a home whose owner was suspended.
+    if (row.kind === 'opinion_refresh') {
+      const ask = await db.prepare(`SELECT 1 AS yes FROM pre_listing_opinion_asks a JOIN pre_listings p ON p.id = a.pre_listing_id
+        JOIN users owner ON owner.id = p.user_id
+        WHERE a.pre_listing_id = ?1 AND a.agent_user_id = ?2 AND a.answer IS NULL AND a.asked_at = p.opinions_refreshed_at
+          AND owner.status = 'active' AND ${notBlockedByOwnersSql('pre_listing', '?1', '?2')}`).bind(Number(m[2]), row.user_id).first();
+      if (!ask) return false;
     }
   }
   return true;

@@ -47,6 +47,29 @@ async function loadActivityChart() {
   } catch { /* chart just stays empty */ }
 }
 
+// Ready Meter totals: homeowners' latest weekly check-in (last 90 days), shown only once 20 have checked in. Labels are
+// hand-copied from functions/_lib/readyMeter.js. Never per home, person or area.
+const READY_TOTAL_TOPICS = { timing: 'Timing', money: 'Money', where_next: "Where we'd go next", house_ready: 'Getting the house ready', picking_agent: 'Picking an agent' };
+const READY_TOTAL_BANDS = { exploring: 'Exploring', getting_close: 'Getting close', ready: 'Ready' };
+async function loadReadyMeterTotals() {
+  const el = document.getElementById('readyMeterTotals');
+  if (!el) return;
+  el.innerHTML = '<div class="empty-state">Loading…</div>';
+  try {
+    const { owners, minShown, totals } = await apiGet('/api/admin/ready-meter');
+    if (!totals) {
+      el.innerHTML = `<div class="empty-state">Totals show once ${Number(minShown) || 20} homeowners have checked in (${Number(owners) || 0} so far).</div>`;
+      return;
+    }
+    const tile = (label, value) => `<div class="stat-tile"><span class="stat-value">${Number(value) || 0}</span><span class="stat-label">${escapeHtml(label)}</span></div>`;
+    el.innerHTML = [
+      tile('Homeowners counted', owners),
+      ...Object.entries(READY_TOTAL_BANDS).map(([k, label]) => tile(label, totals.band[k])),
+      ...Object.entries(READY_TOTAL_TOPICS).map(([k, label]) => tile(`On their mind: ${label}`, totals.topic[k])),
+    ].join('');
+  } catch (err) { el.innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`; }
+}
+
 async function loadOverview() {
   const statsEl = document.getElementById('overviewStats');
   const matchesEl = document.getElementById('overviewMatches');
@@ -375,6 +398,7 @@ async function loadAuditLog() {
   loadDisputes();
   loadAuditLog();
   loadActivityChart();
+  loadReadyMeterTotals();
 
   document.getElementById('agentApplicationsList').addEventListener('click', async (e) => {
     const btn = e.target.closest('button[data-action]');

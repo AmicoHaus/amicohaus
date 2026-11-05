@@ -717,14 +717,14 @@ await section('S20', async () => {
     'tools/authz-target.js', 'tools/authz-test.js', 'tools/authz-cleanup.js', 'tools/amico-growth-report.js', 'tools/TESTING.md'];
   const names = touched.filter(f => existsSync(`${root}/${f}`) && /mckelvey|\bpatti\b|\bjeff\b/i.test(read(f)));
   check('no McKelvey / Patti / Jeff in any file this batch touched', names.length === 0, names.join(', '));
-  // L1.1 has no schema change (spec decision): when a later batch adds migration_v44, update these two checks.
+  // L1.1 had no schema change (spec decision); batch R3-1b adds migration_v44 (3 tables, 33 columns), so these two checks follow it.
   const s = new DatabaseSync(':memory:');
   s.exec(read('schema.sql'));
   const tables = s.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all();
   const cols = tables.reduce((n, t) => n + s.prepare(`PRAGMA table_info(${t.name})`).all().length, 0);
   const userCols = s.prepare('PRAGMA table_info(users)').all().map(c => c.name);
-  check('schema.sql: no new tables or columns (86 tables, 747 columns, as at v43); users has terms_version + terms_accepted_at', tables.length === 86 && cols === 747 && userCols.includes('terms_version') && userCols.includes('terms_accepted_at'), `${tables.length} tables, ${cols} columns`);
-  check('no migration_v44.sql in this batch', !existsSync(`${root}/migration_v44.sql`));
+  check('schema.sql: only the R3-1b v44 tables and columns are new (89 tables, 780 columns, as at v44); users has terms_version + terms_accepted_at', tables.length === 89 && cols === 780 && userCols.includes('terms_version') && userCols.includes('terms_accepted_at'), `${tables.length} tables, ${cols} columns`);
+  check('migration_v44.sql (R3-1b) is there, and no migration_v45.sql', existsSync(`${root}/migration_v44.sql`) && !existsSync(`${root}/migration_v45.sql`));
 });
 
 console.log = realLog;

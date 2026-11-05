@@ -7,11 +7,14 @@ import { notifyAgentsNewRequest } from '../../_lib/marketplaceNotify.js';
 import { alertAdmin } from '../../_lib/adminAlerts.js';
 import { fetchPriceSeriesBatch } from '../../_lib/priceSeries.js';
 import { notBlockedSql } from '../../_lib/blocks.js';
+import { validateOwnerTiming, timingAlertLine } from '../../_lib/timingMatch.js';
+import { timingFitIdsFor } from '../../_lib/buyerDemand.js';
 
 const LIST_FIELDS = `pre_listings.id, pre_listings.user_id, pre_listings.title, pre_listings.city, pre_listings.state,
             pre_listings.zip, pre_listings.occupancy_status,
             pre_listings.property_type, pre_listings.beds, pre_listings.baths, pre_listings.sqft, pre_listings.asking_price,
-            pre_listings.status, pre_listings.proposals_paused, pre_listings.created_at, users.display_name AS owner_name`;
+            pre_listings.status, pre_listings.proposals_paused, pre_listings.created_at, users.display_name AS owner_name,
+            pre_listings.close_from, pre_listings.close_to, pre_listings.stay_after_days`;
 
 // The browse list and the owner's own list differ per viewer, so no browser or shared cache keeps them.
 const NO_STORE = { headers: { 'Cache-Control': 'private, no-store' } };
@@ -19,7 +22,8 @@ const NO_STORE = { headers: { 'Cache-Control': 'private, no-store' } };
 // ?mine=1 for a homeowner's own pre-listings (any status); otherwise every open one. Approved agents (and admins)
 // get the full card; everyone else signed in gets a teaser (area, type, size and price only), since a pre-listing
 // shows the inside of a home that isn't on the market yet. Homes whose owner blocked the viewer, or that the viewer
-// blocked, are left out either way.
+// blocked, are left out either way. The browse also sends timingFitIds: the homes whose timing fits one of the
+// viewer's own timed saved searches (a "Timing fits" tag; the owner's dates never leave the server).
 export async function onRequestGet(context) {
   const user = await getSessionUser(context);
   if (!user) return unauthorized();
@@ -30,6 +34,7 @@ export async function onRequestGet(context) {
   const isApprovedAgent = !!agentProfile && agentProfile.status === 'approved';
 
   let rows;
+  let timingFitIds = null;
   if (mine) {
     rows = await db.prepare(
       `SELECT ${LIST_FIELDS} FROM pre_listings JOIN users ON users.id = pre_listings.user_id
@@ -48,13 +53,14 @@ export async function onRequestGet(context) {
       `SELECT ${LIST_FIELDS} FROM pre_listings JOIN users ON users.id = pre_listings.user_id
        WHERE ${conditions.join(' AND ')} ORDER BY pre_listings.created_at DESC LIMIT ?${params.length}`
     ).bind(...params).all();
+    timingFitIds = await timingFitIdsFor(db, user.id, rows.results);
     if (!isApprovedAgent && user.role !== 'admin') {
       const preListings = rows.results.map(r => ({
         id: r.id, city: r.city, state: r.state, zip: r.zip, propertyType: r.property_type, beds: r.beds, baths: r.baths,
         askingPrice: shownAskingPrice(r.asking_price), priceOpen: priceIsOpen(r.asking_price), proposalsPaused: !!r.proposals_paused,
         createdAt: r.created_at, teaser: true,
       }));
-      return json({ preListings }, NO_STORE);
+      return json({ preListings, timingFitIds }, NO_STORE);
     }
   }
 
@@ -114,7 +120,7 @@ export async function onRequestGet(context) {
       pendingBidCount, pendingShowingCount,
     });
   }
-  return json({ preListings }, NO_STORE);
+  return json(mine ? { preListings } : { preListings, timingFitIds }, NO_STORE);
 }
 
 export async function onRequestPost(context) {
@@ -126,8 +132,16 @@ export async function onRequestPost(context) {
 
   const validated = validatePreListingInput(body);
   if (validated.error) return badRequest(validated.error);
+  // Timing Match: the optional closing window and stay are checked before anything is saved.
+  const timing = validateOwnerTiming(body);
+  if (timing.error) return badRequest(timing.error);
 
   const id = await insertPreListing(context.env.DB, user.id, validated.data);
+  const t = timing.data;
+  if (t.closeFrom || t.stayAfterDays > 0) {
+    await context.env.DB.prepare('UPDATE pre_listings SET close_from = ?, close_to = ?, stay_after_days = ? WHERE id = ?')
+      .bind(t.closeFrom, t.closeTo, t.stayAfterDays, id).run();
+  }
   context.waitUntil(notifyAgentsNewRequest(context, 'pre_listing', id, validated.data.zip, [user.id]));
   const d = validated.data;
   alertAdmin(context, user, {
@@ -138,6 +152,7 @@ export async function onRequestPost(context) {
       '',
       `${d.title || d.propertyType} · ${d.beds}bd/${d.baths}ba · ${d.city}, ${d.state} ${d.zip}`,
       d.priceOpen ? 'Asking: open to price opinions' : `Asking: $${Number(d.askingPrice).toLocaleString('en-US')}`,
+      ...(timingAlertLine(t) ? [timingAlertLine(t)] : []),
     ],
   });
   return json({ id }, { status: 201 });

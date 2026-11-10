@@ -19,9 +19,15 @@ const check = (label, cond, detail = '') => {
   console.log(`${cond ? 'PASS' : 'FAIL'}  ${label}${cond ? '' : `  ${detail}`}`);
 };
 
+// Owner tools batch: its new client files, page-demo.js, page-admin-seed.js and the demo and admin pages. Every one is
+// required now that the batch is integrated (a missing file fails the "is in the tree" check below).
+const OWNER_TOOLS_JS = ['share-moment.js', 'privacy-sweep.js', 'then-now.js', 'visit-feedback.js', 'handoff-binder.js', 'mystery-home.js', 'page-demo.js', 'page-admin-seed.js'];
+const OWNER_TOOLS_HTML = ['demo.html', 'admin-seed.html'];
+const present = f => { const ok = fs.existsSync(path.join(root, f)); check(`owner tools file ${f} is in the tree`, ok); return ok; };
 const JS_FILES = ['main.js', 'client.js', 'seller-prep.js', 'decision-night.js', 'agent-cards.js', 'page-account-security.js',
-  'page-sell-buy.js', 'page-calculator.js', 'page-home.js', 'page-profile.js', 'timing-match.js', 'ready-meter.js', 'opinion-refresh.js'];
-const HTML_FILES = ['app.html', 'account-security.html', 'sell-or-buy-first.html', 'calculator.html', 'whats-new.html'];
+  'page-sell-buy.js', 'page-calculator.js', 'page-home.js', 'page-profile.js', 'timing-match.js', 'ready-meter.js', 'opinion-refresh.js',
+  ...OWNER_TOOLS_JS.filter(present)];
+const HTML_FILES = ['app.html', 'account-security.html', 'sell-or-buy-first.html', 'calculator.html', 'whats-new.html', ...OWNER_TOOLS_HTML.filter(present)];
 
 // ---- 1. Syntax ----
 for (const f of JS_FILES) {
@@ -307,7 +313,15 @@ for (const cls of ['footer-legal', 'composer-note', 'offer-tools-note', 'teaser-
   // R3-1b
   'timing-line', 'timing-fits', 'saved-timing', 'saved-timing-form', 'ready-checkin', 'ready-compact', 'ready-scale', 'ready-scale-ends', 'ready-topics',
   'ready-moved', 'agent-view-strip', 'agent-view-list', 'agent-view-tips', 'owner-tool', 'refresh-bar', 'refresh-ask-panel', 'refresh-update-form',
-  'opinion-label', 'ask-status', 'opinion-trail', 'trail-list', 'trail-date', 'trail-spark']) {
+  'opinion-label', 'ask-status', 'opinion-trail', 'trail-list', 'trail-date', 'trail-spark',
+  // Owner tools batch (spec §4.10)
+  'moment-actions', 'moment-story', 'moment-slide-toggles', 'moment-consent', 'moment-overlay', 'moment-stage', 'moment-card', 'moment-card-flipped',
+  'moment-letter', 'moment-caption', 'moment-final', 'moment-controls', 'moment-sample',
+  'sweep-overlay', 'sweep-canvas', 'sweep-tools', 'sweep-tool-active', 'sweep-thumbs', 'sweep-thumb', 'sweep-check', 'sweep-chip', 'sweep-note',
+  'then-now-panel', 'tn-pair', 'tn-slider', 'tn-img', 'tn-now', 'tn-range', 'upgrade-list', 'upgrade-row', 'permit-note', 'owner-reported',
+  'visit-feedback-panel', 'vf-card', 'vf-taps', 'vf-tap', 'binder-panel', 'binder-form', 'binder-banner', 'binder-print', 'binder-section', 'binder-photos',
+  'mystery-page', 'mystery-photos', 'mystery-facts', 'mystery-guess', 'mystery-reveal', 'mystery-game-note', 'mystery-archive',
+  'watch-page', 'watch-cover', 'watch-links', 'watch-transcript', 'watch-cta', 'watch-nav', 'watch-hub', 'admin-mystery']) {
   check(`styles.css has .${cls}`, new RegExp(`\\.${cls}\\b`).test(css));
 }
 check('gold text uses --gold-text (#8a5f2c), fills keep --gold', css.includes('--gold-text: #8a5f2c') && !/(^|[;{\s])color: var\(--gold\)/.test(css) && css.includes('background: var(--gold)'));

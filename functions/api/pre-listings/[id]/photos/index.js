@@ -51,9 +51,13 @@ export async function onRequestPost(context) {
   const key = `pre-listings/${id}/${crypto.randomUUID()}`;
   await bucket.put(key, scrubImageMetadata(await file.arrayBuffer(), file.type), { httpMetadata: { contentType: file.type } });
 
+  // Privacy Sweep: swept=1 when the owner ticked "I checked this photo" on their device before it uploaded
+  // (privacy-sweep.js). The mark is the owner's own and only ever shown to them.
+  const swept = form.get('swept') === '1' ? 1 : 0;
   const result = await db.prepare(
-    'INSERT INTO pre_listing_photos (pre_listing_id, r2_key, content_type, position) VALUES (?, ?, ?, ?)'
-  ).bind(id, key, file.type, countRow.n).run();
+    `INSERT INTO pre_listing_photos (pre_listing_id, r2_key, content_type, position, swept_at)
+     VALUES (?, ?, ?, ?, CASE WHEN ? = 1 THEN datetime('now') END)`
+  ).bind(id, key, file.type, countRow.n, swept).run();
 
   return json({ id: result.meta.last_row_id }, { status: 201 });
 }

@@ -3,3 +3,20 @@
 # dashboard instead (Rules > Redirect Rules), since that's a hostname-level
 # concern the _redirects file can't express. Confirmed via local Wrangler
 # testing: an absolute cross-host rule here is silently skipped, not applied.
+
+# ---- video twins (generated) ----
+/tomorrow2 /watch/the-home-trade-of-tomorrow 301
+/tomorrow4 /watch/the-upgrades-of-tomorrow 301
+/tomorrow7 /watch/the-window-shopping-of-tomorrow 301
+/tomorrow10 /watch/the-daisy-chain-of-tomorrow 301
+/tomorrow11 /watch/the-calm-market-of-tomorrow 301
+/tomorrow17 /watch/the-move-of-tomorrow 301
+/tomorrow24 /watch/the-swap-of-tomorrow 301
+/tomorrow26 /watch/the-love-story-of-tomorrow 301
+/toon12 /watch/the-home-that-fits 301
+/toon15 /watch/meet-the-watchdog 301
+/toon16 /watch/side-by-side 301
+/toon17 /watch/the-price-detective 301
+/toon18 /watch/ask-around 301
+/toon19 /watch/the-portfolio-trade 301
+# ---- end video twins ----

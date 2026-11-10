@@ -99,6 +99,65 @@
       <p class="section-sub">Homeowners' latest weekly check-in from the last 90 days. Totals show once 20 homeowners have checked in, and are never shown per home or per area.</p>
       <div class="stat-grid" id="readyMeterTotals"></div>
 
+      <h2>Mystery Home Monday</h2>
+      <p class="section-sub">A weekly guessing game about a home that already sold, shown at /mystery-home. A home stays a draft until you schedule it, and it can only be scheduled with the seller's written OK date, Coldwell Banker West's OK date, 3 or more photos checked in Privacy Sweep, the photo rights, and a reveal at least 24 hours after it publishes. Once it's public it can only be retired; reveals retire on their own after 8 weeks.</p>
+      <div class="stack" id="mysteryList"></div>
+      <div class="card admin-mystery" id="mysteryForm">
+        <h3 id="mhFormTitle">Add a Mystery Home</h3>
+        <p class="tiny field-hint">City only. Never MLS photos or remarks, never who listed or sold it. Describe the home, not who should live there or who lives nearby.</p>
+        <div class="field">
+          <label for="mhSource">Where the sale price comes from</label>
+          <select id="mhSource">
+            <option value="own_sale">My own closing (shown as "sale price at closing")</option>
+            <option value="former_owner">Shared by the former owner</option>
+          </select>
+        </div>
+        <div class="field"><label for="mhCity">City</label><input type="text" id="mhCity" maxlength="60"></div>
+        <div class="field"><label for="mhState">State</label><input type="text" id="mhState" maxlength="2" value="CA"></div>
+        <div class="field"><label for="mhType">Home type</label><select id="mhType"></select></div>
+        <div class="field"><label for="mhBeds">Beds</label><input type="number" id="mhBeds" min="0" step="1"></div>
+        <div class="field"><label for="mhBaths">Baths</label><input type="number" id="mhBaths" min="0" step="0.5"></div>
+        <div class="field"><label for="mhSqft">Square feet</label><input type="number" id="mhSqft" min="100" step="1"></div>
+        <div class="field"><label for="mhLotSqft">Lot size (sq ft)</label><input type="number" id="mhLotSqft" min="0" step="1"></div>
+        <div class="field"><label for="mhYearBuilt">Year built</label><input type="number" id="mhYearBuilt" min="1700" step="1"></div>
+        <div class="field"><label for="mhHighlights">Highlights (up to 400 characters)</label><textarea id="mhHighlights" maxlength="400" rows="3"></textarea><p class="form-note">The home only: no street, ZIP, subdivision or community name, schools or who lives nearby.</p></div>
+        <div class="field"><label for="mhSoldPrice">Sale price</label><input type="number" id="mhSoldPrice" min="10000" step="1000"></div>
+        <div class="field"><label for="mhSoldMonth">Month the sale closed (at least 30 days ago)</label><input type="month" id="mhSoldMonth"></div>
+        <label class="checkbox-row" for="mhSellerOk"><input type="checkbox" id="mhSellerOk"><span>Seller's written OK on file</span></label>
+        <div class="field"><label for="mhSellerOkOn">Date of the seller's written OK</label><input type="date" id="mhSellerOkOn"></div>
+        <label class="checkbox-row" for="mhBrokerOk"><input type="checkbox" id="mhBrokerOk"><span>Coldwell Banker West OK on file</span></label>
+        <div class="field"><label for="mhBrokerOkOn">Date of Coldwell Banker West's OK</label><input type="date" id="mhBrokerOkOn"></div>
+        <div class="field">
+          <label for="mhPhotoRights">Photo rights</label>
+          <select id="mhPhotoRights">
+            <option value="own">My own photos</option>
+            <option value="licensed">Licensed to me in writing</option>
+          </select>
+        </div>
+        <div class="field"><label for="mhPublishAt">Publish (Pacific time)</label><input type="datetime-local" id="mhPublishAt"></div>
+        <div class="field"><label for="mhRevealAt">Reveal the price (Pacific time)</label><input type="datetime-local" id="mhRevealAt"></div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-primary" id="mhSaveBtn">Save</button>
+          <button type="button" class="btn btn-ghost" id="mhNewBtn">Start a new one</button>
+        </div>
+        <div class="field">
+          <label for="mhPhotos">Add photos (Privacy Sweep opens first; up to 12)</label>
+          <input type="file" id="mhPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple>
+        </div>
+        <div class="mystery-photos" id="mhPhotoList"></div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-primary" data-mh-action="schedule">Schedule</button>
+          <button type="button" class="btn btn-ghost" data-mh-action="unschedule">Unschedule</button>
+          <button type="button" class="btn btn-ghost" data-mh-action="retire">Retire</button>
+          <button type="button" class="btn btn-danger" data-mh-action="delete">Delete</button>
+        </div>
+        <p class="tiny" id="mhStatus" aria-live="polite"></p>
+      </div>
+
+      <h2>Repost OKs</h2>
+      <p class="section-sub">Homeowners who OK'd Rudy reposting a Decision Night moment (last 180 days). They send the recording themselves. When one is taken back, remove those reposts.</p>
+      <div class="stack" id="repostOkList"></div>
+
       <h2>Platform Activity</h2>
       <p class="section-sub">See matches and daisy chains happening between seeded users right now — this is the platform-wide view, not just your own account's matches.</p>
       <div class="form-actions">
@@ -134,6 +193,7 @@
   </footer>
 </div>
 <script src="client.js"></script>
+<script src="privacy-sweep.js"></script>
 <script src="page-admin-seed.js"></script>
 <!-- Cloudflare Web Analytics -->
 <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "91a193988b2d45e58aa1c27d5abf6bdb"}'></script>

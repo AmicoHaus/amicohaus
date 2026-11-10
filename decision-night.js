@@ -75,9 +75,13 @@ function decisionNightOwnerHtml(p, bids) {
   if (!sealed && reels && p.status === 'open') {
     parts.push(`<p><button type="button" class="btn btn-primary btn-sm" data-dn-action="reels">▶ Watch ${reels} pitch reel${reels === 1 ? '' : 's'}</button> <span class="tiny">Swipe right to shortlist, left to pass. Your picks stay private while you decide.</span></p>`);
   }
-  if (p.status === 'awarded' && p.debrief) {
-    const d = debriefHtml(p.debrief);
-    if (d) parts.push(d);
+  if (p.status === 'awarded') {
+    if (p.debrief) {
+      const d = debriefHtml(p.debrief);
+      if (d) parts.push(d);
+    }
+    // Share Your Moment (share-moment.js): the optional Hired! story, with or without finalist feedback.
+    if (typeof momentStoryHtml === 'function') parts.push(momentStoryHtml(p, bids));
   }
   // The card says the proposals opened together, so it's only offered after a Decision Night and counts only the
   // proposals that were in by then.
@@ -85,6 +89,8 @@ function decisionNightOwnerHtml(p, bids) {
   if (dn && !sealed && together >= 2) {
     parts.push(`<p class="tiny"><button type="button" class="link-btn" data-dn-action="share-card">Make a share card</button>: "${together} agents competed for my home" (no names or fees), sized for stories and reels.</p>`);
   }
+  // Share Your Moment (share-moment.js): Reveal Mode, made for the owner's own screen recording.
+  if (dn && !sealed && together >= 2 && typeof momentButtonsHtml === 'function') parts.push(momentButtonsHtml(p, bids));
   if (!parts.length) return '';
   return `<div class="panel dn-panel" id="decisionNightPanel"><h3>Decision Night</h3>${parts.join('')}</div>`;
 }

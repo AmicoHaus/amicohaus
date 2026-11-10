@@ -1,10 +1,11 @@
 // Minimal page shell for a printable one-page listing flyer -- deliberately not the full site chrome
 // (nav tabs, auth CTA, footer links) since none of that belongs on a printed handout. The topbar and the
 // print button itself are hidden by styles.css's @media print rules when the owner actually prints it.
+// printLabel: the print button's text ("Print Flyer" for flyers; the handoff binder says "Print Binder").
 import { escapeHtml } from './util.js';
 import { ASSET_VERSIONS } from './assetVersions.js';
 
-export function renderFlyerShell(title, bodyHtml) {
+export function renderFlyerShell(title, bodyHtml, { printLabel = 'Print Flyer' } = {}) {
   return `<!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
@@ -25,7 +26,7 @@ export function renderFlyerShell(title, bodyHtml) {
       <span class="brand-text">AMICO <span class="accent">HAUS</span></span>
     </a>
     <div class="flyer-actions">
-      <button type="button" class="btn btn-primary btn-sm" data-action="print-page">🖨️ Print Flyer</button>
+      <button type="button" class="btn btn-primary btn-sm" data-action="print-page">🖨️ ${escapeHtml(printLabel)}</button>
       <a class="btn btn-ghost btn-sm" href="/app">← Back to App</a>
     </div>
   </header>

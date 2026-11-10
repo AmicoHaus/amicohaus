@@ -1697,6 +1697,8 @@ async function uploadPhotos(path, files) {
   for (const file of files) {
     const formData = new FormData();
     formData.append('photo', file);
+    // Privacy Sweep (privacy-sweep.js): the owner ticked "I checked this photo" for this copy.
+    if (typeof sweepIsDone === 'function' && sweepIsDone(file)) formData.append('swept', '1');
     try { await apiUpload(path, formData); }
     catch (err) { failed.push(`${file.name} (${err.message})`); }
   }
@@ -2972,6 +2974,7 @@ function renderPreListingEditForm(p) {
     <div class="edit-photo">
       <img src="/api/pre-listing-photos/${pid}" alt="${escapeHtml(homePhotoAlt(p))}" loading="lazy">
       <button type="button" class="btn btn-ghost btn-sm" data-action="delete-pre-listing-photo" data-photo-id="${pid}">Remove</button>
+      ${typeof privacySweepPhotoControlsHtml === 'function' ? privacySweepPhotoControlsHtml(p.id, pid, (p.sweptPhotoIds || []).includes(pid)) : ''}
     </div>`).join('');
   // Only real votes (too high / just right / too low) are cleared by a price change; a home with no price has none.
   const priceOpen = isPriceOpen(p);
@@ -3099,7 +3102,8 @@ async function savePreListingEdit(id) {
       prefersLocalSpecialist: checked('PrefersLocalSpecialist'),
     });
     await saveHomeCosts('pre_listing', id, costs);
-    const photoResult = await uploadPhotos(`/api/pre-listings/${id}/photos`, [...document.getElementById('plePhotos').files]);
+    // Privacy Sweep: the swept copies where the owner made them, else the picked files (privacy-sweep.js).
+    const photoResult = await uploadPhotos(`/api/pre-listings/${id}/photos`, typeof sweepPickedFiles === 'function' ? await sweepPickedFiles('plePhotos') : [...document.getElementById('plePhotos').files]);
     toastWithPhotoResult(result.votesCleared ? 'Saved — the old price votes were cleared so agents can weigh in on the new price.' : 'Pre-listing updated.', photoResult);
     openPreListingDetail(id);
   } catch (err) { toast(err.message); } finally { btn.disabled = false; }
@@ -3294,17 +3298,20 @@ async function openPreListingDetail(id, opts = {}) {
       agent_view: agentViewOwnerPanelHtml(p),
       address: `<div id="addressPrivacyPanel">${addressPrivacyPanelHtml()}</div>`,
       edit: p.status === 'open' ? renderPreListingEditForm(p) : '',
+      then_now: '<div id="thenNowPanel"></div>',
       disclosures: renderDisclosuresChecklist(p),
       listing_ready: renderListingReadyPanel(p),
       timing: renderTimingPanel(p),
       previews: '<div id="previewsPanel"></div>',
       interviews: '<div id="interviewsPanel"></div>',
       showings: '<div id="showingsPanel"></div>',
+      visit_feedback: '<div id="visitFeedbackPanel"></div>',
       decision_night: decisionNightOwnerHtml(p, bids),
       proposals: `${p.decisionNight && p.decisionNight.sealed ? sealedProposalsHtml(p.decisionNight)
           : `${renderTakeHomePanel(p, bids)}${renderProposalsSection(bids, `pre-listing-${id}`, { feeSort: true, startPrice: takeHomeStartPrice(p), preListingId: id })}`}
         ${p.status === 'open' ? renderInviteAgentPanel() : ''}
         ${p.status === 'awarded' ? `<div id="milestonesPanel"></div>${renderRulesReportPanel(hiredAgentOf(bids))}${renderReviewForm()}` : ''}`,
+      binder: '<div id="binderPanel"></div>',
     } : null;
 
     contentEl.innerHTML = `
@@ -3323,6 +3330,7 @@ async function openPreListingDetail(id, opts = {}) {
         ${p.distanceMiles !== null && p.distanceMiles !== undefined ? `<p class="tiny">${p.inServiceArea ? `✅ ${p.distanceMiles} miles from your nearest service zip — within your 20-mile area.` : `⚠️ ${p.distanceMiles} miles from your nearest service zip — outside your declared 20-mile area.`}</p>` : ''}
         ${p.description ? `<p>${escapeHtml(p.description)}</p>` : ''}
         ${photosHtml}
+        ${!isOwner ? '<div id="thenNowAgentPanel"></div>' : ''}
         <p class="tiny">${voteSummary(p.votes, 'Agent votes', p.status, { priceOpen, opinionCount })}</p>
         ${zipCoverageHtml(p, isOwner, myVote)}
         ${!isOwner && p.agentView ? agentViewStripHtml(p.agentView) : ''}
@@ -3341,7 +3349,7 @@ async function openPreListingDetail(id, opts = {}) {
       ${currentAgentProfile && currentAgentProfile.status === 'approved'
           ? (isAwardedAgent
             ? `<div id="milestonesPanel"></div>${renderRulesReportPanel({ userId: p.userId, name: p.owner, isHomeowner: true })}`
-            : `${agentDecisionLineHtml(p)}${agentRefreshHtml(p, myRefreshAsk, myOpinionTrail, myVote)}${renderBidFormAndVote(myBid, myVote, p.status === 'open', { paused: p.status === 'open' && !!p.proposalsPaused && !p.invitedByOwner, priceOpen })}${agentPitchHtml(p, myBid)}${p.status === 'open' ? renderRequestShowingForm() : ''}`)
+            : `${agentDecisionLineHtml(p)}${agentRefreshHtml(p, myRefreshAsk, myOpinionTrail, myVote)}${renderBidFormAndVote(myBid, myVote, p.status === 'open', { paused: p.status === 'open' && !!p.proposalsPaused && !p.invitedByOwner, priceOpen })}${agentPitchHtml(p, myBid)}${p.status === 'open' ? renderRequestShowingForm() : ''}<div id="visitFeedbackAgentPanel"></div>`)
           : `<p class="tiny">Only approved agents can submit proposals or vote on pricing.</p>${preListingTeaserNoteHtml()}`}`}
     `;
     if (!isOwner && currentAgentProfile && currentAgentProfile.status === 'approved' && !isAwardedAgent && document.getElementById('bidServicesEditor')) {
@@ -3356,6 +3364,11 @@ async function openPreListingDetail(id, opts = {}) {
       loadInterviewsInto(id, isOwner, bids, p.status);
     }
     if (!isOwner && currentAgentProfile && currentAgentProfile.status === 'approved' && !isAwardedAgent && p.status === 'open') loadShowingsInto(id, false);
+    // Then & Now, visit feedback and the handoff binder load their own data (then-now.js, visit-feedback.js,
+    // handoff-binder.js); nothing of theirs comes in the detail response.
+    if (typeof loadThenNowInto === 'function') loadThenNowInto(id, isOwner);
+    if (typeof loadVisitFeedbackInto === 'function') loadVisitFeedbackInto(id, isOwner);
+    if (isOwner && typeof loadHandoffBinderInto === 'function') loadHandoffBinderInto(id);
   } catch (e) {
     // Homeowners, buyers and agents still waiting on approval can't open a pre-listing: say so, with a way to post one.
     if (apiErrorCode(e) === 'agents_only') {
@@ -5451,7 +5464,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         try { contactSettings = await apiPut('/api/contact-settings', { contactMode: chosenMode }); }
         catch { dialNote = " We couldn't save how agents can reach you, so please set it again under You're in Control."; }
       }
-      const photoResult = await uploadPhotos(`/api/pre-listings/${id}/photos`, [...document.getElementById('plPhotos').files]);
+      // Privacy Sweep: the swept copies where the owner made them, else the picked files (privacy-sweep.js).
+      const photoResult = await uploadPhotos(`/api/pre-listings/${id}/photos`, typeof sweepPickedFiles === 'function' ? await sweepPickedFiles('plPhotos') : [...document.getElementById('plPhotos').files]);
       toastWithPhotoResult(`Pre-listing posted — agents can now weigh in on your price.${dialNote}`, photoResult);
       document.getElementById('postHomeWrap').open = false;
       ['plTitle', 'plAskingPrice', 'plCity', 'plState', 'plZip', 'plNeighborhood', 'plAddress', 'plSqft', 'plDescription', 'plShowingNoticeHours', 'plSpecialInstructions', 'plMinYearsExperience', 'plPreferredLanguage', 'plPreferredAgreementMonths'].forEach(f => document.getElementById(f).value = '');

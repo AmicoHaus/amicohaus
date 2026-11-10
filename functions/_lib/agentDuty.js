@@ -95,13 +95,16 @@ export async function sendOrHoldEmail(context, { userId, to, subject, text, duty
 // set) and are re-timed when the agent changes their duty hours; the person kinds wait for quiet hours (a homeowner's
 // alerts, the weekly agent-message delivery) and are re-timed when quiet hours change.
 // opinion_refresh: a homeowner asked the agent for a fresh look at their price opinion (R3-1b).
+// seller_report: the Monday email to a homeowner about their home (sellerReport.js); it waits for quiet hours.
 export const AGENT_HOLD_KINDS = ['new_request', 'interview', 'scorecard', 'opinion_refresh'];
-export const PERSON_HOLD_KINDS = ['owner_alert', 'weekly_messages'];
+export const PERSON_HOLD_KINDS = ['owner_alert', 'weekly_messages', 'seller_report'];
 
 // Is a held email still worth sending? The person must still be an active real account (approved, for agent emails,
 // and still wanting new-request alerts or the scorecard), and what it's about must still be open.
 async function stillWanted(db, row) {
   if (row.status !== 'active' || !row.email || String(row.email).toLowerCase().endsWith('@demo.amicohaus.local')) return false;
+  // The Monday seller report: not if they've stopped it since it was held (CAN-SPAM: honored at once).
+  if (row.kind === 'seller_report' && row.seller_report_opt_out) return false;
   // A homeowner's alerts and the weekly message delivery are about the person, not one open request.
   if (PERSON_HOLD_KINDS.includes(row.kind)) return true;
   if (AGENT_HOLD_KINDS.includes(row.kind) && row.agent_status !== 'approved') return false;
@@ -145,16 +148,17 @@ export async function runDueHeldEmails(context, { limit = 40, budgetMs = 15000 }
   const startedAt = Date.now();
   const db = context.env.DB;
   const due = await db.prepare(
-    `SELECT h.id, h.user_id, h.kind, h.ref, h.subject, h.text_body, users.email, users.status, users.display_name,
+    `SELECT h.id, h.user_id, h.kind, h.ref, h.subject, h.text_body, users.email, users.status, users.display_name, users.seller_report_opt_out,
             agent_profiles.status AS agent_status, agent_profiles.notify_new_requests, agent_profiles.scorecard_opt_out,
             agent_profiles.duty_days_json, agent_profiles.duty_start, agent_profiles.duty_end
      FROM held_emails h JOIN users ON users.id = h.user_id LEFT JOIN agent_profiles ON agent_profiles.user_id = h.user_id
      WHERE h.sent_at IS NULL AND h.deliver_after <= ? ORDER BY h.user_id, h.deliver_after LIMIT ?`
   ).bind(new Date().toISOString(), limit).all();
-  // Alerts for the same person are combined; a scorecard is its own email. Nothing is claimed yet.
+  // Alerts for the same person are combined; a scorecard or a seller report is its own email (its unsubscribe footer
+  // must go out as written). Nothing is claimed yet.
   const groups = new Map();
   for (const row of due.results) {
-    const key = row.kind === 'scorecard' ? `scorecard:${row.id}` : `alerts:${row.user_id}`;
+    const key = row.kind === 'scorecard' || row.kind === 'seller_report' ? `${row.kind}:${row.id}` : `alerts:${row.user_id}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(row);
   }

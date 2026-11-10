@@ -32,7 +32,7 @@ const QUERIES = {
 
   // Pre-listings you posted, and what came in on them.
   preListings: 'SELECT * FROM pre_listings WHERE user_id = ?1',
-  preListingPhotos: `SELECT id, pre_listing_id, content_type, position, created_at FROM pre_listing_photos WHERE pre_listing_id IN ${MY_PRE_LISTINGS}`,
+  preListingPhotos: `SELECT id, pre_listing_id, content_type, position, swept_at, created_at FROM pre_listing_photos WHERE pre_listing_id IN ${MY_PRE_LISTINGS}`,
   preListingPriceHistory: `SELECT * FROM pre_listing_price_history WHERE pre_listing_id IN ${MY_PRE_LISTINGS}`,
   showingRequests: `SELECT * FROM pre_listing_showings WHERE pre_listing_id IN ${MY_PRE_LISTINGS}`,
   brokerPreviews: `SELECT * FROM pre_listing_previews WHERE pre_listing_id IN ${MY_PRE_LISTINGS}`,
@@ -54,6 +54,23 @@ const QUERIES = {
     FROM pre_listing_opinion_versions WHERE pre_listing_id IN ${MY_PRE_LISTINGS}
     UNION ALL SELECT 'refresh_ask', pre_listing_id, agent_user_id, json_object('answer', answer, 'answered_at', answered_at), asked_at
     FROM pre_listing_opinion_asks WHERE pre_listing_id IN ${MY_PRE_LISTINGS}`,
+  // Owner tools: your Then & Now list and photo pairs, your repost OKs, visit feedback agents left on your homes, and
+  // visit feedback you left as an agent (kind says which). Storage keys are never included.
+  ownerTools: `SELECT 'upgrade' AS kind, pre_listing_id, NULL AS agent_user_id,
+      json_object('category', category, 'done_year', done_year, 'done_month', done_month, 'note', note, 'permit', permit) AS details_json, created_at AS at
+    FROM pre_listing_upgrades WHERE pre_listing_id IN ${MY_PRE_LISTINGS}
+    UNION ALL SELECT 'then_now_pair', pre_listing_id, NULL,
+      json_object('caption', caption, 'then_year', then_year, 'then_content_type', then_content_type, 'now_content_type', now_content_type, 'swept_at', swept_at), created_at
+    FROM pre_listing_then_now WHERE pre_listing_id IN ${MY_PRE_LISTINGS}
+    UNION ALL SELECT 'repost_ok', pre_listing_id, NULL,
+      json_object('moment', moment, 'consent_version', consent_version, 'withdrawn_at', withdrawn_at), consented_at
+    FROM moment_repost_consents WHERE user_id = ?1
+    UNION ALL SELECT 'visit_feedback_received', pre_listing_id, agent_user_id,
+      json_object('visit_kind', visit_kind, 'visit_at', visit_at, 'skipped', skipped, 'price', price, 'asking_price_at', asking_price_at, 'condition', condition, 'top_prep', top_prep, 'updated_at', updated_at), created_at
+    FROM pre_listing_visit_feedback WHERE pre_listing_id IN ${MY_PRE_LISTINGS}
+    UNION ALL SELECT 'visit_feedback_given', pre_listing_id, NULL,
+      json_object('visit_kind', visit_kind, 'visit_at', visit_at, 'skipped', skipped, 'price', price, 'asking_price_at', asking_price_at, 'condition', condition, 'top_prep', top_prep, 'updated_at', updated_at), created_at
+    FROM pre_listing_visit_feedback WHERE agent_user_id = ?1`,
 
   // As an agent.
   agentProfile: 'SELECT * FROM agent_profiles WHERE user_id = ?1',
@@ -107,7 +124,7 @@ const QUERIES = {
 };
 
 // Columns that never leave the database, even in the person's own file (storage keys, tokens, who reviewed them).
-const NEVER_EXPORTED = ['video_r2_key', 'license_photo_r2_key', 'review_invite_token', 'reviewed_by', 'license_verified_by', 'deck_r2_key', 'pitch_video_r2_key'];
+const NEVER_EXPORTED = ['video_r2_key', 'license_photo_r2_key', 'review_invite_token', 'reviewed_by', 'license_verified_by', 'deck_r2_key', 'pitch_video_r2_key', 'then_r2_key', 'now_r2_key'];
 const withoutSecrets = rows => rows.map(r => {
   const out = { ...r };
   for (const col of NEVER_EXPORTED) delete out[col];
@@ -144,6 +161,7 @@ export async function onRequestGet(context) {
       emailVerified: !!user.email_verified, isVerified: !!user.is_verified, twoFactorEnabled: !!user.totp_enabled,
       signedInWithGoogle: !!user.google_id, referralCode: user.referral_code || null, referredBy: user.referred_by || null,
       notifyMatches: user.notify_matches !== 0, emailFrequency: user.email_frequency || 'capped',
+      sellerReportOptOut: !!user.seller_report_opt_out,
       signupIntent: user.signup_intent, signupSource: user.signup_source,
       termsVersion: user.terms_version || null, termsAcceptedAt: user.terms_accepted_at || null, createdAt: user.created_at,
     },

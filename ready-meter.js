@@ -6,7 +6,8 @@
 // About the home and the process only (fair housing): never health, family, jobs, age or other life events.
 const READY_TOPIC_LABELS = { timing: 'Timing', money: 'Money', where_next: "Where we'd go next", house_ready: 'Getting the house ready', picking_agent: 'Picking an agent' };
 const READY_BAND_LABELS = { exploring: 'Exploring', getting_close: 'Getting close', ready: 'Ready' };
-const READY_DEFAULT_ORDER = ['video', 'opinions', 'agent_view', 'address', 'edit', 'disclosures', 'listing_ready', 'timing', 'previews', 'interviews', 'showings', 'decision_night', 'proposals'];
+// Owner tools batch: then_now, visit_feedback and binder are new; they are never promoted by a topic.
+const READY_DEFAULT_ORDER = ['video', 'opinions', 'agent_view', 'address', 'edit', 'then_now', 'disclosures', 'listing_ready', 'timing', 'previews', 'interviews', 'showings', 'visit_feedback', 'decision_night', 'proposals', 'binder'];
 // What moves to the top for each topic. "money" moves only the owner's own fee comparison and take-home estimate:
 // the lender note is not a tool and never moves. 'edit' is never promoted.
 const READY_PROMOTED = {

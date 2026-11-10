@@ -1370,6 +1370,19 @@ const denied = r => r.status >= 400 && r.status < 500;
       && dirPage2.status === 200 && dirPage2.json.listings.length === 1 && dirPage2.json.listings[0].id !== dirPage1.json.listings[0].id,
     JSON.stringify({ p1: dirPage1.json && dirPage1.json.listings.map(l => l.id), p2: dirPage2.json && dirPage2.json.listings.map(l => l.id) }));
 
+  // ---------- account deletion on the real D1 ----------
+  // Its stored-files query is a long UNION ALL; D1 refuses more than 5 terms, which node:sqlite never shows. It
+  // shipped broken in L1 (11.04) and nothing caught it until 11.05, so it now runs here against real D1.
+  const Z = new User('deleteme');
+  // A sixth signup this hour would hit the 5-per-network limit; this only ever runs on the test database (authz-target.js).
+  sql("DELETE FROM login_attempts WHERE kind = 'signup' AND created_at > datetime('now', '-3 hours')");
+  await Z.signup(); await Z.confirm();
+  const zDelete = await Z.call('POST', '/api/account/delete', { password: PASSWORD });
+  const zGone = sql(`SELECT COUNT(*) AS n FROM users WHERE id = ${Z.id}`)[0].n === 0;
+  record('account', 'a member can delete their own account (real D1)', zDelete.status === 200 && zGone, `status ${zDelete.status} ${zDelete.text.slice(0, 120)} gone=${zGone}`);
+  const bDeleteWrongPw = await B.call('POST', '/api/account/delete', { password: 'not-the-password' });
+  record('account', 'deleting an account needs the right password', denied(bDeleteWrongPw), `status ${bDeleteWrongPw.status}`);
+
   // ---------- structured data on public pages ----------
   const ldPage = await anon.call('GET', `/listing/${LA}`);
   const ldMatch = /<script type="application\/ld\+json">([\s\S]*?)<\/script>/.exec(ldPage.text);

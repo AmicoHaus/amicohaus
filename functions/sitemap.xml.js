@@ -8,6 +8,7 @@
 // pages still open by direct link but carry noindex.
 import { withSecurityHeaders } from './_lib/withSecurityHeaders.js';
 import { unlistedOwnerSql } from './_lib/util.js';
+import { VIDEO_TWINS } from './_lib/videoTwins.js';
 
 const STATIC_URLS = [
   { loc: 'https://amicohaus.com/', freq: 'weekly', priority: '1.0' },
@@ -19,6 +20,8 @@ const STATIC_URLS = [
   { loc: 'https://amicohaus.com/unlock-your-zip', freq: 'daily', priority: '0.8' },
   { loc: 'https://amicohaus.com/for-agents', freq: 'monthly', priority: '0.8' },
   { loc: 'https://amicohaus.com/whats-new', freq: 'weekly', priority: '0.5' },
+  { loc: 'https://amicohaus.com/mystery-home', freq: 'weekly', priority: '0.5' },
+  { loc: 'https://amicohaus.com/watch', freq: 'weekly', priority: '0.6' },
   { loc: 'https://amicohaus.com/contact', freq: 'monthly', priority: '0.6' },
   { loc: 'https://amicohaus.com/terms', freq: 'yearly', priority: '0.3' },
   { loc: 'https://amicohaus.com/privacy', freq: 'yearly', priority: '0.3' },
@@ -75,7 +78,21 @@ async function renderSitemap(context) {
     loc: `https://amicohaus.com/profile/${a.user_id}`, freq: 'monthly', priority: '0.5',
   }));
 
-  const all = [...STATIC_URLS, ...listingUrls, ...augmentedHomeUrls, ...greenHomeUrls, ...agentUrls];
+  // Mystery Home Monday: homes that are live or revealed and not retired (ISO times, compared with an ISO now).
+  // Drafts, homes not yet published and retired homes are left out (their pages are 404s).
+  const nowIso = new Date().toISOString();
+  const mysteryHomes = await db.prepare(
+    `SELECT slug FROM mystery_homes WHERE status = 'scheduled' AND publish_at <= ?1 AND (retire_at IS NULL OR retire_at > ?1)
+     ORDER BY publish_at DESC LIMIT 500`
+  ).bind(nowIso).all();
+  const mysteryUrls = mysteryHomes.results.map(m => ({
+    loc: `https://amicohaus.com/mystery-home/${m.slug}`, freq: 'weekly', priority: '0.5',
+  }));
+
+  // Video pages (functions/_lib/videoTwins.js, a static list).
+  const watchUrls = VIDEO_TWINS.map(t => ({ loc: `https://amicohaus.com/watch/${t.slug}`, freq: 'monthly', priority: '0.5' }));
+
+  const all = [...STATIC_URLS, ...listingUrls, ...augmentedHomeUrls, ...greenHomeUrls, ...agentUrls, ...mysteryUrls, ...watchUrls];
   const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
     all.map(u => `  <url>\n    <loc>${u.loc}</loc>\n    <changefreq>${u.freq}</changefreq>\n    <priority>${u.priority}</priority>\n  </url>`).join('\n') +
     `\n</urlset>\n`;

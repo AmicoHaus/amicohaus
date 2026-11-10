@@ -97,6 +97,15 @@ const DEMO_STORY = {
   ],
 };
 
+// Reveal Mode (sample): five fictional proposals in arrival order, two with a pitch reel. Letters only, like the real one.
+const DEMO_REVEAL_CARDS = [
+  { letter: 'Agent A', reel: true },
+  { letter: 'Agent B', reel: false },
+  { letter: 'Agent C', reel: false },
+  { letter: 'Agent D', reel: true },
+  { letter: 'Agent E', reel: false },
+];
+
 const DEMO_TRANSACTION = {
   a: { owner: 'Jordan', avatar: '/img/avatar/jordan.svg', type: 'Condo', city: 'San Diego', state: 'CA', value: 640000, seed: 'demo-tx-a' },
   b: { owner: 'Sam', avatar: '/img/avatar/sam.svg', type: 'Townhouse', city: 'Sacramento', state: 'CA', value: 615000, seed: 'demo-tx-b' },

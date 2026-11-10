@@ -99,7 +99,7 @@ function renderVideoTourPanel(p, isOwner) {
       <h3>Video walkthrough</h3>
       <p class="tiny">A short phone video (up to 2 minutes) lets agents weigh in on your price without a visit. Only you, approved agents and Amico Haus admins can watch it.</p>
       ${player}
-      ${p.status === 'open' ? `<div class="field"><label for="preListingVideoInput">${p.hasVideo ? 'Replace the video' : 'Add a video'} (MP4 or MOV, under 95MB)</label><input type="file" id="preListingVideoInput" accept="video/mp4,video/quicktime,video/webm"></div>` : ''}
+      ${p.status === 'open' ? `<p class="tiny">Before you film: turn family photos face down, put mail away, and keep the house number out of the shot.</p><div class="field"><label for="preListingVideoInput">${p.hasVideo ? 'Replace the video' : 'Add a video'} (MP4 or MOV, under 95MB)</label><input type="file" id="preListingVideoInput" accept="video/mp4,video/quicktime,video/webm"></div>` : ''}
       ${p.hasVideo ? '<button type="button" class="btn btn-ghost btn-sm" data-sp-action="remove-video">Remove video</button>' : ''}
       <p class="tiny" id="videoTourStatus" role="status" aria-live="polite"></p>
     </div>`;

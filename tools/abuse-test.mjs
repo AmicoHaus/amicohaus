@@ -127,7 +127,7 @@ const want = {
   proposal: [[10, 60, false], [30, 1440, false], [5, 1440, true]],
   price_vote: [[15, 60, false], [60, 1440, false], [6, 1440, true]],
   showing_request: [[10, 1440, false], [3, 10080, true]],
-  preview_rsvp: [[20, 1440, false]], agent_invite: [[20, 1440, false]], saved_search: [[20, 1440, false]], timing_edit: [[10, 1440, false]], report: [[10, 1440, false]],
+  preview_rsvp: [[20, 1440, false]], agent_invite: [[20, 1440, false]], saved_search: [[20, 1440, false]], timing_edit: [[10, 1440, false]], photo_sweep: [[40, 60, false], [120, 1440, false]], report: [[10, 1440, false]],
 };
 const got = Object.fromEntries(Object.entries(rl.USER_LIMITS).map(([k, ws]) => [k, ws.map(w => [w.max, w.minutes, !!w.perRef])]));
 check('USER_LIMITS matches the spec table exactly', JSON.stringify(got) === JSON.stringify(want), JSON.stringify(got));

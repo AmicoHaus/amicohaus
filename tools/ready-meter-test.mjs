@@ -236,7 +236,7 @@ check('deleting the pre-listing removes its check-ins', before15 === 1 && r.stat
 
 // ---- 6. The weekly nudge job ----
 const mw = read('functions/api/_middleware.js');
-check('_middleware runs the nudge right after the scorecards', /runDueScorecards, runDueReadyNudges, runPurgeExpiredTrash/.test(mw) && mw.includes("import { runDueReadyNudges } from '../_lib/readyMeter.js';"));
+check('_middleware runs the nudge right after the scorecards', /runDueScorecards, runDueReadyNudges, runDueVisitFeedbackPrompts, runDueSellerReports, runPurgeExpiredTrash/.test(mw) && mw.includes("import { runDueReadyNudges } from '../_lib/readyMeter.js';"));
 check('_middleware skips the jobs on the data export', mw.includes("if (new URL(context.request.url).pathname === '/api/account/export') return;"));
 run('UPDATE pre_listings SET ready_reminders_off = 1'); // the homes above stay out of the job's counts
 const nudgeOwners = { 40: {}, 41: {}, 42: {}, 43: {}, 44: { email: 'x44@demo.amicohaus.local' }, 45: { status: 'suspended' }, 46: {}, 47: {}, 48: {}, 49: {} };
@@ -325,10 +325,10 @@ try { for (const f of ['client.js', 'ready-meter.js']) vm.runInContext(read(f), 
 check('client.js + ready-meter.js load together', loaded);
 vm.runInContext('this.__r = { readyToolOrder, ownerToolsHtml, readyCheckInHtml, agentViewStripHtml, agentViewOwnerPanelHtml, READY_TOPIC_LABELS };', sandbox);
 const c = sandbox.__r;
-const DEFAULT = 'video,opinions,agent_view,address,edit,disclosures,listing_ready,timing,previews,interviews,showings,decision_night,proposals';
-check('tool order: money puts proposals and opinions first', c.readyToolOrder('money').slice(0, 2).join() === 'proposals,opinions' && c.readyToolOrder('money').length === 13);
+const DEFAULT = 'video,opinions,agent_view,address,edit,then_now,disclosures,listing_ready,timing,previews,interviews,showings,visit_feedback,decision_night,proposals,binder';
+check('tool order: money puts proposals and opinions first', c.readyToolOrder('money').slice(0, 2).join() === 'proposals,opinions' && c.readyToolOrder('money').length === 16);
 check('tool order: unknown or missing topic = the default', c.readyToolOrder('nope').join() === DEFAULT && c.readyToolOrder(null).join() === DEFAULT && c.readyToolOrder('constructor').join() === DEFAULT);
-check('tool order: every topic keeps all 13 once, and "edit" is never promoted', topics.every(k => { const o = c.readyToolOrder(k); return o.length === 13 && new Set(o).size === 13 && o[0] !== 'edit' && o.indexOf('edit') >= o.indexOf('address'); }));
+check('tool order: every topic keeps all 16 once, and "edit" is never promoted', topics.every(k => { const o = c.readyToolOrder(k); return o.length === 16 && new Set(o).size === 16 && o[0] !== 'edit' && o.indexOf('edit') >= o.indexOf('address'); }));
 check('tool order: the exact promotions', c.readyToolOrder('timing').slice(0, 3).join() === 'timing,listing_ready,decision_night' && c.readyToolOrder('where_next').slice(0, 2).join() === 'timing,proposals'
   && c.readyToolOrder('house_ready').slice(0, 5).join() === 'listing_ready,video,opinions,previews,disclosures' && c.readyToolOrder('picking_agent').slice(0, 3).join() === 'proposals,interviews,decision_night');
 check('client topic labels match the server', JSON.stringify(c.READY_TOPIC_LABELS) === JSON.stringify(lib.READY_TOPICS));

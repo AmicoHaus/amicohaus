@@ -23,6 +23,10 @@ Each user creates a profile describing their current home (location, type, price
 - **Timing Match**: a homeowner can pick an ideal closing window and a stay after closing of up to 29 days (their agents write any rent-back terms); buyers can add a move-in window to a saved search and see a "Timing fits" tag. Homeowners see only a count of buyers whose timing fits, and only once there are 3 or more.
 - **Weekly check-in**: a private two-tap check-in that moves a homeowner's matching tools to the top of their dashboard. Agents see a readiness band only if the homeowner chooses to share it.
 - **Price opinion history**: every 90 days a homeowner can ask the agents who gave a price opinion for a fresh look (Same or Update). Each agent's history is shown per agent only, to the homeowner and that agent. Every number is an agent price opinion, not an appraisal.
+- **Privacy Sweep**: homeowners can blur or cover private things (faces, family photos, mail, house numbers) on their own device before photos upload; only the swept copy is uploaded.
+- **Then & Now**: a homeowner's own before-and-after photos and dated upgrade list, shown to approved agents and labeled owner-reported, not a disclosure.
+- **Mystery Home Monday**: a weekly guessing game about a home that already sold, shown with the seller's permission. Guesses stay in the visitor's browser; it is a game, not a price opinion or an appraisal.
+- **Video pages**: Amico Haus videos have pages at amicohaus.com/watch with transcripts and links to watch them.
 
 ## Key concepts (home trading)
 

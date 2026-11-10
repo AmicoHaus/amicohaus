@@ -116,6 +116,7 @@ export function publicUser(user) {
     notifyMatches: user.notify_matches !== 0,
     emailFrequency: user.email_frequency || 'capped',
     phone: user.phone || '', isVerified: !!user.is_verified,
+    sellerReportOptOut: !!user.seller_report_opt_out,
   };
 }
 

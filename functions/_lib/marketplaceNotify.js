@@ -467,3 +467,17 @@ export async function notifyPreviewRsvp(context, preListingId, ownerUserId, agen
      WHERE NOT EXISTS (SELECT 1 FROM notifications WHERE user_id = ?1 AND link = ?3 AND body = ?2)`
   ).bind(ownerUserId, body, `/app#pre-listing-${preListingId}`).run();
 }
+
+// Visit feedback (owner tools batch): the homeowner hears, in-app only, when an agent first answers the three quick
+// taps after a visit. The alert names the agent (DRE identity) and never carries the answers or any number. The check
+// and the alert are one statement, so two saves at once can't both ping; the same alert from the same agent on the
+// same home within a day counts as already sent (a later visit's feedback pings again).
+export async function notifyVisitFeedback(context, preListingId, ownerUserId, agentUserId) {
+  const db = context.env.DB;
+  const body = `${await senderLabel(db, agentUserId)} shared quick feedback from their visit.`;
+  await db.prepare(
+    `INSERT INTO notifications (user_id, type, body, link)
+     SELECT ?1, 'marketplace', ?2, ?3
+     WHERE NOT EXISTS (SELECT 1 FROM notifications WHERE user_id = ?1 AND link = ?3 AND body = ?2 AND created_at >= datetime('now', '-1 day'))`
+  ).bind(ownerUserId, body, `/app#pre-listing-${preListingId}`).run();
+}

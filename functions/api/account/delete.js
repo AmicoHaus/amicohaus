@@ -2,16 +2,19 @@ import { getSessionUser, verifyPassword, clearSessionCookieHeader } from '../../
 import { json, badRequest, unauthorized } from '../../_lib/util.js';
 import { deleteR2Keys } from '../../_lib/r2Cleanup.js';
 import { REMOVE_ACTION } from '../../_lib/agentReviewAdmin.js';
+import { allUnionAll } from '../../_lib/compoundSelect.js';
 
 // Every stored file tied to an account, read before the rows that point at them cascade away: listing photos (live
-// and in the trash), pre-listing photos, walkthrough videos and the price-opinion decks and pitch reels on them
-// (and the ones this person sent as an agent), AugmentedHomes / GreenHomes / project photos, and an agent's intro
-// video, license photo (an ID document), portfolio photos and case-study photos. ?1 = the account.
+// and in the trash), pre-listing photos, Then & Now photo pairs, walkthrough videos and the price-opinion decks and
+// pitch reels on them (and the ones this person sent as an agent), AugmentedHomes / GreenHomes / project photos, and
+// an agent's intro video, license photo (an ID document), portfolio photos and case-study photos. ?1 = the account.
 const STORED_FILES_SQL = `
   SELECT listing_photos.r2_key AS k FROM listing_photos JOIN listings ON listings.id = listing_photos.listing_id WHERE listings.user_id = ?1
   UNION ALL SELECT json_extract(p.value, '$.r2_key') FROM deleted_listings d,
     json_each(CASE WHEN json_valid(d.snapshot) THEN d.snapshot ELSE '{}' END, '$.photos') p WHERE d.user_id = ?1
   UNION ALL SELECT r2_key FROM pre_listing_photos WHERE pre_listing_id IN (SELECT id FROM pre_listings WHERE user_id = ?1)
+  UNION ALL SELECT then_r2_key FROM pre_listing_then_now WHERE pre_listing_id IN (SELECT id FROM pre_listings WHERE user_id = ?1)
+  UNION ALL SELECT now_r2_key FROM pre_listing_then_now WHERE pre_listing_id IN (SELECT id FROM pre_listings WHERE user_id = ?1)
   UNION ALL SELECT video_r2_key FROM pre_listings WHERE user_id = ?1
   UNION ALL SELECT deck_r2_key FROM pre_listing_price_opinions
     WHERE agent_user_id = ?1 OR pre_listing_id IN (SELECT id FROM pre_listings WHERE user_id = ?1)
@@ -40,7 +43,8 @@ export async function onRequestPost(context) {
   if (!ok) return badRequest('Incorrect password.');
 
   const db = context.env.DB;
-  const stored = await db.prepare(STORED_FILES_SQL).bind(user.id).all();
+  // In chunks of at most 5 terms: D1 refuses a longer compound SELECT (compoundSelect.js).
+  const stored = await allUnionAll(db, STORED_FILES_SQL, [user.id], ['k']);
 
   // One batch, so it all happens or none of it does:
   // - a team member this person invited keeps their membership (invited_by has no ON DELETE rule, so the account
@@ -65,7 +69,7 @@ export async function onRequestPost(context) {
   ]);
 
   // R2 objects aren't referenced by the schema's FK cascades, so they'd otherwise be orphaned.
-  await deleteR2Keys(context.env.PHOTOS, stored.results.map(r => r.k));
+  await deleteR2Keys(context.env.PHOTOS, stored.map(r => r.k));
 
   return json({ ok: true }, { headers: { 'Set-Cookie': clearSessionCookieHeader() } });
 }

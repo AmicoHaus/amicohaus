@@ -8,6 +8,7 @@
 // match the order of the <section>s in demo.html.
 const SECTIONS = [
   { id: 'agents', label: 'Agent Strategy' },
+  { id: 'reveal', label: 'Reveal Mode' },
   { id: 'overview', label: 'Overview' },
   { id: 'listings', label: 'Listings' },
   { id: 'matches', label: 'Matches' },
@@ -434,11 +435,21 @@ async function loadLiveSections() {
   }
 }
 
+// Reveal Mode with fictional cards (share-moment.js). No API call, no real data.
+function setupRevealDemo() {
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('[data-demo-action="reveal"]');
+    if (!btn || typeof openRevealMode !== 'function') return;
+    openRevealMode(DEMO_REVEAL_CARDS, { city: 'Chula Vista', state: 'CA', sample: true });
+  });
+}
+
 (async function init() {
   renderPills();
   setupStickyOffsets();
   setupScrollSpy();
   setupAgentFilters();
+  setupRevealDemo();
   renderStory();
   renderTransaction();
 

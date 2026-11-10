@@ -717,14 +717,15 @@ await section('S20', async () => {
     'tools/authz-target.js', 'tools/authz-test.js', 'tools/authz-cleanup.js', 'tools/amico-growth-report.js', 'tools/TESTING.md'];
   const names = touched.filter(f => existsSync(`${root}/${f}`) && /mckelvey|\bpatti\b|\bjeff\b/i.test(read(f)));
   check('no McKelvey / Patti / Jeff in any file this batch touched', names.length === 0, names.join(', '));
-  // L1.1 had no schema change (spec decision); batch R3-1b adds migration_v44 (3 tables, 33 columns), so these two checks follow it.
+  // L1.1 had no schema change (spec decision); batch R3-1b adds migration_v44 (3 tables, 33 columns) and the owner tools
+  // batch adds migration_v45 (6 tables, 82 columns), so these two checks follow them.
   const s = new DatabaseSync(':memory:');
   s.exec(read('schema.sql'));
   const tables = s.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all();
   const cols = tables.reduce((n, t) => n + s.prepare(`PRAGMA table_info(${t.name})`).all().length, 0);
   const userCols = s.prepare('PRAGMA table_info(users)').all().map(c => c.name);
-  check('schema.sql: only the R3-1b v44 tables and columns are new (89 tables, 780 columns, as at v44); users has terms_version + terms_accepted_at', tables.length === 89 && cols === 780 && userCols.includes('terms_version') && userCols.includes('terms_accepted_at'), `${tables.length} tables, ${cols} columns`);
-  check('migration_v44.sql (R3-1b) is there, and no migration_v45.sql', existsSync(`${root}/migration_v44.sql`) && !existsSync(`${root}/migration_v45.sql`));
+  check('schema.sql: only the v44 + v45 tables and columns are new (95 tables, 862 columns, as at v45); users has terms_version + terms_accepted_at', tables.length === 95 && cols === 862 && userCols.includes('terms_version') && userCols.includes('terms_accepted_at'), `${tables.length} tables, ${cols} columns`);
+  check('migration_v44.sql and migration_v45.sql are there, and no migration_v46.sql', existsSync(`${root}/migration_v44.sql`) && existsSync(`${root}/migration_v45.sql`) && !existsSync(`${root}/migration_v46.sql`));
 });
 
 console.log = realLog;

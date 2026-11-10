@@ -24,7 +24,9 @@ const css = read('styles.css');
 
 // ---- 1. app.html ----
 const scripts = [...app.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1]);
-const WANT_ORDER = ['client.js', 'agent-cards.js', 'seller-prep.js', 'decision-night.js', 'timing-match.js', 'ready-meter.js', 'opinion-refresh.js', 'agent-growth.js', 'main.js'];
+// The owner tools batch adds share-moment.js after decision-night.js and its four tool files after opinion-refresh.js.
+const WANT_ORDER = ['client.js', 'agent-cards.js', 'seller-prep.js', 'decision-night.js', 'share-moment.js', 'timing-match.js', 'ready-meter.js', 'opinion-refresh.js',
+  'privacy-sweep.js', 'then-now.js', 'visit-feedback.js', 'handoff-binder.js', 'agent-growth.js', 'main.js'];
 check('app.html: script order', JSON.stringify(scripts) === JSON.stringify(WANT_ORDER), JSON.stringify(scripts));
 
 for (const id of ['plCloseFrom', 'plCloseTo', 'plStayAfterDays', 'savedMoveFrom', 'savedMoveTo', 'savedStayOffer']) {
@@ -56,8 +58,8 @@ const segStart = main.indexOf('const ownerSegments = isOwner ? {');
 const segEnd = main.indexOf('} : null;', segStart);
 const segBlock = segStart >= 0 && segEnd > segStart ? main.slice(segStart, segEnd) : '';
 const segKeys = [...segBlock.matchAll(/^ {6}([a-z_]+):/gm)].map(m => m[1]);
-const WANT_KEYS = ['video', 'opinions', 'agent_view', 'address', 'edit', 'disclosures', 'listing_ready', 'timing', 'previews', 'interviews', 'showings', 'decision_night', 'proposals'];
-check('main.js: ownerSegments has exactly the 13 keys', JSON.stringify(segKeys) === JSON.stringify(WANT_KEYS), JSON.stringify(segKeys));
+const WANT_KEYS = ['video', 'opinions', 'agent_view', 'address', 'edit', 'then_now', 'disclosures', 'listing_ready', 'timing', 'previews', 'interviews', 'showings', 'visit_feedback', 'decision_night', 'proposals', 'binder'];
+check('main.js: ownerSegments has exactly the 16 keys', JSON.stringify(segKeys) === JSON.stringify(WANT_KEYS), JSON.stringify(segKeys));
 check('main.js: Point Mortgage note appears once, outside ownerSegments', main.split('Point Mortgage Corporation').length === 2 && segBlock && !segBlock.includes('Point Mortgage'));
 // The lender note stays inside the facts card, which closes before the owner tools render.
 const lender = main.indexOf('Point Mortgage Corporation'), tools = main.indexOf('ownerToolsHtml(ownerSegments, p.readyMeter)');
@@ -108,7 +110,7 @@ check('styles.css: no gold text outside --gold-text', !/(^|[;{\s])color: var\(--
 // ---- 5. Copy pages ----
 const privacy = read('privacy.html');
 const PRIVACY_SENTENCES = [
-  " Also your ideal closing window and how long you'd like to stay after closing, your weekly check-in answers (how ready you feel and what's on your mind), and when you ask your agents for fresh price opinions.</li>",
+  " Also your ideal closing window and how long you'd like to stay after closing, your weekly check-in answers (how ready you feel and what's on your mind), and when you ask your agents for fresh price opinions.", // the owner tools batch appends its own sentence before </li>
   'the places, home types and price ranges you save, and any move-in window and stay-after days you add,',
   `<p><strong>Timing, check-ins and price opinion history.</strong> Approved agents who can open your pre-listing see your closing window and stay-after days, how many photos you added, whether there's a walkthrough video or an upcoming broker preview, and your Decision Night date. Other members never see your dates; a member whose saved search's move-in window and stay fit yours sees a "Timing fits" tag on your short preview. Your listing-ready checklist count, target list month and how ready you feel (Exploring, Getting close or Ready) are shown to agents only if you turn on "Share my progress with agents." The number you pick and what's on your mind in a weekly check-in are never shown to agents or other members. We use them to order the tools on your pre-listing and, only as totals across at least 20 homeowners (never per person, per home or per area), to see what homeowners want help with. Every version of an agent's price opinion on your home is kept while the pre-listing exists, and only you and that agent see it; agents never see each other's numbers.</p>`,
   ' A move-in window you add is used only to show you "Timing fits" tags and to count, never name, buyers whose timing fits a homeowner\'s (shown only once there are 3 or more).</p>',
@@ -120,7 +122,9 @@ check('privacy.html: the timing paragraph comes right after the pre-listings par
 check('privacy.html: still "Last updated November 5, 2026."', privacy.includes('Last updated November 5, 2026.'));
 const whatsNew = read('whats-new.html');
 const firstCard = whatsNew.indexOf('<div class="card about-card">');
-check('whats-new.html: the new first card', firstCard > 0 && whatsNew.indexOf('<h2>Timing, a weekly check-in and fresh price opinions</h2>') > firstCard && whatsNew.indexOf('<h2>Timing, a weekly check-in and fresh price opinions</h2>') < whatsNew.indexOf('<div class="card about-card">', firstCard + 1));
+// The owner tools batch put its card first; the R3-1b card is now the second one.
+const secondCard = whatsNew.indexOf('<div class="card about-card">', firstCard + 1);
+check('whats-new.html: the R3-1b card, right after the owner tools card', firstCard > 0 && secondCard > firstCard && whatsNew.indexOf('<h2>Timing, a weekly check-in and fresh price opinions</h2>') > secondCard && whatsNew.indexOf('<h2>Timing, a weekly check-in and fresh price opinions</h2>') < whatsNew.indexOf('<div class="card about-card">', secondCard + 1));
 check('whats-new.html: up to 29 days, the agents write the rent-back terms', whatsNew.includes("how long you'd like to stay after closing, up to 29 days. Your agents write the rent-back terms.") && !/30 days/.test(whatsNew));
 check('whats-new.html: "agent price opinion, not an appraisal"', whatsNew.includes('Every number is an agent price opinion, not an appraisal.'));
 const llms = read('llms.txt');

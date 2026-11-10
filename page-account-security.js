@@ -9,6 +9,7 @@
     document.getElementById('notifyMatchesCheckbox').checked = user.notifyMatches;
     document.getElementById('emailFrequencySelect').value = user.emailFrequency || 'capped';
     document.getElementById('emailFrequencyField').classList.toggle('hidden', !user.notifyMatches);
+    document.getElementById('sellerReportToggle').checked = !user.sellerReportOptOut;
   }
   render();
 
@@ -32,6 +33,19 @@
       toast(e.target.value === 'every' ? 'You\'ll get an email for every match.' : 'Match emails limited to a few a day.');
     } catch (err) {
       e.target.value = previous;
+      toast(err.message);
+    }
+  });
+
+  // The Monday email about the person's home (the seller report). On by default; one click stops it here or from the email.
+  document.getElementById('sellerReportToggle').addEventListener('change', async (e) => {
+    const optOut = !e.target.checked;
+    try {
+      await apiPut('/api/account/seller-report', { optOut });
+      user.sellerReportOptOut = optOut;
+      toast(optOut ? 'The Monday email about your home is off.' : "You'll get the Monday email about your home.");
+    } catch (err) {
+      e.target.checked = !user.sellerReportOptOut;
       toast(err.message);
     }
   });

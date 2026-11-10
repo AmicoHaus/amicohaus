@@ -122,7 +122,7 @@ export async function updatePreListing(db, id, d) {
 
 export async function fetchPreListingPhotos(db, preListingId) {
   const rows = await db.prepare(
-    'SELECT id, position FROM pre_listing_photos WHERE pre_listing_id = ? ORDER BY position ASC'
+    'SELECT id, position, swept_at FROM pre_listing_photos WHERE pre_listing_id = ? ORDER BY position ASC'
   ).bind(preListingId).all();
   return rows.results;
 }

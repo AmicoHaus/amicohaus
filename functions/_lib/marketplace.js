@@ -220,7 +220,8 @@ export async function acceptBid(db, requestType, requestId, bidId) {
   await db.batch([
     db.prepare("UPDATE service_bids SET status = 'declined', updated_at = datetime('now') WHERE request_type = ? AND request_id = ? AND id != ? AND status = 'pending'").bind(requestType, requestId, bidId),
     db.prepare("UPDATE service_bids SET status = 'accepted', updated_at = datetime('now') WHERE id = ?").bind(bidId),
-    db.prepare(`UPDATE ${table} SET status = 'awarded', awarded_bid_id = ?, updated_at = datetime('now') WHERE id = ?`).bind(bidId, requestId),
+    // awarded_at (v45) exists only on pre_listings: Share Your Moment's "in D days" counts from it.
+    db.prepare(`UPDATE ${table} SET status = 'awarded', awarded_bid_id = ?, updated_at = datetime('now')${requestType === 'pre_listing' ? ", awarded_at = datetime('now')" : ''} WHERE id = ?`).bind(bidId, requestId),
   ]);
   await seedDefaultMilestones(db, requestType, requestId);
   return declining.results.map(r => r.agent_user_id);

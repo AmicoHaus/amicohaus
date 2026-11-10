@@ -16,6 +16,8 @@ import { logAdminAction } from '../../_lib/audit.js';
 import { countAgentsOnDuty } from '../../_lib/agentDuty.js';
 import { preListingAccess, agentsOnly } from '../../_lib/visibility.js';
 import { deleteR2Keys } from '../../_lib/r2Cleanup.js';
+import { momentForOwner } from '../../_lib/moment.js';
+import { allUnionAll } from '../../_lib/compoundSelect.js';
 
 export async function onRequestGet(context) {
   const id = context.params.id;
@@ -78,6 +80,8 @@ export async function onRequestGet(context) {
   // Timing Match: the owner's closing window and stay (always for the owner; for admins and approved agents once set).
   const timing = timingForViewer(row, { isOwner, isAdmin, isAgent: isApprovedAgentViewer });
   if (timing) preListing.timing = timing;
+  // Privacy Sweep: which photos the owner marked "Sweep done" (owner only; agents never see a badge).
+  if (isOwner) preListing.sweptPhotoIds = photos.filter(ph => ph.swept_at).map(ph => ph.id);
 
   // The owner sees every proposal; an agent sees only their own (they're not
   // meant to see competitors' numbers, same as a real proposal marketplace);
@@ -123,6 +127,9 @@ export async function onRequestGet(context) {
       const sent = await db.prepare('SELECT COUNT(*) AS n FROM finalist_debriefs WHERE pre_listing_id = ?').bind(id).first();
       preListing.debrief = { finalists, sent: sent.n > 0 };
     }
+    // Share Your Moment: the owner's own facts for Reveal Mode and the Hired! story, and their repost OKs (owner only).
+    const moment = await momentForOwner(db, row, bids);
+    if (moment) preListing.moment = moment;
   } else if (isApprovedAgentViewer) {
     myBid = await fetchMyBid(db, 'pre_listing', id, user.id);
     myVote = await fetchMyVote(db, id, user.id);
@@ -256,14 +263,17 @@ export async function onRequestDelete(context) {
   await wrapUpSellerPrep(context, id);
   // Removing someone else's pre-listing (moderation) is on the admin activity log, like other admin deletes.
   if (existing.user_id !== user.id) await logAdminAction(db, user.id, 'delete_pre_listing', 'pre_listing', id);
-  // Everything in storage (photos, the walkthrough video, price-opinion decks, pitch reels) is read before the rows
-  // go, then removed.
-  const stored = await db.prepare(
+  // Everything in storage (photos, the walkthrough video, price-opinion decks, pitch reels, Then & Now photo pairs) is
+  // read before the rows go, then removed.
+  // In chunks of at most 5 terms: D1 refuses a longer compound SELECT (compoundSelect.js).
+  const stored = await allUnionAll(db,
     `SELECT r2_key AS k FROM pre_listing_photos WHERE pre_listing_id = ?1
      UNION ALL SELECT video_r2_key FROM pre_listings WHERE id = ?1
      UNION ALL SELECT deck_r2_key FROM pre_listing_price_opinions WHERE pre_listing_id = ?1
-     UNION ALL SELECT pitch_video_r2_key FROM service_bids WHERE request_type = 'pre_listing' AND request_id = ?1`
-  ).bind(Number(id)).all();
+     UNION ALL SELECT pitch_video_r2_key FROM service_bids WHERE request_type = 'pre_listing' AND request_id = ?1
+     UNION ALL SELECT then_r2_key FROM pre_listing_then_now WHERE pre_listing_id = ?1
+     UNION ALL SELECT now_r2_key FROM pre_listing_then_now WHERE pre_listing_id = ?1`,
+    [Number(id)], ['k']);
   // Proposals, invites and the hire checklist point at the pre-listing by type and id (no foreign key), so the
   // delete doesn't cascade to them: they go in the same batch.
   await db.batch([
@@ -272,6 +282,6 @@ export async function onRequestDelete(context) {
     db.prepare("DELETE FROM bid_milestones WHERE request_type = 'pre_listing' AND request_id = ?").bind(Number(id)),
     db.prepare('DELETE FROM pre_listings WHERE id = ?').bind(Number(id)),
   ]);
-  await deleteR2Keys(context.env.PHOTOS, stored.results.map(r => r.k));
+  await deleteR2Keys(context.env.PHOTOS, stored.map(r => r.k));
   return json({ ok: true });
 }

@@ -401,10 +401,14 @@ check('...a storage failure never throws', n === 2);
 check('...no bucket or no keys is a no-op', (await deleteR2Keys(null, ['a'])) === 0 && (await deleteR2Keys(PHOTOS, [])) === 0 && (await deleteR2Keys(PHOTOS, [null])) === 0);
 
 // --- Deleting a pre-listing leaves nothing behind ---
+// Then & Now photo pairs (owner tools batch): both files go with the home.
+run("INSERT INTO pre_listing_then_now (pre_listing_id, then_r2_key, then_content_type, now_r2_key, now_content_type) VALUES (12, 'pre-listing-then-now/12/t', 'image/jpeg', 'pre-listing-then-now/12/n', 'image/jpeg')");
+putObj('pre-listing-then-now/12/t'); putObj('pre-listing-then-now/12/n');
 r = await call(detail.onRequestDelete, 'DELETE', '/x', 1, P(12));
 check('the owner deletes their closed pre-listing', r.status === 200, r.text);
 check('...its photos, the price-opinion deck and the pitch reel are removed from storage',
   !has('pre-listings/12/a') && !has('pre-listings/12/b') && !has('pre-listing-decks/12/16/d') && !has('pre-listing-pitch/12/3/p'));
+check('...and both photos of its Then & Now pair', !has('pre-listing-then-now/12/t') && !has('pre-listing-then-now/12/n'));
 check("...another home's photos are untouched", has('pre-listings/10/a') && has('pre-listings/10/b'));
 check('...its proposals, invites and hire checklist rows are gone (no orphans)',
   one("SELECT COUNT(*) AS n FROM service_bids WHERE request_type = 'pre_listing' AND request_id = 12").n === 0
@@ -477,6 +481,7 @@ run("INSERT INTO listing_photos (listing_id, r2_key, content_type) VALUES (60, '
 run("INSERT INTO deleted_listings (user_id, snapshot) VALUES (50, ?)", JSON.stringify({ listing: {}, photos: [{ r2_key: 'listings/59/trashed' }] }));
 preListing(70, 50, 'open', "video_r2_key='pre-listing-video/70/v'");
 run("INSERT INTO pre_listing_photos (pre_listing_id, r2_key, content_type) VALUES (70, 'pre-listings/70/a', 'image/jpeg')");
+run("INSERT INTO pre_listing_then_now (pre_listing_id, then_r2_key, then_content_type, now_r2_key, now_content_type) VALUES (70, 'pre-listing-then-now/70/t', 'image/jpeg', 'pre-listing-then-now/70/n', 'image/jpeg')");
 run("INSERT INTO pre_listing_price_opinions (pre_listing_id, agent_user_id, price_opinion, deck_r2_key) VALUES (70, 2, 700000, 'pre-listing-decks/70/2/d'), (13, 50, 700000, 'pre-listing-decks/13/50/d')");
 run("INSERT INTO service_bids (request_type, request_id, agent_user_id, message, commission_pct, status, pitch_video_r2_key) VALUES ('pre_listing', 70, 3, 'x', 2, 'pending', 'pre-listing-pitch/70/3/p'), ('pre_listing', 13, 50, 'x', 2, 'pending', 'pre-listing-pitch/13/50/p')");
 run("INSERT INTO agent_invites (request_type, request_id, agent_user_id, invited_by_user_id) VALUES ('pre_listing', 70, 3, 50)");
@@ -494,7 +499,7 @@ run("INSERT INTO agent_teams (id, name, created_by_user_id) VALUES (90, 'Flores 
 run("INSERT INTO agent_team_members (team_id, agent_user_id, role, status, invited_by_user_id) VALUES (90, 50, 'owner', 'active', 51), (90, 52, 'member', 'invited', 50)");
 const accountKeys = ['listings/60/a', 'listings/59/trashed', 'pre-listings/70/a', 'pre-listing-video/70/v', 'pre-listing-decks/70/2/d', 'pre-listing-decks/13/50/d',
   'pre-listing-pitch/70/3/p', 'pre-listing-pitch/13/50/p', 'augmented-homes/80/a', 'green-homes/81/a', 'dev-projects/82/a', 'agent-video/50/v', 'agent-license/50/l',
-  'agent-portfolio/50/a', 'agent-case-study/50/b', 'agent-case-study/50/a'];
+  'agent-portfolio/50/a', 'agent-case-study/50/b', 'agent-case-study/50/a', 'pre-listing-then-now/70/t', 'pre-listing-then-now/70/n'];
 for (const k of accountKeys) putObj(k);
 r = await call(accountDelete.onRequestPost, 'POST', '/x', 50, {}, { password: 'wrong' });
 check('account delete still needs the password', r.status === 400 && one('SELECT COUNT(*) AS n FROM users WHERE id = 50').n === 1 && accountKeys.every(has));
@@ -518,6 +523,7 @@ run("INSERT INTO messages (conversation_id, sender_id, body) VALUES (700, 3, 'HE
 run("INSERT INTO messages (conversation_id, sender_id, body, deliver_after) VALUES (700, 3, 'HELD FOR SUNDAY', '2099-01-01 09:00:00')");
 preListing(71, 1, 'open');
 run("INSERT INTO pre_listing_photos (pre_listing_id, r2_key, content_type) VALUES (71, 'pre-listings/71/a', 'image/jpeg')");
+run("INSERT INTO pre_listing_then_now (pre_listing_id, caption, then_r2_key, then_content_type, now_r2_key, now_content_type) VALUES (71, 'Kitchen', 'pre-listing-then-now/71/t', 'image/jpeg', 'pre-listing-then-now/71/n', 'image/jpeg')");
 run("INSERT INTO pre_listing_price_history (pre_listing_id, old_price, new_price) VALUES (71, 800000, 750000)");
 run("INSERT INTO service_bids (request_type, request_id, agent_user_id, message, commission_pct, status, owner_pick, pitch_video_r2_key) VALUES ('pre_listing', 71, 3, 'H PROPOSAL', 2, 'pending', 'shortlist', 'pre-listing-pitch/71/3/p')");
 run("INSERT INTO pre_listing_interviews (pre_listing_id, agent_user_id, owner_notes) VALUES (71, 3, 'A PRIVATE INTERVIEW NOTE')");
@@ -536,7 +542,7 @@ run("INSERT INTO agent_team_members (team_id, agent_user_id, role, status) VALUE
 run("INSERT INTO agent_packages (agent_user_id, tier, title) VALUES (3, 'basic', 'Starter')");
 run("INSERT INTO pre_listing_price_opinions (pre_listing_id, agent_user_id, price_opinion, deck_r2_key, deck_name) VALUES (71, 3, 760000, 'pre-listing-decks/71/3/d', 'h.pdf')");
 run("INSERT INTO pre_listing_price_votes (pre_listing_id, agent_user_id, vote) VALUES (71, 3, 'just_right')");
-const SECRETS = ['SECRETHASH', 'TOTPSECRET', 'VERIFYTOKEN', 'RESETTOKEN', 'INVITETOKEN', 'r2_key', 'agent-license/', 'agent-video/', 'pre-listing-pitch/', 'pre-listing-decks/', 'pre-listings/71/a', 'password_hash', 'totp_secret', 't1"', 't3"'];
+const SECRETS = ['SECRETHASH', 'TOTPSECRET', 'VERIFYTOKEN', 'RESETTOKEN', 'INVITETOKEN', 'r2_key', 'agent-license/', 'agent-video/', 'pre-listing-pitch/', 'pre-listing-decks/', 'pre-listings/71/a', 'pre-listing-then-now/', 'password_hash', 'totp_secret', 't1"', 't3"'];
 r = await call(exportApi.onRequestGet, 'GET', '/x', 1);
 const ex = r.json;
 check('the export is never cached', r.status === 200 && r.cache === 'private, no-store', r.cache);

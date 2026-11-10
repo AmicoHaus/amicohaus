@@ -176,7 +176,7 @@ export function scorecardWeek(nowMs = Date.now()) {
 
 // Sends this week's scorecards a few at a time. Each agent is claimed for the week with a conditional UPDATE, so two
 // runs at once can't both send. An agent with nothing at all to report this week is skipped (claimed, not emailed).
-export async function runDueScorecards(context, { limit = 5, nowMs = Date.now() } = {}) {
+export async function runDueScorecards(context, { limit = 3, nowMs = Date.now() } = {}) {
   const week = scorecardWeek(nowMs);
   if (!week) return 0;
   const db = context.env.DB;

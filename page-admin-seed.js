@@ -399,6 +399,8 @@ async function loadAuditLog() {
   loadAuditLog();
   loadActivityChart();
   loadReadyMeterTotals();
+  mysteryAdminInit();
+  mysteryLoadRepostOks();
 
   document.getElementById('agentApplicationsList').addEventListener('click', async (e) => {
     const btn = e.target.closest('button[data-action]');
@@ -559,3 +561,224 @@ async function loadAuditLog() {
     }
   });
 })();
+
+/* ---------------- Mystery Home Monday (admin) + Repost OKs ---------------- */
+// Labels hand-copied from functions/_lib/mysteryHomes.js and functions/_lib/listings.js (PROPERTY_TYPES).
+const MYSTERY_TYPES = ['Single Family Home', 'Condo', 'Townhouse', 'Penthouse', 'Ranch / Land', 'Multi-Family', 'Investment Property'];
+const MYSTERY_STATE_LABELS = { draft: 'Draft', scheduled: 'Scheduled', live: 'Live now', revealed: 'Revealed', retired: 'Retired' };
+const MYSTERY_MISSING_LABELS = {
+  publish_at: 'a publish time', reveal_at: 'a reveal time', reveal_order: 'a reveal at least 24 hours after it publishes',
+  seller_ok: "the date of the seller's written OK", broker_ok: "the date of Coldwell Banker West's OK",
+  photos: 'at least 3 photos', sweep: 'Privacy Sweep checked on every photo', rights: 'who owns the photos',
+  sold_month: 'a sale that closed at least 30 days ago',
+};
+const MYSTERY_TZ = 'America/Los_Angeles';
+const MYSTERY_MOMENT_LABELS = { reveal: 'Reveal Mode', hired: 'Hired! story' };
+let mysteryHomes = [];
+let mysteryEditingId = null;
+
+// Pacific wall-clock parts of a moment.
+function mysteryPacificParts(ms) {
+  const parts = {};
+  for (const p of new Intl.DateTimeFormat('en-US', { timeZone: MYSTERY_TZ, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).formatToParts(new Date(ms))) parts[p.type] = p.value;
+  return parts;
+}
+// A datetime-local value read as Pacific time -> ISO (UTC). '' -> ''.
+function mysteryPacificToIso(value) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value || '');
+  if (!m) return '';
+  const wall = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+  let guess = wall + 8 * 3600000;
+  for (let i = 0; i < 2; i++) {
+    const p = mysteryPacificParts(guess);
+    guess += wall - Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute);
+  }
+  return new Date(guess).toISOString();
+}
+// ISO -> a datetime-local value in Pacific time.
+function mysteryIsoToPacific(iso) {
+  const ms = Date.parse(iso || '');
+  if (!Number.isFinite(ms)) return '';
+  const p = mysteryPacificParts(ms);
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+}
+// Next Monday 07:00 and the Thursday after it, 07:00 (Pacific).
+function mysteryDefaultTimes() {
+  const p = mysteryPacificParts(Date.now());
+  const today = new Date(Date.UTC(+p.year, +p.month - 1, +p.day));
+  const toMonday = ((8 - today.getUTCDay()) % 7) || 7;
+  const day = (offset) => new Date(today.getTime() + offset * 86400000).toISOString().slice(0, 10);
+  return { publish: `${day(toMonday)}T07:00`, reveal: `${day(toMonday + 3)}T07:00` };
+}
+function mysteryWhen(iso) {
+  const ms = Date.parse(iso || '');
+  return Number.isFinite(ms) ? new Date(ms).toLocaleString('en-US', { timeZone: MYSTERY_TZ, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'not set';
+}
+function mysteryStatus(msg) { const el = document.getElementById('mhStatus'); if (el) el.textContent = msg || ''; }
+function mysteryErrorText(err) {
+  const missing = err && err.data && Array.isArray(err.data.missing) ? err.data.missing : null;
+  return missing && missing.length ? `${err.message} Still needed: ${missing.map(k => MYSTERY_MISSING_LABELS[k] || k).join(', ')}.` : (err && err.message) || 'Something went wrong.';
+}
+
+function mysteryFormBody() {
+  const v = (id) => document.getElementById(id).value.trim();
+  const num = (id) => (v(id) === '' ? null : Number(v(id)));
+  return {
+    source: v('mhSource'), city: v('mhCity'), state: v('mhState') || 'CA', propertyType: v('mhType'),
+    beds: num('mhBeds'), baths: num('mhBaths'), sqft: num('mhSqft'), lotSqft: num('mhLotSqft'), yearBuilt: num('mhYearBuilt'),
+    highlights: v('mhHighlights'), soldPrice: num('mhSoldPrice'), soldMonth: v('mhSoldMonth'),
+    sellerOkOn: document.getElementById('mhSellerOk').checked ? v('mhSellerOkOn') || null : null,
+    brokerOkOn: document.getElementById('mhBrokerOk').checked ? v('mhBrokerOkOn') || null : null,
+    photoRights: v('mhPhotoRights'),
+    publishAt: mysteryPacificToIso(v('mhPublishAt')) || null, revealAt: mysteryPacificToIso(v('mhRevealAt')) || null,
+  };
+}
+
+function mysteryFillForm(home) {
+  const set = (id, value) => { document.getElementById(id).value = value === null || value === undefined ? '' : String(value); };
+  const defaults = mysteryDefaultTimes();
+  mysteryEditingId = home ? home.id : null;
+  document.getElementById('mhFormTitle').textContent = home ? `Edit: ${home.city}, ${home.stateCode} (${MYSTERY_STATE_LABELS[home.state] || home.state})` : 'Add a Mystery Home';
+  set('mhSource', home ? home.source : 'own_sale');
+  set('mhCity', home ? home.city : '');
+  set('mhState', home ? home.stateCode : 'CA');
+  set('mhType', home ? home.propertyType : MYSTERY_TYPES[0]);
+  set('mhBeds', home && home.beds); set('mhBaths', home && home.baths); set('mhSqft', home && home.sqft);
+  set('mhLotSqft', home && home.lotSqft); set('mhYearBuilt', home && home.yearBuilt);
+  set('mhHighlights', home ? home.highlights : '');
+  set('mhSoldPrice', home && home.soldPrice); set('mhSoldMonth', home && home.soldMonth);
+  document.getElementById('mhSellerOk').checked = !!(home && home.sellerOkOn);
+  set('mhSellerOkOn', home && home.sellerOkOn);
+  document.getElementById('mhBrokerOk').checked = !!(home && home.brokerOkOn);
+  set('mhBrokerOkOn', home && home.brokerOkOn);
+  set('mhPhotoRights', home ? home.photoRights : 'own');
+  set('mhPublishAt', home && home.publishAt ? mysteryIsoToPacific(home.publishAt) : defaults.publish);
+  set('mhRevealAt', home && home.revealAt ? mysteryIsoToPacific(home.revealAt) : defaults.reveal);
+  document.getElementById('mhPhotoList').innerHTML = home && home.photos.length
+    ? home.photos.map((ph, i) => `<div><img src="/api/mystery-home-photos/${Number(ph.id)}" alt="Mystery Home photo ${i + 1}" loading="lazy">
+        <p class="tiny">${ph.swept ? '✓ Sweep done' : 'Not swept yet'} <button type="button" class="btn btn-ghost btn-sm" data-mh-photo="${Number(ph.id)}">Remove</button></p></div>`).join('')
+    : '<p class="tiny">No photos yet. Save the home first, then add photos.</p>';
+  mysteryStatus('');
+}
+
+async function mysteryLoadHomes(keepEditing = true) {
+  const el = document.getElementById('mysteryList');
+  if (!el) return;
+  try {
+    const { homes } = await apiGet('/api/admin/mystery-homes');
+    mysteryHomes = homes || [];
+    el.innerHTML = mysteryHomes.length ? mysteryHomes.map(h => `
+      <div class="card side">
+        <strong>${escapeHtml(h.city)}, ${escapeHtml(h.stateCode)}</strong> <span class="badge">${escapeHtml(MYSTERY_STATE_LABELS[h.state] || h.state)}</span>
+        <p class="tiny">${escapeHtml(h.propertyType)} · ${h.photos.length} photo${h.photos.length === 1 ? '' : 's'} (${h.photos.filter(p => p.swept).length} swept) · publishes ${escapeHtml(mysteryWhen(h.publishAt))} · reveal ${escapeHtml(mysteryWhen(h.revealAt))}</p>
+        <p class="tiny">${h.state === 'live' || h.state === 'revealed' ? `<a href="/mystery-home/${escapeHtml(h.slug)}" target="_blank" rel="noopener">Open the page</a> · ` : ''}<button type="button" class="btn btn-ghost btn-sm" data-mh-edit="${Number(h.id)}">Open</button></p>
+      </div>`).join('') : '<div class="empty-state">No Mystery Homes yet.</div>';
+    const current = keepEditing && mysteryEditingId ? mysteryHomes.find(h => h.id === mysteryEditingId) : null;
+    mysteryFillForm(current || null);
+  } catch (err) { el.innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`; }
+}
+
+async function mysteryUploadPicked(files) {
+  if (!mysteryEditingId) { toast('Save the home first, then add photos.'); return; }
+  const id = mysteryEditingId;
+  const upload = async (results) => {
+    let done = 0;
+    for (const { file, swept } of results) {
+      const fd = new FormData();
+      fd.append('photo', file);
+      fd.append('swept', swept ? '1' : '0');
+      try { await apiUpload(`/api/admin/mystery-homes/${id}/photos`, fd); done++; } catch (err) { toast(mysteryErrorText(err)); break; }
+    }
+    if (done) toast(`${done} photo${done === 1 ? '' : 's'} added.`);
+    mysteryLoadHomes();
+  };
+  // Privacy Sweep (privacy-sweep.js) hands back the swept copies in pick order; without it, they upload unswept.
+  if (typeof openPrivacySweep === 'function') openPrivacySweep(files, { onDone: (results) => { upload(results); } });
+  else upload(files.map(file => ({ file, swept: false })));
+}
+
+async function mysteryAction(action) {
+  if (!mysteryEditingId) { toast('Open a Mystery Home first.'); return; }
+  const id = mysteryEditingId;
+  try {
+    if (action === 'delete') {
+      if (!confirm('Delete this Mystery Home and its photos for good?')) return;
+      await apiDelete(`/api/admin/mystery-homes/${id}`);
+      mysteryEditingId = null;
+      toast('Deleted.');
+    } else {
+      if (action === 'retire' && !confirm('Retire this Mystery Home? Its page comes down and it stays retired.')) return;
+      const { state } = await apiPut(`/api/admin/mystery-homes/${id}`, { action });
+      toast(`Now: ${MYSTERY_STATE_LABELS[state] || state}.`);
+    }
+    mysteryLoadHomes();
+  } catch (err) { mysteryStatus(mysteryErrorText(err)); }
+}
+
+async function mysterySave() {
+  const body = mysteryFormBody();
+  try {
+    if (mysteryEditingId) {
+      await apiPut(`/api/admin/mystery-homes/${mysteryEditingId}`, body);
+      toast('Saved.');
+    } else {
+      const { id } = await apiPost('/api/admin/mystery-homes', body);
+      mysteryEditingId = id;
+      toast('Saved as a draft. Add photos next.');
+    }
+    mysteryLoadHomes();
+  } catch (err) { mysteryStatus(mysteryErrorText(err)); }
+}
+
+function mysteryAdminInit() {
+  const form = document.getElementById('mysteryForm');
+  if (!form) return;
+  document.getElementById('mhType').innerHTML = MYSTERY_TYPES.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+  document.getElementById('mhSaveBtn').addEventListener('click', mysterySave);
+  document.getElementById('mhNewBtn').addEventListener('click', () => mysteryFillForm(null));
+  document.getElementById('mhPhotos').addEventListener('change', (e) => {
+    const files = [...(e.target.files || [])];
+    e.target.value = '';
+    if (files.length) mysteryUploadPicked(files);
+  });
+  form.addEventListener('click', async (e) => {
+    const actionBtn = e.target.closest('button[data-mh-action]');
+    if (actionBtn) { mysteryAction(actionBtn.dataset.mhAction); return; }
+    const photoBtn = e.target.closest('button[data-mh-photo]');
+    if (photoBtn && mysteryEditingId) {
+      try { await apiDelete(`/api/admin/mystery-homes/${mysteryEditingId}/photos/${photoBtn.dataset.mhPhoto}`); mysteryLoadHomes(); } catch (err) { mysteryStatus(mysteryErrorText(err)); }
+    }
+  });
+  document.getElementById('mysteryList').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-mh-edit]');
+    if (!btn) return;
+    const home = mysteryHomes.find(h => h.id === Number(btn.dataset.mhEdit));
+    if (home) { mysteryFillForm(home); form.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+  });
+  mysteryLoadHomes(false);
+}
+
+// Repost OKs (functions/api/admin/repost-oks.js): who OK'd a repost of which Decision Night moment.
+function mysteryDay(s) {
+  if (!s) return '';
+  const text = String(s);
+  const ms = Date.parse(text.includes('T') ? text : `${text.replace(' ', 'T')}Z`);
+  return Number.isFinite(ms) ? new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: MYSTERY_TZ }) : '';
+}
+async function mysteryLoadRepostOks() {
+  const el = document.getElementById('repostOkList');
+  if (!el) return;
+  try {
+    const { consents } = await apiGet('/api/admin/repost-oks');
+    el.innerHTML = consents && consents.length ? `<div class="repost-table-wrap"><table class="comparison-table repost-table">
+      <thead><tr><th scope="col">Owner</th><th scope="col">City</th><th scope="col">Moment</th><th scope="col">Agreed on</th><th scope="col">Withdrawn on</th><th scope="col">Home</th></tr></thead>
+      <tbody>${consents.map(c => `<tr>
+        <td>${escapeHtml(c.ownerName || '')}</td>
+        <td>${escapeHtml(c.city || '')}${c.state ? `, ${escapeHtml(c.state)}` : ''}</td>
+        <td>${escapeHtml(MYSTERY_MOMENT_LABELS[c.moment] || c.moment)}</td>
+        <td>${escapeHtml(mysteryDay(c.consentedAt))}</td>
+        <td>${c.withdrawnAt ? `${escapeHtml(mysteryDay(c.withdrawnAt))} <strong>Taken back: remove reposts</strong>` : ''}</td>
+        <td><a href="/app#pre-listing-${Number(c.preListingId)}">Open</a></td>
+      </tr>`).join('')}</tbody></table></div>` : '<div class="empty-state">No repost OKs in the last 180 days.</div>';
+  } catch (err) { el.innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`; }
+}

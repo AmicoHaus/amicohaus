@@ -73,6 +73,11 @@ suite plants its own link token, so it doesn't need email.
 
 ## Other tools
 
+- Owner tools batch (migration v45) suites, all offline: `share-moment-test.mjs` and `owner-tools-ui-test.mjs`
+  (Share Your Moment, app wiring, copy pages, CSP and team-name scans), `privacy-sweep-test.mjs`, `then-now-test.mjs`,
+  `visit-feedback-test.mjs`, `seller-report-test.mjs`, `handoff-binder-test.mjs`, `mystery-home-test.mjs` and
+  `video-twins-test.mjs`. Run each with the absolute root like the others.
+
 - `tools/amico-growth-report.js` reads production with small `--command` batches only (never `--file`, which goes
   through the D1 import API: no rows come back and the database can't serve queries while it runs). Its offline tests
   are in `tools/launch-test.mjs` and `tools/compliance2-test.mjs`.

@@ -1,5 +1,6 @@
 import { getSessionUser } from '../../../../_lib/auth.js';
-import { json, unauthorized, forbidden, notFound } from '../../../../_lib/util.js';
+import { json, badRequest, unauthorized, forbidden, notFound } from '../../../../_lib/util.js';
+import { shareToggleResponse } from '../../../../_lib/openHousePlan.js';
 
 export async function onRequestDelete(context) {
   const { id: homeId, ohId } = context.params;
@@ -13,4 +14,20 @@ export async function onRequestDelete(context) {
 
   await db.prepare('DELETE FROM green_home_open_houses WHERE id = ? AND green_home_id = ?').bind(ohId, homeId).run();
   return json({ ok: true });
+}
+
+// The owner turns "share the street address with people who RSVP" on or off for one open house (same checks as DELETE).
+export async function onRequestPatch(context) {
+  const { id: homeId, ohId } = context.params;
+  const user = await getSessionUser(context);
+  if (!user) return unauthorized();
+
+  const db = context.env.DB;
+  const home = await db.prepare('SELECT user_id FROM green_homes WHERE id = ?').bind(homeId).first();
+  if (!home) return notFound('Listing not found.');
+  if (home.user_id !== user.id) return forbidden();
+
+  let body;
+  try { body = await context.request.json(); } catch { return badRequest('Invalid request body.'); }
+  return shareToggleResponse(db, 'green_home', homeId, ohId, body);
 }

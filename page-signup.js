@@ -6,6 +6,35 @@
    the emailed link is opened (that page is where the password is chosen), so
    success here swaps the form for a "check your email" message instead of
    signing anyone in. */
+// es/registro.html (lang="es") loads this same file: ES_MSG holds its own visible messages, in both languages. The
+// English page shows exactly what it showed before. Server errors stay English in v1 (shown with ES_DETAIL).
+const ES_LANG = document.documentElement.lang === 'es';
+const ES_MSG = {
+  en: {
+    yourEmail: 'your email',
+    typeEmail: 'Type the email you signed up with above.',
+    sending: 'Sending…',
+    submit: 'Email Me a Link',
+    delayed: "Your account is saved, but the email didn't go out on the first try. Give it a minute, then tap send it again.",
+    typeEmailResend: 'Type the email you signed up with above, then tap send it again.',
+    sentAgain: 'Sent again — check your inbox in a minute.',
+    logIn: 'Log in', logInHref: '/login',
+    forgot: 'Forgot password?',
+  },
+  es: {
+    yourEmail: 'su correo',
+    typeEmail: 'Escriba arriba el correo con el que se registró.',
+    sending: 'Enviando…',
+    submit: 'Enviarme un enlace',
+    delayed: 'Su cuenta está guardada, pero el correo no salió en el primer intento. Espere un minuto y luego toque envíelo de nuevo.',
+    typeEmailResend: 'Escriba arriba el correo con el que se registró y luego toque envíelo de nuevo.',
+    sentAgain: 'Enviado de nuevo. Revise su bandeja de entrada en un minuto.',
+    logIn: 'Iniciar sesión', logInHref: '/es/iniciar-sesion',
+    forgot: '¿Olvidó su contraseña? (en inglés)',
+  },
+}[ES_LANG ? 'es' : 'en'];
+const ES_DETAIL = (message) => (ES_LANG ? `No se pudo completar. Detalle (en inglés): ${message}` : message);
+
 let signedUpEmail = '';
 let signedUpIntent = '';
 
@@ -31,7 +60,7 @@ function readPending() {
 function showCheckEmail(email, intent, { askEmail = false } = {}) {
   signedUpEmail = email || '';
   signedUpIntent = intent || '';
-  document.getElementById('sentTo').textContent = signedUpEmail || 'your email';
+  document.getElementById('sentTo').textContent = signedUpEmail || ES_MSG.yourEmail;
   document.getElementById('codeEmailField').classList.toggle('hidden', !askEmail);
   document.getElementById('signupPanel').classList.add('hidden');
   document.getElementById('checkEmailPanel').classList.remove('hidden');
@@ -72,7 +101,7 @@ document.getElementById('codeForm').addEventListener('submit', async (e) => {
   try {
     const email = signedUpEmail || document.getElementById('codeEmail').value.trim();
     if (!email) {
-      errorEl.textContent = 'Type the email you signed up with above.';
+      errorEl.textContent = ES_MSG.typeEmail;
       errorEl.classList.remove('hidden');
       btn.disabled = false;
       return;
@@ -82,7 +111,7 @@ document.getElementById('codeForm').addEventListener('submit', async (e) => {
     // Same screen the emailed link opens: choose a password, then in.
     window.location.href = `/verify-email?token=${encodeURIComponent(token)}${as ? `&as=${as}` : ''}`;
   } catch (err) {
-    errorEl.textContent = err.message;
+    errorEl.textContent = ES_DETAIL(err.message);
     errorEl.classList.remove('hidden');
     btn.disabled = false;
   }
@@ -92,11 +121,11 @@ document.getElementById('codeForm').addEventListener('submit', async (e) => {
 // "already registered" error also offers the two ways forward.
 function showSignupError(message) {
   const el = document.getElementById('signupError');
-  el.textContent = message;
+  el.textContent = ES_DETAIL(message);
   if (/already registered/i.test(message)) {
     el.append(' ');
-    const login = Object.assign(document.createElement('a'), { href: '/login', textContent: 'Log in' });
-    const reset = Object.assign(document.createElement('a'), { href: '/forgot-password', textContent: 'Forgot password?' });
+    const login = Object.assign(document.createElement('a'), { href: ES_MSG.logInHref, textContent: ES_MSG.logIn });
+    const reset = Object.assign(document.createElement('a'), { href: '/forgot-password', textContent: ES_MSG.forgot });
     el.append(login, ' · ', reset);
   }
   el.classList.remove('hidden');
@@ -119,7 +148,7 @@ fetchCurrentUser().then((user) => {
 document.getElementById('signupForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const btn = document.getElementById('submitBtn');
-  btn.disabled = true; btn.textContent = 'Sending…';
+  btn.disabled = true; btn.textContent = ES_MSG.sending;
   document.getElementById('signupError').classList.add('hidden');
   try {
     const intent = document.querySelector('input[name="intent"]:checked').value;
@@ -130,16 +159,15 @@ document.getElementById('signupForm').addEventListener('submit', async (e) => {
       referralCode: new URLSearchParams(window.location.search).get('ref') || '',
       source: getAttribution(),
       next: peekReturnTo(),
+      uiLang: ES_LANG ? 'es' : 'en',
     });
     showCheckEmail(result.email, intent);
     rememberPending(result.email, intent);
     // Account saved but the email didn't go out on the first try: say so calmly and point at the retry.
-    document.getElementById('resendStatus').textContent = result.emailDelayed
-      ? "Your account is saved, but the email didn't go out on the first try. Give it a minute, then tap send it again."
-      : '';
+    document.getElementById('resendStatus').textContent = result.emailDelayed ? ES_MSG.delayed : '';
   } catch (err) {
     showSignupError(err.message);
-    btn.disabled = false; btn.textContent = 'Email Me a Link';
+    btn.disabled = false; btn.textContent = ES_MSG.submit;
   }
 });
 
@@ -147,15 +175,15 @@ document.getElementById('resendBtn').addEventListener('click', async () => {
   const btn = document.getElementById('resendBtn');
   const status = document.getElementById('resendStatus');
   const email = signedUpEmail || document.getElementById('codeEmail').value.trim();
-  if (!email) { status.textContent = 'Type the email you signed up with above, then tap send it again.'; return; }
+  if (!email) { status.textContent = ES_MSG.typeEmailResend; return; }
   btn.disabled = true;
   try {
     await apiPost('/api/auth/resend-confirmation', { email, intent: signedUpIntent });
-    status.textContent = 'Sent again — check your inbox in a minute.';
+    status.textContent = ES_MSG.sentAgain;
     // Came in through "Type the code": remember this address too, so switching to the email app and back keeps the box.
     if (!signedUpEmail) { signedUpEmail = email; rememberPending(email, signedUpIntent); }
   } catch (err) {
-    status.textContent = err.message;
+    status.textContent = ES_DETAIL(err.message);
   }
   // The server allows one email per address every couple of minutes anyway.
   setTimeout(() => { btn.disabled = false; }, 30000);

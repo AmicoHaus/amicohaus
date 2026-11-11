@@ -4,12 +4,19 @@ import { validateOpenHouseInput, createOpenHouse, fetchOpenHouses } from '../../
 import { notifyOpenHouseScheduled } from '../../../../_lib/marketplaceNotify.js';
 import { logMarketEventUnlessDemo } from '../../../../_lib/marketEvents.js';
 
+const NO_STORE = { headers: { 'Cache-Control': 'private, no-store' } };
+
 // Public — same footing as the listing page itself; no sign-in needed to see when an open house is happening.
 export async function onRequestGet(context) {
   const id = context.params.id;
+  const db = context.env.DB;
   const viewer = await getSessionUser(context);
-  const openHouses = await fetchOpenHouses(context.env.DB, id, viewer ? viewer.id : null);
-  return json({ openHouses });
+  // One row for the open-house extras: the owner gets the names of people going; the address (shared by the owner with
+  // people going) is considered only while the home is active. Per viewer (imGoing, address), so never cached.
+  const home = await db.prepare('SELECT user_id, address, status FROM listings WHERE id = ?').bind(id).first();
+  const opts = home ? { ownerId: home.user_id, ...(home.status === 'active' ? { address: home.address } : {}) } : {};
+  const openHouses = await fetchOpenHouses(db, id, viewer ? viewer.id : null, opts);
+  return json({ openHouses }, NO_STORE);
 }
 
 export async function onRequestPost(context) {

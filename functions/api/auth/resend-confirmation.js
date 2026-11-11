@@ -35,12 +35,13 @@ export async function onRequestPost(context) {
   const answer = json({ ok: true, message: 'If that address is waiting for confirmation, a new link is on its way.' });
   if (recent.n > 0) return answer;
 
-  const user = await db.prepare('SELECT id, email, display_name, email_confirmation_pending FROM users WHERE email = ?').bind(email).first();
+  const user = await db.prepare('SELECT id, email, display_name, email_confirmation_pending, ui_lang FROM users WHERE email = ?').bind(email).first();
   if (!user || !user.email_confirmation_pending) return answer;
 
-  // Keeps an agent on the agent path: the confirm page uses this to decide where to send them next.
+  // Keeps an agent on the agent path: the confirm page uses this to decide where to send them next. The email goes out
+  // in the language the person signed up in (users.ui_lang).
   const intent = ['homeowner', 'agent'].includes(body.intent) ? body.intent : '';
-  const sent = await sendConfirmationLink(context, { id: user.id, email: user.email, displayName: user.display_name }, { intent });
+  const sent = await sendConfirmationLink(context, { id: user.id, email: user.email, displayName: user.display_name }, { intent, uiLang: user.ui_lang });
   if (!sent) {
     // A send that never went out shouldn't block the retry for two minutes (it still counts toward
     // the 5-per-hour network limit).

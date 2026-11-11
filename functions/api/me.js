@@ -15,6 +15,8 @@ export async function onRequestGet(context) {
       termsCurrent: termsCurrent(user),
       currentTermsVersion: CURRENT_TERMS_VERSION,
       termsUpdatedLabel: TERMS_UPDATED_LABEL,
+      // Display language (users.ui_lang): private to the person, used only for display.
+      uiLang: user.ui_lang || 'en',
     },
   }, { headers });
 }
@@ -32,6 +34,9 @@ export async function onRequestPut(context) {
     ? (['every', 'capped'].includes(body.emailFrequency) ? body.emailFrequency : user.email_frequency)
     : user.email_frequency;
 
+  // 'en' or 'es'; anything else keeps what's stored.
+  const uiLang = ['en', 'es'].includes(body.uiLang) ? body.uiLang : (user.ui_lang || 'en');
+
   let phone = user.phone;
   if (body.phone !== undefined) {
     phone = clampString(body.phone, 30);
@@ -39,8 +44,8 @@ export async function onRequestPut(context) {
   }
 
   // Removing the phone number also turns off "Show my phone number", so a number added later starts private again.
-  await context.env.DB.prepare("UPDATE users SET bio = ?, notify_matches = ?, email_frequency = ?, phone = ?, phone_public = CASE WHEN TRIM(COALESCE(?, '')) = '' THEN 0 ELSE phone_public END WHERE id = ?")
-    .bind(bio, notifyMatches, emailFrequency, phone, phone, user.id).run();
+  await context.env.DB.prepare("UPDATE users SET bio = ?, notify_matches = ?, email_frequency = ?, phone = ?, phone_public = CASE WHEN TRIM(COALESCE(?, '')) = '' THEN 0 ELSE phone_public END, ui_lang = ? WHERE id = ?")
+    .bind(bio, notifyMatches, emailFrequency, phone, phone, uiLang, user.id).run();
 
-  return json({ user: publicUser({ ...user, bio, notify_matches: notifyMatches, email_frequency: emailFrequency, phone }) });
+  return json({ user: { ...publicUser({ ...user, bio, notify_matches: notifyMatches, email_frequency: emailFrequency, phone }), uiLang } });
 }

@@ -35,6 +35,7 @@
       <button class="tab" data-tab="greenhomes">GreenHomes</button>
     </nav>
     <div class="auth-cta">
+      <a class="tab tab-lang" href="/es/" hreflang="es" lang="es">Español</a>
       <div class="search-box">
         <input type="search" id="globalSearchInput" placeholder="Search everything…" aria-label="Search everything" autocomplete="off">
         <div id="globalSearchResults" class="hidden"></div>
@@ -48,7 +49,7 @@
   </header>
 
   <main>
-    <div id="termsUpdateBanner" class="card terms-update-banner hidden" role="region" aria-labelledby="termsUpdateTitle"><h3 id="termsUpdateTitle">We updated our Terms of Use and Privacy Policy</h3><p>Updated <span id="termsUpdateDate">November 5, 2026</span>: a wider license so your public pages and link previews can show what you post, who can post a home for someone else, and how to report a fair housing concern. Read the <a href="/terms">Terms of Use</a> and <a href="/privacy">Privacy Policy</a>.</p><div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="termsAgreeBtn">I agree</button> <button type="button" class="btn btn-ghost btn-sm" id="termsLaterBtn">Not now</button></div></div>
+    <div id="termsUpdateBanner" class="card terms-update-banner hidden" role="region" aria-labelledby="termsUpdateTitle"><h3 id="termsUpdateTitle">We updated our Terms of Use and Privacy Policy</h3><p>Updated <span id="termsUpdateDate">November 11, 2026</span>: home facts and floor plans you add, sharing an open house's address with people who RSVP (and seeing who's going), your display language, Plan your drive links, and Spanish page summaries (the English versions control). Read the <a href="/terms">Terms of Use</a> and <a href="/privacy">Privacy Policy</a>.</p><div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="termsAgreeBtn">I agree</button> <button type="button" class="btn btn-ghost btn-sm" id="termsLaterBtn">Not now</button></div></div>
     <!-- FEED -->
     <section id="tab-feed" class="tab-panel">
       <h1>Feed</h1>
@@ -198,7 +199,7 @@
                 <div class="field"><label for="state">State <span class="required-mark">*</span></label><input type="text" id="state" required maxlength="20"></div>
               </div>
               <div class="field"><label for="neighborhood">Neighborhood (public)</label><input type="text" id="neighborhood" maxlength="80"></div>
-              <div class="field"><label for="address">Street address (private — only you can see it)</label><input type="text" id="address" maxlength="150"></div>
+              <div class="field"><label for="address">Street address (private — only you can see it unless you share it with people going to one of your open houses)</label><input type="text" id="address" maxlength="150"></div>
               <div class="form-row two-col">
                 <div class="field"><label for="propertyType">Property type <span class="required-mark">*</span></label><select id="propertyType"></select></div>
                 <div class="field"><label for="estimatedValue">Your estimated value ($, not an appraisal) <span class="required-mark">*</span></label><input type="number" id="estimatedValue" required min="0" max="500000000" step="1000"></div>
@@ -211,6 +212,8 @@
               <div class="field"><label for="virtualTourUrl">Virtual tour URL (optional)</label><input type="url" id="virtualTourUrl" maxlength="500" placeholder="https://my.matterport.com/show/?m=..."></div>
               <div class="field"><label for="externalLinks">External links (Airbnb, Zillow, etc — one per line)</label><textarea id="externalLinks" maxlength="800" placeholder="https://airbnb.com/rooms/..."></textarea></div>
               <div id="listingCostsFields"></div>
+              <div id="listingFactsFields"></div>
+              <div id="listingPlanFields"></div>
               <div class="field"><label for="listingPhotos">Photos (up to 8, added after you create the listing)</label><input type="file" id="listingPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple><p class="tiny field-hint">By adding photos you confirm: I took these photos or have permission to use them.</p></div>
               <div class="field">
                 <label id="lifeEventTagsFieldsLabel">Why you're moving (optional, shown only to your matches)</label>
@@ -251,6 +254,7 @@
                 <div class="field"><label for="rentAmount">Monthly rent ($) <span class="required-mark">*</span></label><input type="number" id="rentAmount" min="1" max="2000000" step="100"></div>
                 <div class="field"><label for="minLeaseMonths">Minimum lease term (months)</label><input type="number" id="minLeaseMonths" min="1" max="360" value="12"></div>
               </div>
+              <div id="listingRentalPetsField"></div>
               <p class="form-note">Some tenants may offer to prepay a lump sum covering multiple years of rent instead of paying monthly. The actual term, price, and lease are always negotiated directly between you and the tenant, not set by the platform.</p>
               <p class="tiny composer-note">California fair housing law covers rentals, including a renter's source of income (such as a Section 8 or VASH voucher). Don't post limits like "no vouchers."</p>
             </fieldset>
@@ -312,6 +316,22 @@
           <div class="field"><label for="savedStayOffer">Seller could stay after closing</label><select id="savedStayOffer"><option value="0">No stay</option><option value="7">Up to 7 days</option><option value="14">Up to 14 days</option><option value="29">Up to 29 days</option></select></div>
         </div>
         <p class="tiny field-hint">Optional. Shows a "Timing fits" tag on upcoming pre-listings whose timing lines up with yours. Your dates are never shown to anyone; homeowners only see a count once 3 or more buyers fit.</p>
+        <fieldset class="facts-group saved-toy">
+          <legend class="label">Parking and garage (optional)</legend>
+          <div class="form-row two-col">
+            <label class="checkbox-row" for="ssRv"><input type="checkbox" id="ssRv"><span>RV or boat parking</span></label>
+            <label class="checkbox-row" for="ssSideAccess"><input type="checkbox" id="ssSideAccess"><span>Side or back yard access</span></label>
+          </div>
+          <div class="form-row two-col">
+            <label class="checkbox-row" for="ssWorkshop"><input type="checkbox" id="ssWorkshop"><span>Workshop space</span></label>
+            <label class="checkbox-row" for="ssEv240"><input type="checkbox" id="ssEv240"><span>240V or EV outlet</span></label>
+          </div>
+          <div class="form-row two-col">
+            <div class="field"><label for="ssGateMin">Min gate opening (inches)</label><input type="number" id="ssGateMin" min="24" max="480" step="1" inputmode="numeric"></div>
+            <div class="field"><label for="ssGarageMin">Min garage spaces</label><input type="number" id="ssGarageMin" min="1" max="10" step="1" inputmode="numeric"></div>
+          </div>
+          <p class="tiny field-hint">Only homes whose owner shared these details can match.</p>
+        </fieldset>
       </form>
       <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="addSavedSearchBtn">Add Saved Search</button></div>
       <div class="stack" id="savedSearchList"></div>
@@ -392,6 +412,7 @@
           <label class="checkbox-row"><input type="checkbox" id="plPrefersLocalSpecialist"><span>I'd prefer an agent who specializes in my specific area, not one covering a huge territory</span></label>
 
           <div id="plCostsFields"></div>
+          <div id="plFactsFields"></div>
           <div class="field"><label for="plPhotos">Photos (up to 8, added after posting)</label><input type="file" id="plPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple><p class="tiny field-hint">By adding photos you confirm: I took these photos or have permission to use them. When you pick photos, Privacy Sweep opens so you can blur or cover anything private first.</p></div>
           <div id="plContactDial"></div>
           <label class="checkbox-row"><input type="checkbox" id="ownerConfirmPreListing"><span>I own this home, or I'm its trustee, executor or attorney-in-fact, or I'm a California-licensed agent with the owner's written permission to post it here.</span></label>
@@ -666,6 +687,7 @@
     <!-- SAVED -->
     <section id="tab-saved" class="tab-panel">
       <h1>Saved</h1>
+      <div id="openHousePlan"></div>
       <h2>Favorites</h2>
       <div class="grid" id="favoritesList"><div class="empty-state">Loading…</div></div>
       <h2>Hidden Listings</h2>
@@ -713,7 +735,7 @@
             <div class="field"><label for="augZip">Zip <span class="required-mark">*</span></label><input type="text" id="augZip" maxlength="10" placeholder="5-digit zip" inputmode="numeric"></div>
           </div>
           <div class="field"><label for="augNeighborhood">Neighborhood (public)</label><input type="text" id="augNeighborhood" maxlength="80"></div>
-          <div class="field"><label for="augAddress">Street address (private — only you can see it)</label><input type="text" id="augAddress" maxlength="150"></div>
+          <div class="field"><label for="augAddress">Street address (private — only you can see it unless you share it with people going to one of your open houses)</label><input type="text" id="augAddress" maxlength="150"></div>
           <div class="form-row three-col">
             <div class="field"><label for="augPropertyType">Property type <span class="required-mark">*</span></label><select id="augPropertyType"></select></div>
             <div class="field"><label for="augBeds">Beds <span class="required-mark">*</span></label><input type="number" id="augBeds" min="0" max="50"></div>
@@ -732,6 +754,7 @@
           </div>
 
           <div id="augCostsFields"></div>
+          <div id="augFactsFields"></div>
           <div class="field"><label for="augPhotos">Photos (up to 8, added after posting)</label><input type="file" id="augPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple><p class="tiny field-hint">By adding photos you confirm: I took these photos or have permission to use them.</p></div>
           <label class="checkbox-row"><input type="checkbox" id="ownerConfirmAugmented"><span>I own this home, or I'm its trustee, executor or attorney-in-fact, or I'm a California-licensed agent with the owner's written permission to post it here.</span></label>
           <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="createAugmentedHomeBtn">Post Listing</button></div>
@@ -793,7 +816,7 @@
             <div class="field"><label for="greenZip">Zip <span class="required-mark">*</span></label><input type="text" id="greenZip" maxlength="10" placeholder="5-digit zip" inputmode="numeric"></div>
           </div>
           <div class="field"><label for="greenNeighborhood">Neighborhood (public)</label><input type="text" id="greenNeighborhood" maxlength="80"></div>
-          <div class="field"><label for="greenAddress">Street address (private — only you can see it)</label><input type="text" id="greenAddress" maxlength="150"></div>
+          <div class="field"><label for="greenAddress">Street address (private — only you can see it unless you share it with people going to one of your open houses)</label><input type="text" id="greenAddress" maxlength="150"></div>
           <div class="form-row three-col">
             <div class="field"><label for="greenPropertyType">Property type <span class="required-mark">*</span></label><select id="greenPropertyType"></select></div>
             <div class="field"><label for="greenBeds">Beds <span class="required-mark">*</span></label><input type="number" id="greenBeds" min="0" max="50"></div>
@@ -812,6 +835,7 @@
           </div>
 
           <div id="greenCostsFields"></div>
+          <div id="greenFactsFields"></div>
           <div class="field"><label for="greenPhotos">Photos (up to 8, added after posting)</label><input type="file" id="greenPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple><p class="tiny field-hint">By adding photos you confirm: I took these photos or have permission to use them.</p></div>
           <label class="checkbox-row"><input type="checkbox" id="ownerConfirmGreen"><span>I own this home, or I'm its trustee, executor or attorney-in-fact, or I'm a California-licensed agent with the owner's written permission to post it here.</span></label>
           <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="createGreenHomeBtn">Post Listing</button></div>
@@ -978,6 +1002,7 @@
 <script src="visit-feedback.js"></script>
 <script src="handoff-binder.js"></script>
 <script src="agent-growth.js"></script>
+<script src="open-house-plan.js"></script>
 <script src="main.js"></script>
 <!-- Cloudflare Web Analytics -->
 <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "91a193988b2d45e58aa1c27d5abf6bdb"}'></script>

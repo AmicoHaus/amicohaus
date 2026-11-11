@@ -83,7 +83,7 @@ vm.runInContext(`this.__t = { licenseOnFileLabel, agentLicenseOnFileLine, dreLoo
   lifeEventCheckboxesHtml, homeCostChipsHtml, homeCostsDetailHtml, momentumBannerHtml, ratingChipHtml, agentDetailsHtml,
   directoryAgentInfo, directoryAgentCardHtml, teamDisplayName, rentMath, agentStripOrder, hiddenContentNoteHtml,
   LIFE_EVENT_ITEMS, LIFE_EVENT_LEGACY_KEYS, REPORT_REASON_PRESETS, OFFER_TOOLS_NOTE, FEE_NOTE, MONEY_TOOL_NOTE, ESTIMATE_LABEL,
-  UNBLOCK_NOTE, RATE_LIMITED_COPY };`, sandbox);
+  UNBLOCK_NOTE, RATE_LIMITED_COPY, homeFactsDetailHtml };`, sandbox);
 const t = sandbox.__t;
 
 // License wording: "on file", never "verified" or "checked".
@@ -163,6 +163,13 @@ const chips = t.homeCostChipsHtml(0, 250);
 check('cost chips say "Owner says" in a neutral color', chips.includes('Owner says: no Mello-Roos') && chips.includes('Owner says: HOA $250/mo') && !chips.includes('chip-good'), chips);
 const costs = t.homeCostsDetailHtml({ melloRoosAnnual: 1200, hoaMonthly: null, hoaDetails: {} });
 check('costs heading + confirm line', costs.includes('Costs (from the owner)') && costs.includes("Confirm on the property tax bill and in the seller&#39;s Mello-Roos and HOA disclosures."));
+// Home facts batch: HOA pets moved out of the costs detail into the pets block, which always ends with the assistance-animal note.
+const costsPets = t.homeCostsDetailHtml({ melloRoosAnnual: 0, hoaMonthly: 250, hoaDetails: { pets: 'limited' } });
+check('costs detail: no "Pets:" line', !/Pets:/.test(costsPets), costsPets);
+const factsPets = t.homeFactsDetailHtml({}, { hoaDetails: { pets: 'limited' } });
+check('facts detail: HOA pets + the assistance-animal note on its own line', factsPets.includes('<span class="label">Pets (from the owner)</span> HOA pets: limited (see HOA rules)</p><p class="tiny assist-note">Assistance animals (service and support animals) are not pets'), factsPets);
+check('facts detail: nothing entered -> nothing shown', t.homeFactsDetailHtml({}, null) === '');
+check('saved search label: toy-box minimums', t.savedSearchLabel({ property_type: 'Any', locations: 'Bonita', toy_flags: 1, min_garage: 3 }) === 'Any type in Bonita · RV/boat parking · 3+ garage spaces');
 check('momentum banner says offers accepted, not deals closed', t.momentumBannerHtml({ eventCounts7d: { offer_accepted: 2 } }).includes('2 offers accepted') && !t.momentumBannerHtml({ eventCounts7d: { offer_accepted: 2 } }).includes('closed'));
 
 // Agent cards: no verified / Top Rated / license-checked chip; license "on file"; fee line; founding caption; team name.
@@ -266,7 +273,8 @@ for (const [re, what] of banned) {
   const hit = owned.find(([, src]) => re.test(src.replace(/toggleVerifiedBtn|user\.isVerified/g, '')));
   check(`no ${what} in B4 files`, !hit, hit && hit[0]);
 }
-check('app.html: street address label', app.includes('Street address (private — only you can see it)</label><input type="text" id="address"'));
+// The home facts batch: an owner can share the address with people going to an open house, so the label says so.
+check('app.html: street address label', app.includes('Street address (private — only you can see it unless you share it with people going to one of your open houses)</label><input type="text" id="address"'));
 check('app.html: saved search min price field', app.includes('id="savedPriceMin"'));
 check('app.html: Terms of Use link on the agent application', app.includes('agreeing to <a href="/terms">the Amico Haus Terms of Use</a>'));
 check('app.html: required agent-rules checkbox links /terms#agent-rules', /id="agentAcceptRules" required/.test(app) && app.includes('href="/terms#agent-rules"'));
@@ -321,7 +329,10 @@ for (const cls of ['footer-legal', 'composer-note', 'offer-tools-note', 'teaser-
   'then-now-panel', 'tn-pair', 'tn-slider', 'tn-img', 'tn-now', 'tn-range', 'upgrade-list', 'upgrade-row', 'permit-note', 'owner-reported',
   'visit-feedback-panel', 'vf-card', 'vf-taps', 'vf-tap', 'binder-panel', 'binder-form', 'binder-banner', 'binder-print', 'binder-section', 'binder-photos',
   'mystery-page', 'mystery-photos', 'mystery-facts', 'mystery-guess', 'mystery-reveal', 'mystery-game-note', 'mystery-archive',
-  'watch-page', 'watch-cover', 'watch-links', 'watch-transcript', 'watch-cta', 'watch-nav', 'watch-hub', 'admin-mystery']) {
+  'watch-page', 'watch-cover', 'watch-links', 'watch-transcript', 'watch-cta', 'watch-nav', 'watch-hub', 'admin-mystery',
+  // Home facts batch (spec 4.9)
+  'home-facts', 'assist-note', 'drive-link', 'drive-places', 'drive-place-chip', 'tab-lang', 'es-app-banner', 'legal-summary-banner', 'plan-twins',
+  'plan-twin-card', 'toy-chip', 'oh-address', 'oh-plan', 'oh-plan-day', 'oh-plan-stop', 'oh-plan-stop-actions', 'oh-overlap', 'oh-share-state', 'facts-group']) {
   check(`styles.css has .${cls}`, new RegExp(`\\.${cls}\\b`).test(css));
 }
 check('gold text uses --gold-text (#8a5f2c), fills keep --gold', css.includes('--gold-text: #8a5f2c') && !/(^|[;{\s])color: var\(--gold\)/.test(css) && css.includes('background: var(--gold)'));

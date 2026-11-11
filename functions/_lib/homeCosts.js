@@ -14,6 +14,8 @@ export const HOA_INCLUDES = {
 // "Limited (see HOA rules)" covers anything stricter.
 export const HOA_RENTAL_RULES = ['allowed', 'no_short_term', 'limited'];
 export const HOA_PET_RULES = ['allowed', 'limited'];
+// The HOA's rule on parking RVs, boats and work trucks, as the owner reads it ("limited" covers anything stricter).
+export const HOA_PARKING_RULES = ['allowed', 'limited'];
 
 // The table and owner column for each kind of home the costs can be saved on.
 export const HOME_KINDS = {
@@ -37,10 +39,11 @@ export function validateHomeCosts(body) {
   if (hoa.error) return { error: hoa.error };
   const d = body.hoaDetails && typeof body.hoaDetails === 'object' && !Array.isArray(body.hoaDetails) ? body.hoaDetails : {};
   const includes = Array.isArray(d.includes) ? [...new Set(d.includes.filter(k => Object.hasOwn(HOA_INCLUDES, k)))] : [];
-  const details = hoa.value === 0 ? { includes: [], rentals: '', pets: '', specialAssessment: '' } : {
+  const details = hoa.value === 0 ? { includes: [], rentals: '', pets: '', parking: '', specialAssessment: '' } : {
     includes,
     rentals: HOA_RENTAL_RULES.includes(d.rentals) ? d.rentals : '',
     pets: HOA_PET_RULES.includes(d.pets) ? d.pets : '',
+    parking: HOA_PARKING_RULES.includes(d.parking) ? d.parking : '',
     specialAssessment: clampString(d.specialAssessment, 120),
   };
   return { data: { melloRoosAnnual: mello.value, hoaMonthly: hoa.value, hoaDetails: details } };
@@ -54,7 +57,7 @@ export function homeCostsFromRow(row) {
     hoaMonthly: row.hoa_monthly ?? null,
     hoaDetails: {
       includes: Array.isArray(details.includes) ? details.includes : [],
-      rentals: details.rentals || '', pets: details.pets || '', specialAssessment: details.specialAssessment || '',
+      rentals: details.rentals || '', pets: details.pets || '', parking: details.parking || '', specialAssessment: details.specialAssessment || '',
     },
   };
 }
@@ -77,7 +80,7 @@ export function homeCostsLines(costs) {
     lines.push(`HOA $${costs.hoaMonthly.toLocaleString('en-US')}/mo${inc.length ? ` (includes ${inc.join(', ').toLowerCase()})` : ''}`);
   }
   if (RULE_LABELS[costs.hoaDetails.rentals]) lines.push(`Renting out: ${RULE_LABELS[costs.hoaDetails.rentals]}`);
-  if (RULE_LABELS[costs.hoaDetails.pets]) lines.push(`Pets: ${RULE_LABELS[costs.hoaDetails.pets]}`);
+  // HOA pets render with the assistance-animal note in homeFactsLines (homeFacts.js).
   if (costs.hoaDetails.specialAssessment) lines.push(`Special assessment: ${costs.hoaDetails.specialAssessment}`);
   return lines;
 }

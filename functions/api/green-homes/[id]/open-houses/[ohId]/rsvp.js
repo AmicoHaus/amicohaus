@@ -1,16 +1,13 @@
 import { getSessionUser } from '../../../../../_lib/auth.js';
-import { json, unauthorized, notFound } from '../../../../../_lib/util.js';
-import { toggleRsvp } from '../../../../../_lib/greenHomeOpenHouses.js';
+import { unauthorized } from '../../../../../_lib/util.js';
+import { rsvpToggleResponse } from '../../../../../_lib/openHousePlan.js';
 
+// Toggle "I'm Going". One statement loads the open house, home and owner; a paused home, a suspended owner, a block
+// either way or (when adding) an ended open house gets the same 404 as a missing one; adding is rate limited
+// (open_house_rsvp). Response { going, address }: the address only when the owner shares it and the window is open.
 export async function onRequestPost(context) {
   const { id: homeId, ohId } = context.params;
   const user = await getSessionUser(context);
   if (!user) return unauthorized();
-
-  const db = context.env.DB;
-  const openHouse = await db.prepare('SELECT id FROM green_home_open_houses WHERE id = ? AND green_home_id = ?').bind(ohId, homeId).first();
-  if (!openHouse) return notFound('Open house not found.');
-
-  const result = await toggleRsvp(db, ohId, user.id);
-  return json(result);
+  return rsvpToggleResponse(context.env.DB, 'green_home', homeId, ohId, user);
 }

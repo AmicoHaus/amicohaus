@@ -47,11 +47,23 @@
 
     if (rsvpBtn) {
       try {
-        const { going } = await apiPost(`/api/listings/${listingId}/open-houses/${rsvpBtn.dataset.id}/rsvp`, {});
+        const { going, address } = await apiPost(`/api/listings/${listingId}/open-houses/${rsvpBtn.dataset.id}/rsvp`, {});
         rsvpBtn.textContent = going ? "I'm Going ✓" : "I'm Going";
         rsvpBtn.classList.toggle('btn-primary', !going);
         rsvpBtn.classList.toggle('btn-ghost', going);
         const row = rsvpBtn.closest('[data-open-house-id]');
+        // The owner shares the street address with people going (from 24 hours before until the end): the API sends it
+        // only then. Same line as the server-rendered page; removed again when the RSVP is.
+        if (row) {
+          const shown = row.querySelector('.oh-address');
+          if (!going || !address) { if (shown) shown.remove(); }
+          else if (!shown) {
+            const p = document.createElement('p');
+            p.className = 'tiny oh-address';
+            p.textContent = `Address for this open house (shared by the owner with people going): ${address}`;
+            rsvpBtn.insertAdjacentElement('beforebegin', p);
+          }
+        }
         const countEl = row && row.querySelector('[data-rsvp-count]');
         if (countEl) {
           const delta = going ? 1 : -1;

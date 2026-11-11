@@ -71,6 +71,18 @@ const QUERIES = {
     UNION ALL SELECT 'visit_feedback_given', pre_listing_id, NULL,
       json_object('visit_kind', visit_kind, 'visit_at', visit_at, 'skipped', skipped, 'price', price, 'asking_price_at', asking_price_at, 'condition', condition, 'top_prep', top_prep, 'updated_at', updated_at), created_at
     FROM pre_listing_visit_feedback WHERE agent_user_id = ?1`,
+  // Open houses: the ones you RSVP'd to (all three kinds of home, with rsvp_named: 1 = the owner sees your name), and the
+  // ones you hosted with their address-sharing choice. Who RSVP'd to yours stays out (their data).
+  openHouses: `SELECT 'rsvp_listing' AS kind, oh.listing_id AS home_id, r.open_house_id, oh.starts_at, oh.ends_at, json_object('rsvp_named', r.rsvp_named) AS details_json, r.created_at
+      FROM open_house_rsvps r JOIN open_houses oh ON oh.id = r.open_house_id WHERE r.user_id = ?1
+    UNION ALL SELECT 'rsvp_augmented_home', oh.augmented_home_id, r.open_house_id, oh.starts_at, oh.ends_at, json_object('rsvp_named', r.rsvp_named), r.created_at
+      FROM augmented_home_open_house_rsvps r JOIN augmented_home_open_houses oh ON oh.id = r.open_house_id WHERE r.user_id = ?1
+    UNION ALL SELECT 'rsvp_green_home', oh.green_home_id, r.open_house_id, oh.starts_at, oh.ends_at, json_object('rsvp_named', r.rsvp_named), r.created_at
+      FROM green_home_open_house_rsvps r JOIN green_home_open_houses oh ON oh.id = r.open_house_id WHERE r.user_id = ?1
+    UNION ALL SELECT 'hosted', NULL, NULL, NULL, NULL, json_object(
+        'listings', (SELECT json_group_array(json_object('id', id, 'home_id', listing_id, 'starts_at', starts_at, 'ends_at', ends_at, 'note', note, 'share_address_with_rsvps', share_address_with_rsvps)) FROM open_houses WHERE listing_id IN (SELECT id FROM listings WHERE user_id = ?1)),
+        'augmented_homes', (SELECT json_group_array(json_object('id', id, 'home_id', augmented_home_id, 'starts_at', starts_at, 'ends_at', ends_at, 'note', note, 'share_address_with_rsvps', share_address_with_rsvps)) FROM augmented_home_open_houses WHERE augmented_home_id IN (SELECT id FROM augmented_homes WHERE user_id = ?1)),
+        'green_homes', (SELECT json_group_array(json_object('id', id, 'home_id', green_home_id, 'starts_at', starts_at, 'ends_at', ends_at, 'note', note, 'share_address_with_rsvps', share_address_with_rsvps)) FROM green_home_open_houses WHERE green_home_id IN (SELECT id FROM green_homes WHERE user_id = ?1))), NULL`,
 
   // As an agent.
   agentProfile: 'SELECT * FROM agent_profiles WHERE user_id = ?1',
@@ -162,6 +174,7 @@ export async function onRequestGet(context) {
       signedInWithGoogle: !!user.google_id, referralCode: user.referral_code || null, referredBy: user.referred_by || null,
       notifyMatches: user.notify_matches !== 0, emailFrequency: user.email_frequency || 'capped',
       sellerReportOptOut: !!user.seller_report_opt_out,
+      uiLang: user.ui_lang || 'en',
       signupIntent: user.signup_intent, signupSource: user.signup_source,
       termsVersion: user.terms_version || null, termsAcceptedAt: user.terms_accepted_at || null, createdAt: user.created_at,
     },

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Registrarse — Amico Haus</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<!-- Spanish twin of signup.html: update both. -->
+<div id="app">
+  <a class="agent-strip" href="/es/acerca">Presentado por <strong>Rudy Flores</strong> &middot; Coldwell Banker West &middot; DRE #02257808</a>
+  <header class="topbar">
+    <a class="brand" href="/es/">
+      <svg viewBox="0 0 48 48" class="logo" aria-hidden="true">
+        <path d="M24 4 L44 20 V42 H30 V28 H18 V42 H4 V20 Z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+      </svg>
+      <span class="brand-text">AMICO <span class="accent">HAUS</span></span>
+    </a>
+    <nav class="tabs">
+      <a class="tab tab-demo" href="/demo">Demo (en inglés)</a>
+      <a class="tab tab-cta tab-cta-post" href="/es/registro?as=homeowner">Publicar un pre-listado</a>
+      <a class="tab tab-cta tab-cta-agent" href="/es/registro?as=agent">Soy agente</a>
+      <a class="tab" href="/es/#como">Cómo funciona</a>
+      <a class="tab" href="/es/acerca">Acerca de</a>
+      <a class="tab tab-lang" href="/signup" hreflang="en" lang="en">English</a>
+    </nav>
+    <div class="auth-cta" id="authCta">
+      <a class="btn btn-ghost btn-sm" href="/es/iniciar-sesion">Iniciar sesión</a>
+      <a class="btn btn-primary btn-sm" href="/es/registro">Registrarse</a>
+    </div>
+  </header>
+  <main class="auth-main">
+    <div class="auth-card">
+      <div id="signupPanel">
+      <h1>Cree su cuenta</h1>
+      <p class="section-sub">Díganos de qué lado está y luego su nombre y su correo electrónico. Le enviaremos un enlace por correo para confirmar su dirección y elegir una contraseña.</p>
+
+      <form id="signupForm" class="profile-form">
+        <fieldset class="audience-choice">
+          <legend>Me registro como <span class="required-mark">*</span></legend>
+          <div class="choice-row">
+            <label class="choice"><input type="radio" name="intent" value="homeowner" checked><span><strong>Propietario</strong><span class="tiny">Muestre su casa a agentes expertos</span></span></label>
+            <label class="choice"><input type="radio" name="intent" value="agent"><span><strong>Agente</strong><span class="tiny">Obtenga su aprobación y comparta su estrategia</span></span></label>
+          </div>
+        </fieldset>
+        <div class="field">
+          <label for="displayName">Su nombre <span class="required-mark">*</span></label>
+          <input type="text" id="displayName" required maxlength="80" placeholder="p. ej., Jordan Ellis" autocomplete="name">
+        </div>
+        <div class="field">
+          <label for="email">Correo electrónico <span class="required-mark">*</span></label>
+          <input type="email" id="email" required maxlength="200" placeholder="usted@ejemplo.com" autocomplete="email" inputmode="email">
+        </div>
+        <p class="form-note" id="termsConsent">Al tocar Enviarme un enlace, usted acepta los <a href="/terms">Términos de uso</a> y la <a href="/privacy">Política de privacidad</a>, que están en inglés; la versión en inglés es la que rige. Resúmenes en español: <a href="/es/terminos">Términos</a> · <a href="/es/privacidad">Privacidad</a>.</p>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary" id="submitBtn" aria-describedby="termsConsent">Enviarme un enlace</button>
+        </div>
+        <p class="inline-alert hidden" id="signupError" role="alert"></p>
+      </form>
+
+      <p class="form-note">¿Ya tiene una cuenta? <a href="/es/iniciar-sesion">Inicie sesión</a></p>
+      <p class="form-note">¿Ya se registró? <button type="button" class="link-btn" id="haveCodeBtn">Escriba el código del correo</button></p>
+      </div>
+
+      <div id="checkEmailPanel" class="hidden">
+        <h1>Revise su correo</h1>
+        <p class="section-sub">Enviamos un enlace a <strong id="sentTo"></strong>. Ábralo para confirmar su correo y elegir su contraseña; así termina de crear su cuenta.</p>
+        <p class="email-hint">Busque un correo de <strong>Amico Haus</strong> con el asunto <strong>"Confirme su correo para terminar de registrarse"</strong>. Normalmente llega en un minuto.</p>
+        <p class="inline-note hidden" id="inAppHint">Está navegando dentro de <span id="inAppName">una aplicación</span>. Abra su aplicación de correo, busque el código de 6 dígitos en el correo y luego regrese y escríbalo abajo para terminar aquí mismo. Esta página seguirá aquí.</p>
+        <form id="codeForm" class="profile-form code-form">
+          <div class="field hidden" id="codeEmailField"><label for="codeEmail">El correo con el que se registró</label><input type="email" id="codeEmail" maxlength="200" autocomplete="email" inputmode="email" placeholder="usted@ejemplo.com"></div>
+          <div class="field"><label for="confirmCode">¿Tiene el código de 6 dígitos del correo?</label><input type="text" id="confirmCode" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="123 456"></div>
+          <button type="submit" class="btn btn-primary btn-sm" id="codeBtn">Continuar</button>
+          <p class="inline-alert hidden" id="codeError" role="alert"></p>
+        </form>
+        <div class="form-actions" id="mailButtons">
+          <a class="btn btn-ghost btn-sm" href="https://mail.google.com/mail/u/0/#search/%22Confirme+su+correo+para+terminar+de+registrarse%22" target="_blank" rel="noopener noreferrer">Abrir Gmail</a>
+          <a class="btn btn-ghost btn-sm" href="https://outlook.live.com/mail/0/inbox" target="_blank" rel="noopener noreferrer">Abrir Outlook</a>
+        </div>
+        <p class="form-note">¿Todavía nada? Busque en su carpeta de spam o de promociones y luego <button type="button" class="link-btn" id="resendBtn">envíelo de nuevo</button>.</p>
+        <p class="form-note" id="resendStatus" role="status" aria-live="polite"></p>
+        <p class="form-note"><a href="/es/registro" id="differentEmailLink">Usar otro correo</a></p>
+      </div>
+    </div>
+  </main>
+  <footer class="site-footer">
+    <span class="footer-tagline" lang="en">Amico Haus: the real estate marketplace of tomorrow! Everything that's missing from the real estate market for the homeowner!</span> <a href="/es/acerca">Acerca de</a> · <a href="/es/contacto">Contacto</a> · <a href="/es/terminos">Términos de uso (resumen)</a> · <a href="/es/privacidad">Privacidad (resumen)</a> · <a href="/es/accesibilidad">Accesibilidad</a>
+    <p class="footer-legal">Equal Housing Opportunity · Igualdad de Oportunidad en la Vivienda · <a href="/es/accesibilidad">Accesibilidad</a></p>
+  </footer>
+</div>
+<script src="/client.js"></script>
+<script src="/page-signup.js"></script>
+<!-- Cloudflare Web Analytics -->
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "91a193988b2d45e58aa1c27d5abf6bdb"}'></script>
+<!-- End Cloudflare Web Analytics -->
+</body>
+</html>

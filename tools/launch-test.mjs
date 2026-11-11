@@ -92,10 +92,14 @@ check('sitemap is still well-formed XML-ish', sm.startsWith('<?xml') && sm.trim(
 // ---------------------------------------------------------------- pages
 const index = read('index.html'), unlock = read('unlock-your-zip.html'), forAgents = read('for-agents.html'), access = read('accessibility.html'), privacy = read('privacy.html'), llms = read('llms.txt');
 const FOOTER_LEGAL = '<p class="footer-legal">Equal Housing Opportunity · <a href="/accessibility">Accessibility</a></p>';
-const navOf = (html) => (html.match(/<nav class="tabs"[^>]*>([\s\S]*?)<\/nav>/) || [])[1]?.trim();
+// The home facts batch adds an Español tab, last, that links each page's own Spanish twin: menus are compared without it.
+const LANG_TAB_RE = /\s*<a class="tab tab-lang" href="\/es\/[a-z-]*" hreflang="es" lang="es">Español<\/a>/;
+const rawNavOf = (html) => (html.match(/<nav class="tabs"[^>]*>([\s\S]*?)<\/nav>/) || [])[1]?.trim();
+const navOf = (html) => rawNavOf(html)?.replace(LANG_TAB_RE, '').trim();
 const authOf = (html) => (html.match(/<div class="auth-cta" id="authCta">([\s\S]*?)<\/div>/) || [])[1]?.trim();
 const footerOf = (html) => (html.match(/<footer class="site-footer">([\s\S]*?)<\/footer>/) || [])[1] || '';
-for (const [name, html] of [['for-agents.html', forAgents], ['accessibility.html', access]]) {
+for (const [name, html, es] of [['for-agents.html', forAgents, '/es/agentes'], ['accessibility.html', access, '/es/accesibilidad']]) {
+  check(`${name}: the Español tab is last and links ${es}`, !!rawNavOf(html)?.endsWith(`<a class="tab tab-lang" href="${es}" hreflang="es" lang="es">Español</a>`));
   check(`${name}: same top menu as index.html`, navOf(html) === navOf(index) && authOf(html) === authOf(index) && html.includes('<a class="agent-strip" href="/about">Presented by <strong>Rudy Flores</strong> &middot; Coldwell Banker West &middot; DRE #02257808</a>'));
   check(`${name}: same footer links as the other pages`, footerOf(html).split('\n')[1] === footerOf(unlock).split('\n')[1]);
   check(`${name}: no inline style, no on*= handlers, no inline <script>`, !/\sstyle=/i.test(html) && !/\son[a-z]+=/i.test(html) && !/<script(?![^>]*\bsrc=)(?![^>]*application\/ld\+json)[^>]*>/i.test(html));
@@ -152,7 +156,7 @@ check('privacy: pre-listings are shared only with approved agents', /Pre-listing
 check('privacy: blocking is described', /Blocking\./.test(ptext) && /works both ways/.test(ptext));
 check('privacy: decision 2, sentence 1 verbatim', ptext.includes("When you post a pre-listing, Rudy Flores, who runs Amico Haus and also works as a real estate agent, gets an email with your name, email and the home's basics so he can run the site. He doesn't use it to contact you about your home unless you share your contact info with him, the same as any agent."));
 check('privacy: decision 2, sentence 2 verbatim', ptext.includes('Amico Haus admins can see account details to run the site.'));
-check('privacy: Last updated November 5, 2026', ptext.includes('Last updated November 5, 2026.'));
+check('privacy: Last updated November 11, 2026', ptext.includes('Last updated November 11, 2026.'));
 check('privacy: Do Not Track line', /Do Not Track/.test(ptext));
 check('privacy: public pages are on the open web and indexed', /Public pages are on the open web/.test(ptext) && /index/.test(ptext));
 check('privacy: §5 names members (per §3) and service providers', /5\. Data sharing<\/h2>\s*<p>We don't sell your data\. We share it only with other members as described in §3/.test(privacy) && /Cloudflare/.test(ptext));

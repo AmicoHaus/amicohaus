@@ -6,6 +6,7 @@
 // jsonLd is a ready-made `<script type="application/ld+json">` block (see jsonLdScript), the only inline script allowed.
 import { escapeHtml } from './util.js';
 import { ASSET_VERSIONS } from './assetVersions.js';
+import { SPANISH_LIVE } from './spanishLive.js';
 
 // One JSON-LD block, with every '<' escaped so text inside it can never close the script tag.
 export function jsonLdScript(data) {
@@ -51,6 +52,7 @@ ${jsonLd}
       <a class="tab tab-cta tab-cta-agent" href="/signup?as=agent">I'm an Agent</a>
       <a class="tab" href="/#how">How it works</a>
       <a class="tab" href="/about">About</a>
+      ${SPANISH_LIVE ? '<a class="tab tab-lang" href="/es/" hreflang="es" lang="es">Español</a>' : ''}
     </nav>
     <div class="auth-cta"><a class="btn btn-ghost btn-sm" href="/login">Log In</a> <a class="btn btn-primary btn-sm" href="/signup">Sign Up</a></div>
   </header>

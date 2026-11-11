@@ -28,7 +28,8 @@ function newConfirmationCode() {
 // `intent` ('homeowner' | 'agent' | '') only decides where the confirm page sends
 // them afterwards; it is not stored and grants nothing.
 // next: a past-client review link to come back to (validated by the caller), carried in the emailed link.
-export async function sendConfirmationLink(context, user, { intent = '', next = '' } = {}) {
+// uiLang: 'es' sends the Spanish email (users.ui_lang, from the Spanish sign-up page); anything else, the English one.
+export async function sendConfirmationLink(context, user, { intent = '', next = '', uiLang = 'en' } = {}) {
   const db = context.env.DB;
   const token = generateToken();
   const expires = new Date(Date.now() + CONFIRMATION_LINK_HOURS * 3600 * 1000).toISOString();
@@ -38,6 +39,7 @@ export async function sendConfirmationLink(context, user, { intent = '', next = 
   const spaced = `${code.slice(0, 3)} ${code.slice(3)}`;
 
   const link = `${new URL(context.request.url).origin}/verify-email?token=${token}${intent ? `&as=${intent}` : ''}${next ? `&next=${encodeURIComponent(next)}` : ''}`;
+  if (uiLang === 'es') return sendSpanish(context, user, { link, spaced });
   const name = user.displayName || 'there';
 
   const text = [
@@ -62,9 +64,41 @@ export async function sendConfirmationLink(context, user, { intent = '', next = 
   <p style="font-size:13px;color:#667085">The link works once and expires in ${CONFIRMATION_LINK_HOURS} hours. If you didn't sign up, you can ignore this email — nothing will be created.</p>
 </div>`;
 
-  // A network error counts as "not sent" rather than failing the signup request. Only a delivered email starts the
-  // 2-minute wait before a repeat signup sends another (see api/auth/signup.js).
-  const sent = await sendEmail(context, { to: user.email, subject: 'Confirm your email to finish signing up', text, html }).catch(() => false);
-  if (sent) await db.prepare("UPDATE users SET verify_sent_at = datetime('now') WHERE id = ?").bind(user.id).run();
+  return deliver(context, user, { subject: 'Confirm your email to finish signing up', text, html });
+}
+
+// A network error counts as "not sent" rather than failing the signup request. Only a delivered email starts the
+// 2-minute wait before a repeat signup sends another (see api/auth/signup.js).
+async function deliver(context, user, { subject, text, html }) {
+  const sent = await sendEmail(context, { to: user.email, subject, text, html }).catch(() => false);
+  if (sent) await context.env.DB.prepare("UPDATE users SET verify_sent_at = datetime('now') WHERE id = ?").bind(user.id).run();
   return sent;
+}
+
+// The same email in Spanish (usted). The link opens the English /verify-email page, like every other link in v1.
+function sendSpanish(context, user, { link, spaced }) {
+  const name = user.displayName || '';
+  const text = [
+    name ? `Hola ${name},` : 'Hola,',
+    '',
+    '¡Le damos la bienvenida a Amico Haus! Abra este enlace para confirmar su correo y terminar de crear su cuenta:',
+    '',
+    link,
+    '',
+    `¿Se registró dentro de TikTok, Instagram o Facebook? Escriba este código en la página de registro: ${spaced}`,
+    '',
+    `El enlace funciona una sola vez y vence en ${CONFIRMATION_LINK_HOURS} horas. Si usted no se registró, puede ignorar este correo; no se creará nada.`,
+  ].join('\n');
+
+  const html = `<div lang="es" style="font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px;color:#1c2128">
+  <p style="font-size:16px">${name ? `Hola ${escapeHtml(name)},` : 'Hola,'}</p>
+  <p style="font-size:16px">¡Le damos la bienvenida a Amico Haus! Confirme su correo para terminar de crear su cuenta.</p>
+  <p style="margin:28px 0"><a href="${escapeHtml(link)}" style="background:#a9793f;color:#201404;text-decoration:none;font-weight:600;padding:12px 22px;border-radius:9px;display:inline-block">Confirmar mi correo</a></p>
+  <p style="font-size:15px">¿Se registró dentro de TikTok, Instagram o Facebook? Escriba este código en la página de registro:</p>
+  <p style="font-size:28px;font-weight:700;letter-spacing:6px;margin:8px 0 24px">${spaced}</p>
+  <p style="font-size:13px;color:#667085">O pegue este enlace en su navegador:<br><span style="word-break:break-all">${escapeHtml(link)}</span></p>
+  <p style="font-size:13px;color:#667085">El enlace funciona una sola vez y vence en ${CONFIRMATION_LINK_HOURS} horas. Si usted no se registró, puede ignorar este correo; no se creará nada.</p>
+</div>`;
+
+  return deliver(context, user, { subject: 'Confirme su correo para terminar de registrarse', text, html });
 }

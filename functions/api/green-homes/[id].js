@@ -6,6 +6,7 @@ import { isFavorited, fetchFavoriterIds } from '../../_lib/greenHomeFavorites.js
 import { notifyPriceDrop } from '../../_lib/marketplaceNotify.js';
 import { logMarketEventUnlessDemo } from '../../_lib/marketEvents.js';
 import { homeCostsFromRow } from '../../_lib/homeCosts.js';
+import { homeFactsFromRow } from '../../_lib/homeFacts.js';
 import { deleteR2Keys } from '../../_lib/r2Cleanup.js';
 
 export async function onRequestGet(context) {
@@ -34,6 +35,7 @@ export async function onRequestGet(context) {
     // Why the owner is moving (optional) is shown only to the owner (these listings have no matches).
     lifeEventTags: isOwner ? JSON.parse(row.life_event_tags_json || '[]') : [],
     status: row.status, createdAt: row.created_at, photoIds: photos.map(p => p.id), costs: homeCostsFromRow(row),
+    facts: homeFactsFromRow(row),
     priceHistory: priceHistoryRows.results.map(r => ({ oldPrice: r.old_price, newPrice: r.new_price, changedAt: r.changed_at })),
     isFavorited: isOwner ? false : await isFavorited(db, user.id, id),
   };

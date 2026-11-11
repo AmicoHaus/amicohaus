@@ -1,47 +1,20 @@
 // Open houses on an AugmentedHomes listing. Mirrors functions/_lib/openHouses.js exactly.
-import { clampString } from './util.js';
+// The shared code (note checks, address sharing, names, RSVP rules) lives in openHousePlan.js under the kind 'augmented_home'.
+import { validateOpenHouseBody, createKindOpenHouse, fetchKindOpenHouses } from './openHousePlan.js';
 
+// Times, the note (fair housing, no street address, no codes: homeText.js) and the owner's address-share choice.
 export function validateOpenHouseInput(body) {
-  const starts = new Date(body.startsAt);
-  const ends = new Date(body.endsAt);
-  if (isNaN(starts.getTime()) || isNaN(ends.getTime())) return { error: 'Pick a start and end time.' };
-  if (starts.getTime() <= Date.now()) return { error: 'The open house has to be in the future.' };
-  if (ends.getTime() <= starts.getTime()) return { error: 'The end time has to be after the start time.' };
-  return { data: { startsAt: starts.toISOString(), endsAt: ends.toISOString(), note: clampString(body.note, 300) } };
+  return validateOpenHouseBody(body);
 }
 
 export async function createOpenHouse(db, homeId, d) {
-  const result = await db.prepare(
-    'INSERT INTO augmented_home_open_houses (augmented_home_id, starts_at, ends_at, note) VALUES (?, ?, ?, ?)'
-  ).bind(homeId, d.startsAt, d.endsAt, d.note).run();
-  return result.meta.last_row_id;
+  return createKindOpenHouse(db, 'augmented_home', homeId, d);
 }
 
-export async function fetchOpenHouses(db, homeId, viewerUserId) {
-  const rows = await db.prepare(
-    `SELECT augmented_home_open_houses.id, augmented_home_open_houses.starts_at, augmented_home_open_houses.ends_at, augmented_home_open_houses.note,
-            (SELECT COUNT(*) FROM augmented_home_open_house_rsvps WHERE augmented_home_open_house_rsvps.open_house_id = augmented_home_open_houses.id) AS rsvp_count
-     FROM augmented_home_open_houses WHERE augmented_home_open_houses.augmented_home_id = ? AND augmented_home_open_houses.ends_at > datetime('now') ORDER BY augmented_home_open_houses.starts_at ASC`
-  ).bind(homeId).all();
-
-  let rsvpedIds = new Set();
-  if (viewerUserId && rows.results.length) {
-    const ids = rows.results.map(r => r.id);
-    const placeholders = ids.map(() => '?').join(',');
-    const mine = await db.prepare(`SELECT open_house_id FROM augmented_home_open_house_rsvps WHERE user_id = ? AND open_house_id IN (${placeholders})`).bind(viewerUserId, ...ids).all();
-    rsvpedIds = new Set(mine.results.map(r => r.open_house_id));
-  }
-  return rows.results.map(r => ({
-    id: r.id, startsAt: r.starts_at, endsAt: r.ends_at, note: r.note, rsvpCount: r.rsvp_count, imGoing: rsvpedIds.has(r.id),
-  }));
+// Only upcoming ones, soonest first -- a past open house is just clutter by then. opts { ownerId, address }: the
+// address goes only to a going, named viewer inside the window; the owner gets goingNames/goingBefore. RSVPs go
+// through rsvpToggleResponse (openHousePlan.js).
+export async function fetchOpenHouses(db, homeId, viewerUserId, opts = {}) {
+  return fetchKindOpenHouses(db, 'augmented_home', homeId, viewerUserId, opts);
 }
 
-export async function toggleRsvp(db, openHouseId, userId) {
-  const existing = await db.prepare('SELECT id FROM augmented_home_open_house_rsvps WHERE open_house_id = ? AND user_id = ?').bind(openHouseId, userId).first();
-  if (existing) {
-    await db.prepare('DELETE FROM augmented_home_open_house_rsvps WHERE id = ?').bind(existing.id).run();
-    return { going: false };
-  }
-  await db.prepare('INSERT INTO augmented_home_open_house_rsvps (open_house_id, user_id) VALUES (?, ?)').bind(openHouseId, userId).run();
-  return { going: true };
-}

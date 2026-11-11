@@ -431,7 +431,8 @@ batchSizes.length = 0;
 r = await call(exportApi.onRequestGet, 'GET', '/x', 1, {});
 let ex = JSON.parse(r.text);
 // The owner tools batch adds ownerTools (45).
-check('owner export: no-store, and QUERIES is exactly 45 statements', noStore(r) && batchSizes.length === 1 && batchSizes[0] === 45, JSON.stringify(batchSizes));
+// The home facts batch adds openHouses (46).
+check('owner export: no-store, and QUERIES is exactly 46 statements', noStore(r) && batchSizes.length === 1 && batchSizes[0] === 46, JSON.stringify(batchSizes));
 const kinds = (rows) => [...new Set(rows.map(x => x.kind))].sort().join();
 check('owner export: priceOpinionsReceived and priceOpinionHistoryOnMyHomes (versions and refresh asks)',
   ex.priceOpinionsReceived.some(x => x.pre_listing_id === 100 && x.agent_user_id === 3) && kinds(ex.priceOpinionHistoryOnMyHomes) === 'refresh_ask,version', JSON.stringify(Object.keys(ex)));

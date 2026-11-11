@@ -47,6 +47,7 @@ Each user creates a profile describing their current home (location, type, price
 - [What's new](https://amicohaus.com/whats-new): what has shipped recently.
 - [Sign up](https://amicohaus.com/signup) / [Log in](https://amicohaus.com/login): account creation.
 - [Accessibility](https://amicohaus.com/accessibility), [Terms](https://amicohaus.com/terms), [Privacy](https://amicohaus.com/privacy).
+- Spanish pages: https://amicohaus.com/es/ (informational; the English Terms of Use and Privacy Policy control).
 - The main app (agents hub, pre-listings and proposals, listing management, groups, matches, messages) requires an account.
 
 ## Origin

@@ -5,6 +5,7 @@ import { fetchRecentActivityBatch } from '../_lib/marketEvents.js';
 import { fetchListingFavoriteCountBatch } from '../_lib/priceSeries.js';
 import { fetchCommentCountBatch } from '../_lib/dealThreads.js';
 import { PROPERTY_TYPES } from '../_lib/listings.js';
+import { homeFactsFromRow } from '../_lib/homeFacts.js';
 const SORTS = {
   newest: 'listings.created_at DESC',
   price_asc: 'listings.estimated_value ASC',
@@ -34,6 +35,16 @@ export async function onRequestGet(context) {
   const noMelloRoos = url.searchParams.get('noMelloRoos') === '1';
   const hoaMaxParam = url.searchParams.get('hoaMax');
   const hoaMax = hoaMaxParam === null || hoaMaxParam === '' ? NaN : Number(hoaMaxParam);
+  // Toy-box (parking and garage, from the owner) and same floor plan.
+  const flag = name => url.searchParams.get(name) === '1';
+  const wholeIn = (name, min, max) => {
+    const v = url.searchParams.get(name);
+    const n = v === null || v === '' ? NaN : Number(v);
+    return Number.isInteger(n) && n >= min && n <= max ? n : null;
+  };
+  const minGateIn = wholeIn('minGateIn', 24, 480);
+  const minGarage = wholeIn('minGarage', 1, 10);
+  const plan = (url.searchParams.get('plan') || '').trim();
 
   // First-time/primary-buyer profiles have no home to show off — they only
   // ever surface as a one-directional match on a seller's own Matches tab.
@@ -67,6 +78,17 @@ export async function onRequestGet(context) {
   if (Number.isFinite(priceMax) && priceMax > 0) { conditions.push('listings.estimated_value <= ?'); params.push(priceMax); }
   if (noMelloRoos) conditions.push('listings.mello_roos_annual = 0');
   if (Number.isFinite(hoaMax) && hoaMax >= 0) { conditions.push('listings.hoa_monthly IS NOT NULL AND listings.hoa_monthly <= ?'); params.push(hoaMax); }
+  // Only homes whose owner shared these details can match (an unknown isn't "no"). Filtering runs in D1.
+  if (flag('rv')) conditions.push(`json_extract(listings.home_facts_json, '$.toy.rv') = 'yes'`);
+  if (flag('sideAccess')) conditions.push(`json_extract(listings.home_facts_json, '$.toy.sideAccess') = 'yes'`);
+  if (flag('workshop')) conditions.push(`json_extract(listings.home_facts_json, '$.toy.workshop') = 'yes'`);
+  if (flag('ev240')) conditions.push(`json_extract(listings.home_facts_json, '$.toy.ev240') = 'yes'`);
+  // No HOA at all, or the owner says the HOA allows RV/boat parking (unknown dues or "limited" don't match).
+  if (flag('hoaParking')) conditions.push(`(listings.hoa_monthly = 0 OR json_extract(listings.hoa_details_json, '$.parking') = 'allowed')`);
+  if (minGateIn !== null) { conditions.push(`CAST(json_extract(listings.home_facts_json, '$.toy.gateIn') AS INTEGER) >= ?`); params.push(minGateIn); }
+  if (minGarage !== null) { conditions.push(`CAST(json_extract(listings.home_facts_json, '$.toy.garage') AS INTEGER) >= ?`); params.push(minGarage); }
+  // Same floor plan: only homes whose owner listed them with same-plan homes (planTwins.js).
+  if (plan && plan.length <= 200) { conditions.push('listings.plan_key = ? AND listings.plan_twins = 1'); params.push(plan); }
   if (viewer) {
     conditions.push(`listings.id NOT IN (SELECT listing_id FROM listing_feedback WHERE user_id = ? AND feedback = 'down')`);
     params.push(viewer.id);
@@ -87,7 +109,7 @@ export async function onRequestGet(context) {
     `SELECT listings.id, listings.title, listings.neighborhood, listings.city, listings.state,
             listings.property_type, listings.beds, listings.baths, listings.sqft, listings.estimated_value, listings.price_tier,
             listings.external_links, listings.is_rental, listings.rent_amount, listings.min_lease_months, listings.is_portfolio,
-            listings.created_at, listings.mello_roos_annual, listings.hoa_monthly,
+            listings.created_at, listings.mello_roos_annual, listings.hoa_monthly, listings.home_facts_json,
             users.display_name AS owner_name,
             desired_criteria.locations, desired_criteria.property_type AS desired_type,
             desired_criteria.price_min, desired_criteria.price_max,
@@ -113,8 +135,10 @@ export async function onRequestGet(context) {
     fetchCommentCountBatch(db, 'listing', ids),
   ]);
 
-  const listings = rows.results.map(r => ({
+  // Each card gets only the owner's parking and garage facts (for its chips), never the rest of home_facts_json.
+  const listings = rows.results.map(({ home_facts_json, ...r }) => ({
     ...r, external_links: parseJsonSafe(r.external_links, []),
+    toy: homeFactsFromRow({ home_facts_json }).toy || {},
     portfolio_members: r.is_portfolio ? (membersByPortfolio.get(r.id) || []) : undefined,
     recent_activity: recentActivityById.get(r.id) || null,
     favorite_count: favoriteCountById.get(r.id) || 0,

@@ -127,7 +127,7 @@ const want = {
   proposal: [[10, 60, false], [30, 1440, false], [5, 1440, true]],
   price_vote: [[15, 60, false], [60, 1440, false], [6, 1440, true]],
   showing_request: [[10, 1440, false], [3, 10080, true]],
-  preview_rsvp: [[20, 1440, false]], agent_invite: [[20, 1440, false]], saved_search: [[20, 1440, false]], timing_edit: [[10, 1440, false]], photo_sweep: [[40, 60, false], [120, 1440, false]], report: [[10, 1440, false]],
+  preview_rsvp: [[20, 1440, false]], open_house_rsvp: [[30, 1440, false]], agent_invite: [[20, 1440, false]], saved_search: [[20, 1440, false]], timing_edit: [[10, 1440, false]], photo_sweep: [[40, 60, false], [120, 1440, false]], report: [[10, 1440, false]],
 };
 const got = Object.fromEntries(Object.entries(rl.USER_LIMITS).map(([k, ws]) => [k, ws.map(w => [w.max, w.minutes, !!w.perRef])]));
 check('USER_LIMITS matches the spec table exactly', JSON.stringify(got) === JSON.stringify(want), JSON.stringify(got));
@@ -315,6 +315,13 @@ logRows(30, 'showing_request', 1, 3 * 1440, 'pre_listing:1');
 logRows(30, 'showing_request', 1, 8 * 1440, 'pre_listing:1');
 logRows(30, 'retired_kind', 1, 3 * 1440);
 run("INSERT INTO login_attempts (kind, ip, created_at) VALUES ('login', '1.1.1.1', datetime('now', '-3 days')), ('login', '1.1.1.1', datetime('now', '-1 day', '+5 minutes'))");
+// The Monday agent scorecards and seller reports (Mon 07:00 PT to Wed) can use up the lazy jobs' statement budget
+// before the prune runs, so both are held off for this one check (restored right after) and the prune is tested on
+// any day of the week.
+const sellerOptOut = q('SELECT id, seller_report_opt_out FROM users');
+const scorecardOptOut = q('SELECT user_id, scorecard_opt_out FROM agent_profiles');
+run('UPDATE users SET seller_report_opt_out = 1');
+run('UPDATE agent_profiles SET scorecard_opt_out = 1');
 const mw = await mod('functions/api/_middleware.js');
 const mwPending = [];
 const mwRes = await mw.onRequest({ request: new Request('https://amicohaus.com/api/x'), env, params: {}, waitUntil(p) { mwPending.push(p); }, next: async () => new Response('{}', { headers: { 'Content-Type': 'application/json' } }) });
@@ -324,6 +331,8 @@ check('prune (from the lazy jobs): rows older than 2 days go, newer stay', mwRes
 check('...a 7-day window keeps its rows (3 days old stays, 8 days old goes)', left.filter(x => x.kind === 'showing_request').length === 1);
 check('...a kind no longer in use goes after 2 days', !left.some(x => x.kind === 'retired_kind'));
 check('...old login_attempts rows go too', one('SELECT COUNT(*) AS n FROM login_attempts').n === 1);
+for (const u of sellerOptOut) run('UPDATE users SET seller_report_opt_out = ? WHERE id = ?', u.seller_report_opt_out, u.id);
+for (const a of scorecardOptOut) run('UPDATE agent_profiles SET scorecard_opt_out = ? WHERE user_id = ?', a.scorecard_opt_out, a.user_id);
 run('DELETE FROM user_action_log');
 
 // ================= Blocks =================

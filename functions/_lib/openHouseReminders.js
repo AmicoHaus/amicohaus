@@ -5,6 +5,7 @@
 // on quietly. Until then, functions/api/admin/send-open-house-reminder-preview.js lets the admin see what
 // the email would look like, sent only to their own address.
 import { DEMO_EMAIL_PATTERN, escapeHtml } from './util.js';
+import { pacificWhenLabel, PACIFIC } from './pacificTime.js';
 
 const KIND_CONFIG = {
   listing: {
@@ -22,9 +23,14 @@ const KIND_CONFIG = {
 };
 
 // Open houses starting within the next `windowHours` (and still in the future) that haven't had a reminder
-// sent yet, across all 3 kinds -- each with enough entity detail to build the email and link back.
+// sent yet, across all 3 kinds -- each with enough entity detail to build the email and link back. starts_at is ISO
+// text (toISOString), so the window is bound as ISO strings too; text from datetime('now') ('YYYY-MM-DD HH:MM:SS') sorts
+// differently from ISO and would let an open house from earlier the same UTC day count as upcoming. Never the address.
 export async function fetchDueOpenHouseReminders(db, windowHours = 24) {
   const due = [];
+  const now = Date.now();
+  const fromIso = new Date(now).toISOString();
+  const untilIso = new Date(now + Number(windowHours) * 3600e3).toISOString();
   for (const [entityKind, c] of Object.entries(KIND_CONFIG)) {
     const rows = await db.prepare(
       `SELECT ${c.ohTable}.id AS oh_id, ${c.ohTable}.starts_at, ${c.ohTable}.ends_at, ${c.ohTable}.${c.ohFk} AS entity_id,
@@ -32,11 +38,11 @@ export async function fetchDueOpenHouseReminders(db, windowHours = 24) {
        FROM ${c.ohTable}
        JOIN ${c.entityTable} ON ${c.entityTable}.id = ${c.ohTable}.${c.ohFk}
        JOIN users ON users.id = ${c.entityTable}.user_id
-       WHERE ${c.ohTable}.starts_at > datetime('now') AND ${c.ohTable}.starts_at <= datetime('now', ?)
+       WHERE ${c.ohTable}.starts_at > ? AND ${c.ohTable}.starts_at <= ?
          AND users.email NOT LIKE ?
          AND NOT EXISTS (SELECT 1 FROM open_house_reminders_sent WHERE entity_kind = ? AND open_house_id = ${c.ohTable}.id)
        ORDER BY ${c.ohTable}.starts_at ASC`
-    ).bind(`+${windowHours} hours`, DEMO_EMAIL_PATTERN, entityKind).all();
+    ).bind(fromIso, untilIso, DEMO_EMAIL_PATTERN, entityKind).all();
     for (const r of rows.results) {
       due.push({
         entityKind, openHouseId: r.oh_id, startsAt: r.starts_at, endsAt: r.ends_at,
@@ -60,10 +66,11 @@ export async function fetchRsvpRecipients(db, entityKind, openHouseId) {
 }
 
 export function buildOpenHouseReminderEmail(openHouse, recipientName) {
-  // openHouse.startsAt is already a full ISO string (open_houses.starts_at is written via
-  // Date.prototype.toISOString() in openHouses.js, unlike created_at/changed_at columns which use SQLite's
-  // bare datetime('now') and need a 'Z' appended) -- parse it directly, same as the public listing page does.
-  const when = new Date(openHouse.startsAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+  // openHouse.startsAt/endsAt are full ISO strings (written via toISOString). Workers run in UTC, so the label is
+  // always in Pacific time and says so ("Sat, Nov 14, 1:00 PM – 4:00 PM Pacific time").
+  const when = openHouse.endsAt
+    ? pacificWhenLabel(openHouse.startsAt, openHouse.endsAt)
+    : `${new Date(openHouse.startsAt).toLocaleString('en-US', { timeZone: PACIFIC, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).replace(/\s/g, ' ')} Pacific time`;
   const name = recipientName || 'there';
   const subject = `Reminder: open house for ${openHouse.title} is coming up`;
   const text = `Hi ${name},\n\nJust a reminder — the open house you RSVP'd to is coming up:\n\n${openHouse.title}\n${openHouse.city}, ${openHouse.state}\n${when}\n\nSee it on Amico Haus: ${openHouse.href}\n`;

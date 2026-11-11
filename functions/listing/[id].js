@@ -13,6 +13,33 @@ import { fetchPriceSeriesBatch } from '../_lib/priceSeries.js';
 import { fetchSimilarEntities, similarEntitiesHtml } from '../_lib/similarEntities.js';
 import { mortgageCalcHtml } from '../_lib/mortgageCalc.js';
 import { realEstateListingJsonLd } from '../_lib/structuredData.js';
+import { fetchPlanTwins, planTwinsHtml, floorPlanLineHtml } from '../_lib/planTwins.js';
+import { pacificWhenLabel } from '../_lib/pacificTime.js';
+import { homeFactsFromRow, homeFactsLines, driveArea, planDriveHref, YARD_HEADING, YARD_SEASON_LINE, TOY_HEADING, TOY_CONFIRM_LINE,
+  PETS_HEADING, PLAN_DRIVE_LABEL, PLAN_DRIVE_CAPTION } from '../_lib/homeFacts.js';
+import { SPANISH_LIVE } from '../_lib/spanishLive.js';
+
+// The owner's home facts as the page shows them (homeFacts.js lines, escaped), each under its "(from the owner)"
+// heading. The pets block always ends with the assistance-animal note on its own line; nothing may drop it. The
+// augmented-home and green-home pages and client.js homeFactsDetailHtml print the same HTML.
+function factsBlockHtml(heading, lines, extra) {
+  if (!lines.length) return '';
+  return `<p class="tiny home-facts"><span class="label">${escapeHtml(heading)}</span> ${escapeHtml(lines.join(' · '))}</p>${extra ? `<p class="tiny">${escapeHtml(extra)}</p>` : ''}`;
+}
+function petsBlockHtml(lines) {
+  if (!lines.length) return '';
+  return `<p class="tiny home-facts"><span class="label">${escapeHtml(PETS_HEADING)}</span> ${escapeHtml(lines.slice(0, -1).join(' · '))}</p><p class="tiny assist-note">${escapeHtml(lines.at(-1))}</p>`;
+}
+// "Plan your drive": a Google Maps link to the home's AREA (never the street address, on any view, including the
+// owner's own). Google works out the time; Amico Haus shows no drive time or distance. client.js adds the visitor's
+// own places under it (kept only in their browser).
+function driveLinkHtml(row) {
+  const area = driveArea(row);
+  if (!area) return '';
+  return `<p class="tiny drive-link"><a href="${escapeHtml(planDriveHref(area))}" target="_blank" rel="noopener noreferrer" data-drive-area="${escapeHtml(area)}">${PLAN_DRIVE_LABEL} ↗</a> ${escapeHtml(PLAN_DRIVE_CAPTION)}</p>`;
+}
+// Under every RSVP button a signed-in visitor sees (they're told before they RSVP; names show only for RSVPs made after).
+const RSVP_NAME_LINE = 'When you RSVP, the owner sees your display name.';
 
 // Under the offer and counter-back message boxes (fair housing: the note is about the deal, not the buyer).
 const OFFER_MESSAGE_NOTE = 'Stick to price, terms and timing. Leave out personal details like family, religion, age or background.';
@@ -121,6 +148,7 @@ ${jsonLd}
       <a class="tab tab-cta tab-cta-agent" href="/signup?as=agent">I'm an Agent</a>
       <a class="tab" href="/#how">How it works</a>
       <a class="tab" href="/about">About</a>
+      ${SPANISH_LIVE ? '<a class="tab tab-lang" href="/es/" hreflang="es" lang="es">Español</a>' : ''}
     </nav>
     <div class="auth-cta">${authCta || '<a class="btn btn-ghost btn-sm" href="/login">Log In</a> <a class="btn btn-primary btn-sm" href="/signup">Sign Up</a>'}</div>
   </header>
@@ -182,8 +210,12 @@ async function renderListingPage(context) {
   const ownerIdentity = agentIdentity(listing.owner_name, listing.owner_license, listing.owner_brokerage);
   const isOwner = !!viewer && viewer.id === listing.owner_id;
   const isOwnerOrAdmin = !!viewer && (isOwner || viewer.role === 'admin');
-  // The street address is only ever shown to the owner (and admins), labeled so they know nobody else sees it.
+  // The street address is shown here only to the owner (and admins), labeled with who else sees it: nobody, unless the
+  // owner shares it with people going to an open house (from 24 hours before it starts until it ends), and then the
+  // label says so (see addressLabel below).
   const showAddress = isOwnerOrAdmin && listing.address;
+  // A single home (not a portfolio or a buyer profile) carries home facts and the drive link.
+  const singleHome = !listing.is_portfolio && !listing.is_buyer_only;
 
   // Don't count the owner refreshing their own page — "X people viewed this"
   // should mean actual prospective matches, not the owner checking on it.
@@ -205,21 +237,36 @@ async function renderListingPage(context) {
 
   const similar = await fetchSimilarEntities(db, 'listing', { excludeId: id, city: listing.city, state: listing.state, propertyType: listing.property_type });
 
-  const openHouses = await fetchOpenHouses(db, id, viewer ? viewer.id : null);
+  // The owner and address let openHouses.js hand the address to a going, named viewer inside the owner's sharing
+  // window, and the going names to the owner; times are labeled in Pacific time (Workers run in UTC).
+  const openHouses = await fetchOpenHouses(db, id, viewer ? viewer.id : null, { ownerId: listing.owner_id, address: listing.address });
   const openHousesHtml = openHouses.length ? `
     <div class="card about-card">
       <h2>Open Houses</h2>
       ${openHouses.map(oh => `
         <div class="side" data-open-house-id="${oh.id}">
-          <strong>${new Date(oh.startsAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })} – ${new Date(oh.endsAt).toLocaleTimeString('en-US', { timeStyle: 'short' })}</strong>
+          <strong>${escapeHtml(pacificWhenLabel(oh.startsAt, oh.endsAt))}</strong>
           ${oh.note ? `<p class="tiny">${escapeHtml(oh.note)}</p>` : ''}
+          ${oh.address ? `<p class="tiny oh-address">Address for this open house (shared by the owner with people going): ${escapeHtml(oh.address)}</p>` : ''}
           <p class="tiny" data-rsvp-count>${oh.rsvpCount} ${oh.rsvpCount === 1 ? 'person is' : 'people are'} going</p>
           ${viewer
-            ? `<button type="button" class="btn ${oh.imGoing ? 'btn-ghost' : 'btn-primary'} btn-sm" data-action="rsvp-open-house" data-id="${oh.id}" data-going="${oh.imGoing ? '1' : '0'}">${oh.imGoing ? "I'm Going ✓" : "I'm Going"}</button>`
+            ? `<button type="button" class="btn ${oh.imGoing ? 'btn-ghost' : 'btn-primary'} btn-sm" data-action="rsvp-open-house" data-id="${oh.id}" data-going="${oh.imGoing ? '1' : '0'}">${oh.imGoing ? "I'm Going ✓" : "I'm Going"}</button>${isOwner ? '' : `<p class="tiny">${RSVP_NAME_LINE}</p>`}`
             : `<a class="btn btn-ghost btn-sm" href="/signup">Sign up free to RSVP</a> <a class="tiny" href="/login">Have an account? Log in</a>`}
         </div>
       `).join('')}
     </div>` : '';
+  // Once the owner shares the address with people going to an open house, "only you see this" would be untrue.
+  const sharingAddress = openHouses.some(oh => oh.shareAddressWithRsvps);
+  const addressLabel = isOwner
+    ? (sharingAddress ? 'only you see this, and people going to an open house you share it with, from 24 hours before it starts until it ends' : 'only you see this')
+    : (sharingAddress ? 'private: only the owner, admins and people going to an open house the owner shares it with see this' : 'private: only the owner and admins see this');
+
+  // Home facts (the owner's words; one small JSON parse of the row already fetched, no new query). A rental's pets
+  // block sits with the rent and carries the long assistance-animal note with its California cites.
+  const facts = singleHome ? homeFactsLines(homeFactsFromRow(listing), homeCostsFromRow(listing), { isRental: !!listing.is_rental, longNote: !!listing.is_rental }) : { yard: [], toy: [], pets: [] };
+  const factsHtml = factsBlockHtml(YARD_HEADING, facts.yard, YARD_SEASON_LINE) + factsBlockHtml(TOY_HEADING, facts.toy, TOY_CONFIRM_LINE) + (listing.is_rental ? '' : petsBlockHtml(facts.pets));
+  // Same-plan homes: one indexed query, only when this owner opted in (no prices anywhere in the strip).
+  const twins = listing.plan_twins ? await fetchPlanTwins(db, listing, viewer ? viewer.id : null) : [];
 
   // Offers only apply to a home actually for sale/trade -- not a rental, and not the owner's own listing.
   const canOffer = !listing.is_rental && !listing.is_buyer_only && (!viewer || viewer.id !== listing.owner_id);
@@ -376,17 +423,21 @@ async function renderListingPage(context) {
         <div class="mini-block">
           <span class="label">Has</span>
           ${listing.is_portfolio ? `${members.length} properties` : `${escapeHtml(listing.property_type)} · ${listing.beds}bd/${listing.baths}ba${listing.sqft ? ` · ${listing.sqft.toLocaleString('en-US')} sqft` : ''}`}<br>
-          ${showAddress ? `${escapeHtml(listing.address)} <span class="tiny">(${isOwner ? 'only you see this' : 'private: only the owner and admins see this'})</span><br>` : ''}${loc}${listing.is_portfolio ? ' (primary property)' : ''}<br>
+          ${showAddress ? `${escapeHtml(listing.address)} <span class="tiny">(${addressLabel})</span><br>` : ''}${loc}${listing.is_portfolio ? ' (primary property)' : ''}<br>
+          ${singleHome ? driveLinkHtml(listing) : ''}
           <span class="tiny">Owner's estimated value (not an appraisal or list price)</span><br>
           ${money(listing.estimated_value)}${listing.is_portfolio ? ' combined' : ''} ${listing.is_portfolio ? '' : sparklineHtml(priceSeries)}
           ${listing.is_portfolio ? '' : `<div class="tiny">${daysOnMarketLabel(listing.created_at)}</div>`}
           ${(() => { const lines = homeCostsLines(homeCostsFromRow(listing)); return lines.length ? `<p class="tiny"><span class="label">${escapeHtml(HOME_COSTS_HEADING)}</span> ${escapeHtml(lines.join(' · '))}</p><p class="tiny">${escapeHtml(HOME_COSTS_CONFIRM_LINE)}</p>` : ''; })()}
+          ${factsHtml}
+          ${singleHome ? floorPlanLineHtml(listing, { isOwner }) : ''}
         </div>
         ${listing.is_rental
           ? `<div class="mini-block">
           <span class="label">Rent</span>
           ${money(listing.rent_amount)}/mo<br>
           ${listing.min_lease_months}-month minimum lease
+          ${petsBlockHtml(facts.pets)}
         </div>`
           : `<div class="mini-block">
           <span class="label">Wants</span>
@@ -416,6 +467,7 @@ async function renderListingPage(context) {
     ${openHousesHtml}
     ${offerHtml}
     ${!listing.is_rental ? mortgageCalcHtml(listing.estimated_value, { lenderNote: false }) : ''}
+    ${planTwinsHtml(twins, listing)}
     ${similarEntitiesHtml(similar)}
     ${discussionHtml}
 
@@ -450,7 +502,8 @@ async function renderListingPage(context) {
   });
 
   const noindex = !!listing.unlisted_owner;
+  // Signed in, the page is per viewer (the owner's address, an open-house address, RSVP state), so it's never cached.
   return new Response(renderShell(title, description, body, authCta, { jsonLd, image: shareImage, url: pageUrl, noindex }), {
-    headers: { 'Content-Type': 'text/html; charset=utf-8', ...(noindex ? { 'X-Robots-Tag': 'noindex' } : {}) },
+    headers: { 'Content-Type': 'text/html; charset=utf-8', ...(noindex ? { 'X-Robots-Tag': 'noindex' } : {}), ...(viewer ? { 'Cache-Control': 'private, no-store' } : {}) },
   });
 }

@@ -11,6 +11,49 @@ const DIRECTORY_PAGE_SIZE = 40;
 let directoryOffset = 0;
 let directoryHasMore = false;
 
+// Toy-box and floor-plan twins (home facts batch). "Same floor plan" comes from a twin strip's "See them all" link
+// (/?plan=<key>#directory); while it's set, the not-comparable-sales line shows under its chip, because these cards
+// show each owner's price side by side.
+const TOY_TWINS_NOT_COMPS_LINE = "Floor plans are as each owner entered them. Same plan doesn't mean same condition, upgrades or value: these aren't comparable sales or a price estimate.";
+let toyPlanKey = (() => { try { return (new URLSearchParams(location.search).get('plan') || '').trim().slice(0, 200); } catch { return ''; } })();
+
+// Up to 3 chips from the owner's parking and garage facts, always marked as the owner's.
+function toyChipsHtml(toy) {
+  const t = toy || {};
+  const chips = [];
+  if (t.rv === 'yes') chips.push('RV/boat parking (owner)');
+  if (Number.isInteger(t.gateIn)) chips.push(`Gate about ${t.gateIn} in. (owner)`);
+  if (Number.isInteger(t.garage) && t.garage > 0) chips.push(`${t.garage}-car garage (owner)`);
+  if (t.workshop === 'yes') chips.push('Workshop (owner)');
+  if (t.ev240 === 'yes') chips.push('240V/EV outlet (owner)');
+  if (!chips.length) return '';
+  return `<div class="chip-row">${chips.slice(0, 3).map(c => `<span class="chip toy-chip">${escapeHtml(c)}</span>`).join('')}</div>`;
+}
+
+function toyPlanFilterHtml() {
+  return `<div class="chip-row"><button type="button" class="chip" id="toyPlanClear" aria-label="Remove the same floor plan filter">Same floor plan ×</button></div>
+    <p class="tiny">${escapeHtml(TOY_TWINS_NOT_COMPS_LINE)}</p>`;
+}
+
+function toyRenderPlanFilter() {
+  const el = document.getElementById('directoryPlanFilter');
+  if (!el) return;
+  el.innerHTML = toyPlanKey ? toyPlanFilterHtml() : '';
+  el.classList.toggle('hidden', !toyPlanKey);
+}
+
+function toyClearPlan() {
+  toyPlanKey = '';
+  try {
+    const params = new URLSearchParams(location.search);
+    params.delete('plan');
+    const q = params.toString();
+    history.replaceState(null, '', `${location.pathname}${q ? `?${q}` : ''}${location.hash}`);
+  } catch { /* the filter is cleared either way */ }
+  toyRenderPlanFilter();
+  loadDirectory();
+}
+
 function directoryCardHtml(l) {
   return `
     <div class="card ${activityAccentClass(l.recent_activity)}" data-listing-id="${l.id}">
@@ -33,6 +76,7 @@ function directoryCardHtml(l) {
       </div>
       <p class="tiny">${daysOnMarketLabel(l.created_at)}</p>
       ${homeCostChipsHtml(l.mello_roos_annual, l.hoa_monthly)}
+      ${toyChipsHtml(l.toy)}
       ${socialProofHtml(l.favorite_count, l.comment_count)}
       ${l.is_portfolio ? `<div class="mini-block"><span class="label">Includes</span>${(l.portfolio_members || []).map(m => `${escapeHtml(m.propertyType)} in ${escapeHtml(m.city)}, ${escapeHtml(m.state)} (${money(m.estimatedValue)})`).join('<br>')}</div>` : ''}
       ${l.is_rental
@@ -108,6 +152,15 @@ function directoryFilterParams() {
   if (kind) params.set('kind', kind);
   if (mello === 'none') params.set('noMelloRoos', '1');
   if (hoaMax !== '') params.set('hoaMax', hoaMax);
+  // Parking and garage (from the owner): each only matches homes whose owner said so.
+  for (const [id, name] of [['filterRv', 'rv'], ['filterSideAccess', 'sideAccess'], ['filterWorkshop', 'workshop'], ['filterEv240', 'ev240'], ['filterHoaParking', 'hoaParking']]) {
+    if (document.getElementById(id)?.checked) params.set(name, '1');
+  }
+  const gateMin = (document.getElementById('filterGateMin')?.value || '').trim();
+  const garageMin = document.getElementById('filterGarageMin')?.value || '';
+  if (gateMin) params.set('minGateIn', gateMin);
+  if (garageMin) params.set('minGarage', garageMin);
+  if (toyPlanKey) params.set('plan', toyPlanKey);
   return { params, city, state };
 }
 
@@ -293,12 +346,16 @@ async function loadLiveNumbers() {
     typeSelect.appendChild(opt);
   });
 
-  ['directoryFilters', 'directoryFilters2', 'directoryFilters3'].forEach(formId => document.getElementById(formId).addEventListener('submit', e => e.preventDefault()));
+  ['directoryFilters', 'directoryFilters2', 'directoryFilters3', 'directoryFilters4'].forEach(formId => document.getElementById(formId)?.addEventListener('submit', e => e.preventDefault()));
   document.getElementById('directoryFilters').addEventListener('input', () => loadDirectory());
   document.getElementById('directoryFilters2').addEventListener('input', () => loadDirectory());
   document.getElementById('directoryFilters2').addEventListener('change', () => loadDirectory());
   document.getElementById('directoryFilters3').addEventListener('change', () => loadDirectory());
   document.getElementById('directoryFilters3').addEventListener('input', () => loadDirectory());
+  document.getElementById('directoryFilters4')?.addEventListener('change', () => loadDirectory());
+  document.getElementById('directoryFilters4')?.addEventListener('input', e => { if (e.target && e.target.type === 'number') loadDirectory(); });
+  toyRenderPlanFilter();
+  document.getElementById('directoryPlanFilter')?.addEventListener('click', e => { if (e.target.closest('#toyPlanClear')) toyClearPlan(); });
   document.getElementById('viewListBtn').addEventListener('click', () => setView('list'));
   document.getElementById('viewMapBtn').addEventListener('click', () => setView('map'));
   document.getElementById('directoryLoadMoreBtn')?.addEventListener('click', () => loadMoreDirectory());

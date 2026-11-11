@@ -1,6 +1,7 @@
 // Per-person limits on actions that notify someone else (batch L1): new conversations, messages, proposals, price
-// opinions, showing requests, broker-preview RSVPs, agent invites, saved searches and reports, owner timing edits
-// (they change what buyers' timing counts show; R3-1b), and swept photo replacements and Then & Now pairs (owner
+// opinions, showing requests, broker-preview RSVPs, open-house RSVPs (owners see who is going; home facts batch),
+// agent invites, saved searches and reports, owner timing edits (they change what buyers' timing counts show;
+// R3-1b), and swept photo replacements and Then & Now pairs (owner
 // tools). Each action is one row in user_action_log (migration_v43.sql), checked and recorded in ONE statement, so two requests at the same moment can't both slip
 // under the limit (D1 runs one statement at a time). Rows are pruned by the lazy jobs in functions/api/_middleware.js.
 import { json } from './util.js';
@@ -16,6 +17,7 @@ export const USER_LIMITS = {
   price_vote: [{ max: 15, minutes: 60 }, { max: 60, minutes: DAY }, { max: 6, minutes: DAY, perRef: true }], // ref pre_listing:<id>
   showing_request: [{ max: 10, minutes: DAY }, { max: 3, minutes: 7 * DAY, perRef: true }], // ref pre_listing:<id>
   preview_rsvp: [{ max: 20, minutes: DAY }],
+  open_house_rsvp: [{ max: 30, minutes: DAY }], // adding an open-house RSVP (any kind); removing one never counts
   agent_invite: [{ max: 20, minutes: DAY }],
   saved_search: [{ max: 20, minutes: DAY }],
   timing_edit: [{ max: 10, minutes: DAY }],

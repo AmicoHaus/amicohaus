@@ -9,7 +9,7 @@ import { notBlockedSql } from './blocks.js';
 // (context.waitUntil) by the create endpoints, never inside the request.
 //
 // listings: one new trade listing, or an array of them from one owner (the bulk upload):
-//   { id, user_id, city, state, neighborhood, property_type, estimated_value }
+//   { id, user_id, city, state, neighborhood, property_type, estimated_value, toy } (toy: the owner's parking facts)
 // Only real, active owners alert anyone; demo, suspended and blocked people are left out both ways; each person gets
 // ONE alert however many of their searches (or of the new listings) match.
 export async function notifySavedSearches(db, listings) {
@@ -22,7 +22,7 @@ export async function notifySavedSearches(db, listings) {
       .bind(ownerId, DEMO_EMAIL_PATTERN).first();
     if (!owner) continue;
     const searches = await db.prepare(
-      `SELECT s.user_id, s.locations, s.property_type, s.price_min, s.price_max
+      `SELECT s.user_id, s.locations, s.property_type, s.price_min, s.price_max, s.toy_flags, s.min_gate_in, s.min_garage
        FROM saved_searches s JOIN users ON users.id = s.user_id
        WHERE users.status = 'active' AND users.email NOT LIKE ?1 AND s.user_id != ?2
          AND ${notBlockedSql('s.user_id', '?2')}
@@ -38,6 +38,15 @@ export async function notifySavedSearches(db, listings) {
         if (s.property_type !== 'Any' && s.property_type !== home.property_type) continue;
         if (s.price_max > 0 && home.estimated_value > s.price_max) continue;
         if (s.price_min > 0 && home.estimated_value < s.price_min) continue;
+        // Toy-box (parking and garage): only what the owner said matches; "not sure" never does. Integer checks only,
+        // no JSON per search. HOA parking is a browse filter only (costs are saved by a later request).
+        const toy = home.toy || {};
+        if ((s.toy_flags & 1) && toy.rv !== 'yes') continue;
+        if ((s.toy_flags & 2) && toy.sideAccess !== 'yes') continue;
+        if ((s.toy_flags & 4) && toy.workshop !== 'yes') continue;
+        if ((s.toy_flags & 8) && toy.ev240 !== 'yes') continue;
+        if (s.min_gate_in && !(toy.gateIn >= s.min_gate_in)) continue;
+        if (s.min_garage && !(toy.garage >= s.min_garage)) continue;
         const mine = hits.get(s.user_id) || new Set();
         mine.add(home);
         hits.set(s.user_id, mine);
@@ -66,5 +75,7 @@ export function savedSearchHome(id, userId, d) {
   return {
     id, user_id: userId, city: d.city, state: d.state, neighborhood: d.neighborhood || '',
     property_type: d.propertyType, estimated_value: d.estimatedValue,
+    // The owner's parking and garage facts arrive in the same create request, so a toy-box search can match at once.
+    toy: (d.homeFacts && d.homeFacts.toy) || {},
   };
 }

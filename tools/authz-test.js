@@ -72,6 +72,10 @@ function sql(command) {
 class User {
   constructor(role) { this.role = role; this.cookie = ''; this.id = null; this.email = `delivered+authz-${role}-${RUN}@resend.dev`; }
   async call(method, url, body, opts = {}) {
+    // Workers Free allows ~10 ms CPU per request; a burst of ~500 back-to-back requests gets the deployment
+    // throttled (503 "error code: 1102"). A short pause between calls keeps the run reliable. AUTHZ_DELAY_MS=0 skips it.
+    const pause = Number(process.env.AUTHZ_DELAY_MS ?? 250);
+    if (pause > 0) await new Promise(r => setTimeout(r, pause));
     const headers = {};
     if (this.cookie) headers.Cookie = this.cookie;
     let payload;
@@ -1159,6 +1163,25 @@ const denied = r => r.status >= 400 && r.status < 500;
   record('open-house', 'a signed-in user can RSVP', rsvpB.json && rsvpB.json.going === true, JSON.stringify(rsvpB.json));
   const ohDeleteByStranger = await B.call('DELETE', `/api/listings/${LA}/open-houses/${OH}`);
   record('open-house', "a non-owner can't cancel someone else's open house", denied(ohDeleteByStranger), `status ${ohDeleteByStranger.status}`);
+  // Open-house route (home facts batch): the owner's address-sharing switch, going names for the owner only, the plan.
+  const ohShareByStranger = await B.call('PATCH', `/api/listings/${LA}/open-houses/${OH}`, { shareAddressWithRsvps: true });
+  record('open-house', "a non-owner can't turn on address sharing for someone else's open house", denied(ohShareByStranger), `status ${ohShareByStranger.status}`);
+  const ohShareAnon = await anon.call('PATCH', `/api/listings/${LA}/open-houses/${OH}`, { shareAddressWithRsvps: true });
+  record('open-house', "anonymous can't change address sharing", ohShareAnon.status === 401, `status ${ohShareAnon.status}`);
+  const ohListByB = await B.call('GET', `/api/listings/${LA}/open-houses`);
+  record('open-house', 'a visitor never gets going names, and no address while sharing is off',
+    ohListByB.status === 200 && ohListByB.json.openHouses.every(o => o.goingNames === undefined && o.address === undefined), JSON.stringify(ohListByB.json));
+  const ohListByA = await A.call('GET', `/api/listings/${LA}/open-houses`);
+  record('open-house', 'the owner gets goingNames and goingBefore', ohListByA.status === 200 && ohListByA.json.openHouses.every(o => Array.isArray(o.goingNames) && typeof o.goingBefore === 'number'), JSON.stringify(ohListByA.json));
+  const ohShareOn = await A.call('PATCH', `/api/listings/${LA}/open-houses/${OH}`, { shareAddressWithRsvps: true });
+  const ohShareOff = await A.call('PATCH', `/api/listings/${LA}/open-houses/${OH}`, { shareAddressWithRsvps: false });
+  record('open-house', 'the owner can turn address sharing on and off', ohShareOn.status === 200 && ohShareOn.json.shareAddressWithRsvps === true && ohShareOff.status === 200 && ohShareOff.json.shareAddressWithRsvps === false,
+    `${ohShareOn.status} ${ohShareOff.status}`);
+  const planAnon = await anon.call('GET', '/api/open-house-plan');
+  record('open-house', 'the open-house plan needs sign-in', planAnon.status === 401, `status ${planAnon.status}`);
+  const planB = await B.call('GET', '/api/open-house-plan?days=8');
+  record('open-house', "the plan lists the open house B RSVP'd to, with no address while sharing is off",
+    planB.status === 200 && planB.json.stops.some(s => s.kind === 'listing' && s.openHouseId === OH && s.address === null), JSON.stringify(planB.json));
 
   const favoriteByC = await C.call('PUT', `/api/listings/${LA}/feedback`, { feedback: 'up' });
   record('open-house', 'a user can favorite a listing', favoriteByC.status === 200, `status ${favoriteByC.status}`);
@@ -1446,7 +1469,7 @@ const denied = r => r.status >= 400 && r.status < 500;
     '/api/saved-searches', '/api/agent-search-alerts', '/api/referrals', '/api/demo-overview', '/api/broker/stats', '/api/agents/my-bids', '/api/agents/my-invites', '/api/agents/favorites', `/sitemap.xml`,
     '/api/augmented-homes', `/api/augmented-homes/${AUG}`, '/api/accessibility-needs-alerts', '/api/dev-projects', `/api/dev-projects/${PROJ}`,
     '/api/green-homes', `/api/green-homes/${GREEN}`,
-    `/profile/${G.id}`, `/profile/${A.id}`, `/api/listings/${LA}/offers`, `/api/listings/${LA}/open-houses`, `/listing/${LA}`,
+    `/profile/${G.id}`, `/profile/${A.id}`, `/api/listings/${LA}/offers`, `/api/listings/${LA}/open-houses`, `/listing/${LA}`, '/api/open-house-plan',
     `/api/listings/${LA}/thread`, `/api/posts/${THREAD_POST}/comments`, '/api/market-events', '/api/market-pulse-alerts', '/api/market-trends', '/api/search?q=AUTHZ',
     `/augmented-home/${AUG2}`, `/green-home/${GREEN2}`, `/project/${PROJ}`, `/listing/${LA}/flyer`, `/augmented-home/${AUG}/flyer`, `/green-home/${GREEN}/flyer`, '/api/market-events/export.csv',
     `/api/listings/${LA}/performance.csv`, `/api/augmented-homes/${AUG}/performance.csv`, `/api/green-homes/${GREEN}/performance.csv`, '/api/admin/activity-timeseries',

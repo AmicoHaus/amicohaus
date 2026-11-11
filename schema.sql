@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS users (
   seller_report_opt_out INTEGER NOT NULL DEFAULT 0,
   seller_report_week TEXT,
   seller_report_failures INTEGER NOT NULL DEFAULT 0,
+  -- Spanish pages (migration_v46): the person's own display language. Private: never used for matching, alerts, filters, lists or counts.
+  ui_lang TEXT NOT NULL DEFAULT 'en' CHECK(ui_lang IN ('en','es')),
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code);
@@ -84,6 +86,14 @@ CREATE TABLE IF NOT EXISTS listings (
   mello_roos_annual INTEGER,
   hoa_monthly INTEGER,
   hoa_details_json TEXT NOT NULL DEFAULT '{}',
+  -- Home facts (migration_v46, homeFacts.js): owner-entered yard/sun, parking/garage, pets; '{}' = nothing entered.
+  home_facts_json TEXT NOT NULL DEFAULT '{}',
+  -- Floor-plan twins (migration_v46, planTwins.js): what the owner typed; listed with same-plan homes only when plan_twins = 1.
+  plan_builder TEXT,
+  plan_name TEXT,
+  plan_community TEXT,
+  plan_key TEXT,
+  plan_twins INTEGER NOT NULL DEFAULT 0,
   -- Paused by an admin (moderation): only an admin can make it active again (migration_v43).
   hidden_at TEXT,
   hidden_reason TEXT,
@@ -92,6 +102,8 @@ CREATE TABLE IF NOT EXISTS listings (
 );
 CREATE INDEX IF NOT EXISTS idx_listings_user ON listings(user_id);
 CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status);
+-- migration_v46
+CREATE INDEX IF NOT EXISTS idx_listings_plan_key ON listings(plan_key);
 
 CREATE TABLE IF NOT EXISTS desired_criteria (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -308,6 +320,10 @@ CREATE TABLE IF NOT EXISTS saved_searches (
   move_from TEXT,
   move_to TEXT,
   stay_offer_days INTEGER NOT NULL DEFAULT 0 CHECK(stay_offer_days BETWEEN 0 AND 29),
+  -- Toy-box (migration_v46): flags 1 RV/boat, 2 side access, 4 workshop, 8 240V/EV; minimums.
+  toy_flags INTEGER NOT NULL DEFAULT 0,
+  min_gate_in INTEGER,
+  min_garage INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -473,6 +489,8 @@ CREATE TABLE IF NOT EXISTS pre_listings (
   mello_roos_annual INTEGER,
   hoa_monthly INTEGER,
   hoa_details_json TEXT NOT NULL DEFAULT '{}',
+  -- Home facts (migration_v46, homeFacts.js): owner-entered yard/sun, parking/garage, pets; '{}' = nothing entered.
+  home_facts_json TEXT NOT NULL DEFAULT '{}',
   video_r2_key TEXT,
   video_content_type TEXT,
   listing_ready_json TEXT NOT NULL DEFAULT '[]',
@@ -863,6 +881,8 @@ CREATE TABLE IF NOT EXISTS augmented_homes (
   mello_roos_annual INTEGER,
   hoa_monthly INTEGER,
   hoa_details_json TEXT NOT NULL DEFAULT '{}',
+  -- Home facts (migration_v46, homeFacts.js): owner-entered yard/sun, parking/garage, pets; '{}' = nothing entered.
+  home_facts_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -988,6 +1008,8 @@ CREATE TABLE IF NOT EXISTS open_houses (
   starts_at TEXT NOT NULL,
   ends_at TEXT NOT NULL,
   note TEXT NOT NULL DEFAULT '',
+  -- Open-house route (migration_v46): owner shares the street address with RSVPs (24 h before start until end).
+  share_address_with_rsvps INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_open_houses_listing ON open_houses(listing_id);
@@ -1009,10 +1031,14 @@ CREATE TABLE IF NOT EXISTS open_house_rsvps (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   open_house_id INTEGER NOT NULL REFERENCES open_houses(id) ON DELETE CASCADE,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  -- Open-house route (migration_v46): 1 = RSVP'd after being told the owner sees their name; 0 = before (count only).
+  rsvp_named INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(open_house_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_open_house_rsvps_oh ON open_house_rsvps(open_house_id);
+-- migration_v46
+CREATE INDEX IF NOT EXISTS idx_open_house_rsvps_user ON open_house_rsvps(user_id);
 
 -- Structured offers on a regular (trade) listing -- a buyer's actual terms,
 -- not just a DM. No money moves through Amico Haus; this is a comparison
@@ -1062,6 +1088,8 @@ CREATE TABLE IF NOT EXISTS green_homes (
   mello_roos_annual INTEGER,
   hoa_monthly INTEGER,
   hoa_details_json TEXT NOT NULL DEFAULT '{}',
+  -- Home facts (migration_v46, homeFacts.js): owner-entered yard/sun, parking/garage, pets; '{}' = nothing entered.
+  home_facts_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -1133,6 +1161,8 @@ CREATE TABLE IF NOT EXISTS augmented_home_open_houses (
   starts_at TEXT NOT NULL,
   ends_at TEXT NOT NULL,
   note TEXT NOT NULL DEFAULT '',
+  -- Open-house route (migration_v46): owner shares the street address with RSVPs (24 h before start until end).
+  share_address_with_rsvps INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_augmented_home_open_houses_home ON augmented_home_open_houses(augmented_home_id);
@@ -1142,10 +1172,14 @@ CREATE TABLE IF NOT EXISTS augmented_home_open_house_rsvps (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   open_house_id INTEGER NOT NULL REFERENCES augmented_home_open_houses(id) ON DELETE CASCADE,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  -- Open-house route (migration_v46): 1 = RSVP'd after being told the owner sees their name; 0 = before (count only).
+  rsvp_named INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(open_house_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_augmented_home_open_house_rsvps_oh ON augmented_home_open_house_rsvps(open_house_id);
+-- migration_v46
+CREATE INDEX IF NOT EXISTS idx_augmented_home_open_house_rsvps_user ON augmented_home_open_house_rsvps(user_id);
 
 CREATE TABLE IF NOT EXISTS green_home_open_houses (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1153,6 +1187,8 @@ CREATE TABLE IF NOT EXISTS green_home_open_houses (
   starts_at TEXT NOT NULL,
   ends_at TEXT NOT NULL,
   note TEXT NOT NULL DEFAULT '',
+  -- Open-house route (migration_v46): owner shares the street address with RSVPs (24 h before start until end).
+  share_address_with_rsvps INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_green_home_open_houses_home ON green_home_open_houses(green_home_id);
@@ -1162,10 +1198,14 @@ CREATE TABLE IF NOT EXISTS green_home_open_house_rsvps (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   open_house_id INTEGER NOT NULL REFERENCES green_home_open_houses(id) ON DELETE CASCADE,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  -- Open-house route (migration_v46): 1 = RSVP'd after being told the owner sees their name; 0 = before (count only).
+  rsvp_named INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(open_house_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_green_home_open_house_rsvps_oh ON green_home_open_house_rsvps(open_house_id);
+-- migration_v46
+CREATE INDEX IF NOT EXISTS idx_green_home_open_house_rsvps_user ON green_home_open_house_rsvps(user_id);
 
 -- Favorites (bookmark a specific listing for later, distinct from a saved-search alert) for AugmentedHomes,
 -- GreenHomes, and FinderMine -- regular listings already have this via listing_feedback 'up'. Also the

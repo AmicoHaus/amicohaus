@@ -46,7 +46,7 @@ check('every new file in the batch is in the tree', missing.length === 0, missin
 const app = read('app.html');
 const localScripts = html => [...html.matchAll(/<script\b[^>]*\bsrc="([^"]+)"[^>]*>/g)].map(m => m[1]).filter(s => !/^https?:/.test(s));
 const WANT_ORDER = ['client.js', 'agent-cards.js', 'seller-prep.js', 'decision-night.js', 'share-moment.js', 'timing-match.js', 'ready-meter.js', 'opinion-refresh.js',
-  'privacy-sweep.js', 'then-now.js', 'visit-feedback.js', 'handoff-binder.js', 'agent-growth.js', 'main.js'];
+  'privacy-sweep.js', 'then-now.js', 'visit-feedback.js', 'handoff-binder.js', 'agent-growth.js', 'open-house-plan.js', 'main.js'];
 check('app.html: script order exact', JSON.stringify(localScripts(app)) === JSON.stringify(WANT_ORDER), JSON.stringify(localScripts(app)));
 const PHOTO_RIGHTS_NOTE = (read('client.js').match(/const PHOTO_RIGHTS_NOTE = '([^']+)';/) || [])[1];
 const HINT = '<p class="tiny field-hint">By adding photos you confirm: I took these photos or have permission to use them. When you pick photos, Privacy Sweep opens so you can blur or cover anything private first.</p>';
@@ -152,10 +152,11 @@ const sec = (n) => privacy.slice(privacy.indexOf(`<h2>${n}.`), privacy.indexOf(`
 check('privacy.html: each addition in its section (1, 2, 3 after "Timing, check-ins", 8)', sec(1).includes(PRIVACY[0]) && sec(1).includes('<li><strong>Pre-listing information:</strong>') && sec(2).includes(PRIVACY[1])
   && sec(3).includes(PRIVACY[2]) && sec(3).indexOf('<strong>Timing, check-ins and price opinion history.</strong>') < sec(3).indexOf(PRIVACY[2])
   && /price opinion history\.<\/strong>[^\n]*<\/p>\n\s*<p><strong>Privacy Sweep, Then/.test(sec(3)) && sec(8).includes(PRIVACY[3]));
-check('privacy.html: date line unchanged', privacy.includes('<p class="section-sub">Last updated November 5, 2026.</p>'));
+check('privacy.html: date line unchanged', privacy.includes('<p class="section-sub">Last updated November 11, 2026.</p>'));
 const whatsNew = read('whats-new.html');
-const firstCard = whatsNew.indexOf('<div class="card about-card">');
-check("whats-new.html: the new card is first", firstCard > 0 && whatsNew.indexOf('<h2>Privacy Sweep, Then &amp; Now, and tools for after you hire</h2>') > firstCard
+// The home facts batch put its card first; the owner tools card is now the second one (firstCard below).
+const firstCard = whatsNew.indexOf('<div class="card about-card">', whatsNew.indexOf('<div class="card about-card">') + 1);
+check("whats-new.html: the owner tools card, right after the home facts card", firstCard > 0 && whatsNew.indexOf('<h2>Privacy Sweep, Then &amp; Now, and tools for after you hire</h2>') > firstCard
   && whatsNew.indexOf('<h2>Privacy Sweep, Then &amp; Now, and tools for after you hire</h2>') < whatsNew.indexOf('<div class="card about-card">', firstCard + 10));
 check('whats-new.html: the card copy', whatsNew.includes("Show agents what you've done to your home with Then &amp; Now: an old photo next to today's, and a dated list of your upgrades (owner-reported, not a disclosure).")
   && whatsNew.includes('New every Monday: Mystery Home Monday, a guessing game about a home that already sold. Just for fun.') && whatsNew.includes('<p class="tiny"><a href="/signup?as=homeowner">Post a pre-listing →</a></p>'));

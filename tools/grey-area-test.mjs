@@ -370,7 +370,7 @@ const signup = await mod('functions/api/auth/signup.js');
 const { CURRENT_TERMS_VERSION } = await mod('functions/_lib/terms.js');
 r = await call(signup.onRequestPost, 'POST', '/api/auth/signup', null, {}, { email: 'new.person@example.test', displayName: 'New Person', intent: 'homeowner' });
 const nu = one("SELECT terms_version, terms_accepted_at FROM users WHERE email = 'new.person@example.test'");
-check("a new account records the Terms version 2026-11-05 (CURRENT_TERMS_VERSION) and when it was accepted", CURRENT_TERMS_VERSION === '2026-11-05' && [201, 202].includes(r.status) && nu && nu.terms_version === CURRENT_TERMS_VERSION && !!nu.terms_accepted_at, r.text + JSON.stringify(nu));
+check("a new account records the Terms version 2026-11-11 (CURRENT_TERMS_VERSION) and when it was accepted", CURRENT_TERMS_VERSION === '2026-11-11' && [201, 202].includes(r.status) && nu && nu.terms_version === CURRENT_TERMS_VERSION && !!nu.terms_accepted_at, r.text + JSON.stringify(nu));
 run("UPDATE users SET terms_version = NULL, terms_accepted_at = NULL, verify_sent_at = NULL WHERE email = 'new.person@example.test'");
 r = await call(signup.onRequestPost, 'POST', '/api/auth/signup', null, {}, { email: 'new.person@example.test', displayName: 'New Person' });
 check('...signing up again while pending records it again', one("SELECT terms_version FROM users WHERE email = 'new.person@example.test'").terms_version === CURRENT_TERMS_VERSION);
@@ -491,7 +491,7 @@ check("Rudy's own flyer doesn't claim he doesn't represent it", r.text.includes(
 // ===================== 13. Static pages (#2, #14, #16, #18, #22, #24) =====================
 const page = (f) => readFileSync(`${root}/${f}`, 'utf8');
 const terms = page('terms.html');
-check('Terms: dated November 5, 2026 (version 2026-11-05) and titled Terms of Use', terms.includes('Last updated November 5, 2026 (version 2026-11-05).') && terms.includes('<title>Terms of Use — Amico Haus</title>'));
+check('Terms: dated November 11, 2026 (version 2026-11-11) and titled Terms of Use', terms.includes('Last updated November 11, 2026 (version 2026-11-11).') && terms.includes('<title>Terms of Use — Amico Haus</title>'));
 check('Terms: section 1 names who presents it and that Amico Haus does not represent you',
   terms.includes('Amico Haus is presented by Rudy Flores, a salesperson licensed under Coldwell Banker West (DRE #02257808). Amico Haus does not represent you; any agent, including Rudy, represents you only under a signed agreement with their brokerage.') && !terms.includes('is not a licensed real estate agent'));
 check('Terms: the fee wording (escrow at closing, never pay an agent personally, no payments)',

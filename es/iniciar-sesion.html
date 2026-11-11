@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Iniciar sesión — Amico Haus</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<!-- Spanish twin of login.html: update both. -->
+<div id="app">
+  <a class="agent-strip" href="/es/acerca">Presentado por <strong>Rudy Flores</strong> &middot; Coldwell Banker West &middot; DRE #02257808</a>
+  <header class="topbar">
+    <a class="brand" href="/es/">
+      <svg viewBox="0 0 48 48" class="logo" aria-hidden="true">
+        <path d="M24 4 L44 20 V42 H30 V28 H18 V42 H4 V20 Z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+      </svg>
+      <span class="brand-text">AMICO <span class="accent">HAUS</span></span>
+    </a>
+    <nav class="tabs">
+      <a class="tab tab-demo" href="/demo">Demo (en inglés)</a>
+      <a class="tab tab-cta tab-cta-post" href="/es/registro?as=homeowner">Publicar un pre-listado</a>
+      <a class="tab tab-cta tab-cta-agent" href="/es/registro?as=agent">Soy agente</a>
+      <a class="tab" href="/es/#como">Cómo funciona</a>
+      <a class="tab" href="/es/acerca">Acerca de</a>
+      <a class="tab tab-lang" href="/login" hreflang="en" lang="en">English</a>
+    </nav>
+    <div class="auth-cta" id="authCta">
+      <a class="btn btn-ghost btn-sm" href="/es/iniciar-sesion">Iniciar sesión</a>
+      <a class="btn btn-primary btn-sm" href="/es/registro">Registrarse</a>
+    </div>
+  </header>
+  <main class="auth-main">
+    <div class="auth-card">
+      <h1>Iniciar sesión</h1>
+
+      <form id="loginForm" class="profile-form">
+        <div class="field">
+          <label for="email">Correo electrónico</label>
+          <input type="email" id="email" required maxlength="200" placeholder="usted@ejemplo.com" autocomplete="username" inputmode="email">
+        </div>
+        <div class="field">
+          <label for="password">Contraseña</label>
+          <input type="password" id="password" required maxlength="200" placeholder="Su contraseña" autocomplete="current-password">
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary" id="submitBtn">Iniciar sesión</button>
+        </div>
+      </form>
+
+      <form id="twoFactorForm" class="profile-form hidden">
+        <div class="field">
+          <label for="twoFactorCode">Escriba el código de 6 dígitos de su aplicación de autenticación</label>
+          <input type="text" id="twoFactorCode" required maxlength="6" pattern="[0-9]{6}" placeholder="123456" inputmode="numeric" autocomplete="one-time-code">
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary" id="twoFactorSubmitBtn">Confirmar</button>
+        </div>
+      </form>
+
+      <p class="form-note hidden" id="unconfirmedRow" role="status">¿Todavía no abre su enlace de confirmación? <button type="button" class="link-btn" id="resendLinkBtn">Envíenme uno nuevo</button>.</p>
+      <p class="form-note"><a href="/forgot-password">¿Olvidó su contraseña? (en inglés)</a></p>
+      <p class="form-note">¿Necesita una cuenta? <a href="/es/registro">Regístrese</a></p>
+      <p class="form-note">Después de iniciar sesión, la aplicación se muestra en inglés por ahora.</p>
+    </div>
+  </main>
+  <footer class="site-footer">
+    <span class="footer-tagline" lang="en">Amico Haus: the real estate marketplace of tomorrow! Everything that's missing from the real estate market for the homeowner!</span> <a href="/es/acerca">Acerca de</a> · <a href="/es/contacto">Contacto</a> · <a href="/es/terminos">Términos de uso (resumen)</a> · <a href="/es/privacidad">Privacidad (resumen)</a> · <a href="/es/accesibilidad">Accesibilidad</a>
+    <p class="footer-legal">Equal Housing Opportunity · Igualdad de Oportunidad en la Vivienda · <a href="/es/accesibilidad">Accesibilidad</a></p>
+  </footer>
+</div>
+<script src="/client.js"></script>
+<script src="/page-login.js"></script>
+<!-- Cloudflare Web Analytics -->
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "91a193988b2d45e58aa1c27d5abf6bdb"}'></script>
+<!-- End Cloudflare Web Analytics -->
+</body>
+</html>

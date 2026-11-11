@@ -50,6 +50,13 @@ export async function onRequestGet(context) {
     // Owner-side only: the client an agent listed this for, and view counts.
     delete safe.client_name;
     delete safe.views;
+    // The floor plan the owner typed is public only once they tick "List my home with ... my floor plan".
+    if (Number(listing.plan_twins) !== 1) {
+      delete safe.plan_builder;
+      delete safe.plan_name;
+      delete safe.plan_community;
+      delete safe.plan_key;
+    }
   }
   safe.external_links = parseJsonSafe(listing.external_links, []);
   // Why the owner is moving (optional) is shown only to the owner and their matches (functions/api/matches.js),

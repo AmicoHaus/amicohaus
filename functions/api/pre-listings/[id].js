@@ -9,6 +9,7 @@ import { timingForViewer } from '../../_lib/timingMatch.js';
 import { readyMeterForOwner, agentViewFor } from '../../_lib/readyMeter.js';
 import { attachOpinionTrails, fetchMyOpinionTrail, fetchMyRefreshAsk } from '../../_lib/opinionTrail.js';
 import { homeCostsFromRow } from '../../_lib/homeCosts.js';
+import { homeFactsFromRow } from '../../_lib/homeFacts.js';
 import { wrapUpSellerPrep } from '../../_lib/sellerPrepWrapUp.js';
 import { LAUNCH_ZIPS, FOUNDING_SPOTS, LIVE_FOUNDERS_SQL } from '../../_lib/zipBoard.js';
 import { proposalsSealed, countSealedProposals, fetchFinalists, sqlTime } from '../../_lib/decisionNight.js';
@@ -75,6 +76,7 @@ export async function onRequestGet(context) {
     proposalsPaused: !!row.proposals_paused,
     status: row.status, awardedBidId: row.awarded_bid_id, createdAt: row.created_at,
     photoIds: photos.map(p => p.id), votes, costs: homeCostsFromRow(row),
+    facts: homeFactsFromRow(row),
     priceHistory: priceHistoryRows.results.map(r => ({ oldPrice: r.old_price, newPrice: r.new_price, changedAt: r.changed_at })),
   };
   // Timing Match: the owner's closing window and stay (always for the owner; for admins and approved agents once set).

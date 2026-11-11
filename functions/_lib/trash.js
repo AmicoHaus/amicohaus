@@ -74,17 +74,24 @@ export async function restoreFromTrash(db, userId, trashId) {
   const snap = JSON.parse(row.snapshot);
   const l = snap.listing;
 
+  // The owner's costs, home facts, floor plan and moving reasons come back too (an older snapshot without them gets
+  // the column defaults). 33 bound params, one statement.
   const result = await db.prepare(
     `INSERT INTO listings (user_id, title, description, address, neighborhood, client_name, city, state, property_type,
        beds, baths, sqft, estimated_value, price_tier, show_exact_address, external_links, is_buyer_only,
-       is_rental, rent_amount, min_lease_months, is_portfolio, status, hidden_at, hidden_reason)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
+       is_rental, rent_amount, min_lease_months, is_portfolio, status, hidden_at, hidden_reason,
+       life_event_tags_json, mello_roos_annual, hoa_monthly, hoa_details_json, home_facts_json,
+       plan_builder, plan_name, plan_community, plan_key, plan_twins)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     userId, l.title, l.description, l.address, l.neighborhood, l.client_name,
     l.city, l.state, l.property_type, l.beds, l.baths, l.sqft, l.estimated_value, l.price_tier,
     0, l.external_links, l.is_buyer_only, l.is_rental, l.rent_amount, l.min_lease_months, // 0: the reveal box is gone
     // A listing an admin paused (moderation) comes back still paused, so delete + restore can't undo the pause.
-    l.hidden_at ? 'paused' : 'active', l.hidden_at || null, l.hidden_at ? (l.hidden_reason || null) : null
+    l.hidden_at ? 'paused' : 'active', l.hidden_at || null, l.hidden_at ? (l.hidden_reason || null) : null,
+    l.life_event_tags_json ?? '[]', l.mello_roos_annual ?? null, l.hoa_monthly ?? null, l.hoa_details_json ?? '{}',
+    l.home_facts_json ?? '{}', l.plan_builder ?? null, l.plan_name ?? null, l.plan_community ?? null, l.plan_key ?? null,
+    l.plan_twins ?? 0
   ).run();
   const newId = result.meta.last_row_id;
 

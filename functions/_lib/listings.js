@@ -1,6 +1,8 @@
 import { clampString, priceTierFor } from './util.js';
 import { syncGroupMemberships } from './groups.js';
 import { validLifeEventKeys } from './lifeEvents.js';
+import { validateHomeFacts } from './homeFacts.js';
+import { validateFloorPlan } from './planTwins.js';
 
 export const PROPERTY_TYPES = ['Single Family Home', 'Condo', 'Townhouse', 'Penthouse', 'Ranch / Land', 'Multi-Family', 'Investment Property'];
 
@@ -52,6 +54,18 @@ export const SOURCE_OF_INCOME_LIMIT = /\b(no|not accepting|won['’]?t accept|do
 export const SOURCE_OF_INCOME_ERROR = "Listings can't limit renters by source of income, such as housing vouchers (California law).";
 export function sourceOfIncomeLimitError(...texts) { return SOURCE_OF_INCOME_LIMIT.test(texts.filter(Boolean).join(' ')) ? SOURCE_OF_INCOME_ERROR : null; }
 
+// Home facts (yard/sun, parking and garage, pets) and the floor plan ride in the listing body itself, so a brand-new
+// listing's saved-search alert (sent from the same request) already sees its parking facts. Only a real home has them:
+// buyer-only profiles get none (portfolios are made in portfolios.js and keep the column defaults).
+const NO_FLOOR_PLAN = { builder: null, name: null, community: null, key: null, showTwins: 0 };
+function homeExtras(body, isRental) {
+  const facts = validateHomeFacts(body.homeFacts || {}, { kind: 'listing', isRental });
+  if (facts.error) return { error: facts.error };
+  const plan = validateFloorPlan(body.floorPlan || {});
+  if (plan.error) return { error: plan.error };
+  return { homeFacts: facts.data, floorPlan: plan.data };
+}
+
 // Shared by the single-listing form (api/listings/index.js) and the broker
 // bulk-upload endpoint (api/listings/bulk.js) — one place for the validation
 // rules so the two paths can't silently drift apart.
@@ -80,6 +94,8 @@ export function validateListingInput(body) {
     const sourceOfIncomeError = sourceOfIncomeLimitError(
       clampString(body.title, 120), clampString(body.neighborhood, 80), clampString(body.description, 2000), clampString(body.mustHaves, 200));
     if (sourceOfIncomeError) return { error: sourceOfIncomeError };
+    const extras = homeExtras(body, true);
+    if (extras.error) return { error: extras.error };
 
     return {
       data: {
@@ -103,6 +119,7 @@ export function validateListingInput(body) {
         locations: '', desiredType: null, priceMin: 0, priceMax: 0, minBeds: 0, minBaths: 0,
         mustHaves: '', cashMode: 'none', cashAmount: 0,
         lifeEventTags: validLifeEventKeys(body.lifeEventTags),
+        homeFacts: extras.homeFacts, floorPlan: extras.floorPlan,
       },
     };
   }
@@ -133,6 +150,7 @@ export function validateListingInput(body) {
         mustHaves: clampString(body.mustHaves, 200),
         cashMode: 'pay', cashAmount: priceMax || priceMin || 0,
         lifeEventTags: validLifeEventKeys(body.lifeEventTags),
+        homeFacts: {}, floorPlan: { ...NO_FLOOR_PLAN },
       },
     };
   }
@@ -147,6 +165,8 @@ export function validateListingInput(body) {
   if (!city || !state || !propertyType || estimatedValue === null || beds === null || baths === null) {
     return { error: 'Fill in city, state, property type, value, beds, and baths.' };
   }
+  const extras = homeExtras(body, false);
+  if (extras.error) return { error: extras.error };
 
   return {
     data: {
@@ -165,6 +185,7 @@ export function validateListingInput(body) {
       mustHaves: desiredValidated.data.mustHaves,
       cashMode: desiredValidated.data.cashMode, cashAmount: desiredValidated.data.cashAmount,
       lifeEventTags: validLifeEventKeys(body.lifeEventTags),
+      homeFacts: extras.homeFacts, floorPlan: extras.floorPlan,
     },
   };
 }
@@ -173,24 +194,41 @@ export function validateListingInput(body) {
 // can't change via edit — only the data within that kind can be updated. This
 // deliberately reuses validateListingInput's per-kind rules wholesale rather
 // than re-deriving them, so the two paths can never drift apart.
+// An edit body without a homeFacts (or floorPlan) key keeps what's stored (undefined = leave it alone in
+// updateListing). A renters' pet policy stored on a listing that isn't a rental never renders (homeFacts.js).
 export function validateListingEdit(existingIsBuyerOnly, existingIsRental, body) {
-  return validateListingInput({ ...body, isBuyerOnly: existingIsBuyerOnly, isRental: existingIsRental });
+  const v = validateListingInput({ ...body, isBuyerOnly: existingIsBuyerOnly, isRental: existingIsRental });
+  if (v.error) return v;
+  const has = k => !!body && typeof body === 'object' && Object.hasOwn(body, k);
+  if (!has('homeFacts')) v.data.homeFacts = undefined;
+  if (!has('floorPlan')) v.data.floorPlan = undefined;
+  return v;
 }
 
 export async function updateListing(db, id, userId, d) {
   const priceTier = priceTierFor(d.estimatedValue);
+  // Home facts and the floor plan change only when the edit sent them (validateListingEdit), in the same statement.
+  const extraCols = [];
+  const extraValues = [];
+  if (d.homeFacts !== undefined) { extraCols.push('home_facts_json = ?'); extraValues.push(JSON.stringify(d.homeFacts || {})); }
+  if (d.floorPlan !== undefined) {
+    const p = d.floorPlan || NO_FLOOR_PLAN;
+    extraCols.push('plan_builder = ?', 'plan_name = ?', 'plan_community = ?', 'plan_key = ?', 'plan_twins = ?');
+    extraValues.push(p.builder, p.name, p.community, p.key, p.showTwins ? 1 : 0);
+  }
+  const extraSql = extraCols.map(c => ` ${c},`).join('');
 
   await db.prepare(
     `UPDATE listings SET title = ?, description = ?, address = ?, neighborhood = ?, client_name = ?,
        city = ?, state = ?, property_type = ?, beds = ?, baths = ?, sqft = ?, estimated_value = ?,
        price_tier = ?, show_exact_address = ?, external_links = ?, rent_amount = ?, min_lease_months = ?,
-       life_event_tags_json = ?, updated_at = datetime('now')
+       life_event_tags_json = ?,${extraSql} updated_at = datetime('now')
      WHERE id = ?`
   ).bind(
     d.title, d.description, d.address, d.neighborhood, d.clientName || null,
     d.city, d.state, d.propertyType, d.beds, d.baths, d.sqft, d.estimatedValue, priceTier,
     d.showExactAddress ? 1 : 0, JSON.stringify(d.externalLinks), d.rentAmount || 0, d.minLeaseMonths || 12,
-    JSON.stringify(d.lifeEventTags || []), id
+    JSON.stringify(d.lifeEventTags || []), ...extraValues, id
   ).run();
 
   // A rental has no desired_criteria row. Every other kind does — upsert
@@ -217,17 +255,20 @@ export async function updateListing(db, id, userId, d) {
 
 export async function insertListing(db, userId, d) {
   const priceTier = priceTierFor(d.estimatedValue);
+  const plan = d.floorPlan || NO_FLOOR_PLAN;
 
   const result = await db.prepare(
     `INSERT INTO listings (user_id, title, description, address, neighborhood, client_name, city, state, property_type,
        beds, baths, sqft, estimated_value, price_tier, show_exact_address, external_links, is_buyer_only,
-       is_rental, rent_amount, min_lease_months, life_event_tags_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       is_rental, rent_amount, min_lease_months, life_event_tags_json,
+       home_facts_json, plan_builder, plan_name, plan_community, plan_key, plan_twins)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     userId, d.title, d.description, d.address, d.neighborhood, d.clientName || null,
     d.city, d.state, d.propertyType, d.beds, d.baths, d.sqft, d.estimatedValue, priceTier,
     d.showExactAddress ? 1 : 0, JSON.stringify(d.externalLinks), d.isBuyerOnly ? 1 : 0,
-    d.isRental ? 1 : 0, d.rentAmount || 0, d.minLeaseMonths || 12, JSON.stringify(d.lifeEventTags || [])
+    d.isRental ? 1 : 0, d.rentAmount || 0, d.minLeaseMonths || 12, JSON.stringify(d.lifeEventTags || []),
+    JSON.stringify(d.homeFacts || {}), plan.builder, plan.name, plan.community, plan.key, plan.showTwins ? 1 : 0
   ).run();
 
   const listingId = result.meta.last_row_id;

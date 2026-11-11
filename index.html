@@ -6,6 +6,9 @@
 <title>Amico Haus — Local Agent Experts Weigh In on Your Home's Price</title>
 <meta name="description" content="Post a pre-listing showcase, let local agent experts evaluate your price and share their strategy, then choose. Or trade your home instead of listing it.">
 <link rel="canonical" href="https://amicohaus.com/">
+<link rel="alternate" hreflang="en" href="https://amicohaus.com/">
+<link rel="alternate" hreflang="es" href="https://amicohaus.com/es/">
+<link rel="alternate" hreflang="x-default" href="https://amicohaus.com/">
 <meta property="og:image" content="https://amicohaus.com/og-image.png">
 <meta name="twitter:image" content="https://amicohaus.com/og-image.png">
 <meta name="theme-color" content="#182430">
@@ -39,6 +42,7 @@
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"Amico Haus","url":"https://amicohaus.com/","logo":"https://amicohaus.com/icon-512.png","slogan":"Amico Haus: the real estate marketplace of tomorrow! Everything that's missing from the real estate market for the homeowner!","founder":{"@type":"Person","name":"Rudy Flores"}}</script>
 </head>
 <body>
+<!-- Has a Spanish twin in es/index.html: update both. -->
 <noscript>
   <p class="noscript-note">
     Amico Haus is a pre-listing showcase: post your home and local real estate agent experts evaluate your
@@ -62,6 +66,7 @@
       <a class="tab tab-cta tab-cta-agent" href="/signup?as=agent">I'm an Agent</a>
       <a class="tab" href="/#how">How it works</a>
       <a class="tab" href="/about">About</a>
+      <a class="tab tab-lang" href="/es/" hreflang="es" lang="es">Español</a>
     </nav>
     <div class="auth-cta" id="authCta">
       <a class="btn btn-ghost btn-sm" href="/login">Log In</a>
@@ -187,6 +192,28 @@
         <div class="field"><label for="filterHoaMax">Max HOA ($ per month)</label><input type="number" id="filterHoaMax" min="0" max="20000" step="25" inputmode="numeric" placeholder="Any"></div>
       </form>
       <p class="tiny">The Mello-Roos and HOA filters only show homes whose owner shared those costs, and they use the owner's numbers. Confirm on the property tax bill and in the seller's Mello-Roos and HOA disclosures.</p>
+      <form id="directoryFilters4" class="form-row three-col">
+        <fieldset class="hoa-includes">
+          <legend class="label">Parking and garage (from the owner)</legend>
+          <label class="checkbox-row" for="filterRv"><input type="checkbox" id="filterRv"><span>RV or boat parking</span></label>
+          <label class="checkbox-row" for="filterSideAccess"><input type="checkbox" id="filterSideAccess"><span>Side or back yard access</span></label>
+          <label class="checkbox-row" for="filterWorkshop"><input type="checkbox" id="filterWorkshop"><span>Workshop space</span></label>
+          <label class="checkbox-row" for="filterEv240"><input type="checkbox" id="filterEv240"><span>240V or EV outlet</span></label>
+          <label class="checkbox-row" for="filterHoaParking"><input type="checkbox" id="filterHoaParking"><span>HOA allows RV/boat parking (or no HOA)</span></label>
+        </fieldset>
+        <div class="field"><label for="filterGateMin">Min gate opening (inches)</label><input type="number" id="filterGateMin" min="24" max="480" step="1" inputmode="numeric" placeholder="Any"></div>
+        <div class="field"><label for="filterGarageMin">Min garage spaces</label>
+          <select id="filterGarageMin">
+            <option value="">Any</option>
+            <option value="1">1+</option>
+            <option value="2">2+</option>
+            <option value="3">3+</option>
+            <option value="4">4+</option>
+          </select>
+        </div>
+      </form>
+      <p class="tiny">These filters only show homes whose owner shared these details, and they use the owner's own measurements. Measure and confirm on your visit; HOA and city parking rules vary.</p>
+      <div id="directoryPlanFilter" class="hidden"></div>
       <div id="directoryMomentum"></div>
       <div class="grid" id="directoryGrid"><div class="empty-state">Loading…</div></div>
       <div id="directoryMap" class="hidden"></div>

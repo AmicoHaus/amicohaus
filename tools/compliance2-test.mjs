@@ -440,17 +440,17 @@ await section('S8', async () => {
 // ===================== S9 (F11): one new Terms version + the "We updated our Terms" prompt =====================
 await section('S9', async () => {
   const terms = await mod('functions/_lib/terms.js');
-  check('terms.js: version 2026-11-05, label November 5, 2026', terms.CURRENT_TERMS_VERSION === '2026-11-05' && terms.TERMS_UPDATED_LABEL === 'November 5, 2026');
+  check('terms.js: version 2026-11-11, label November 11, 2026', terms.CURRENT_TERMS_VERSION === '2026-11-11' && terms.TERMS_UPDATED_LABEL === 'November 11, 2026');
   const signup = await mod('functions/api/auth/signup.js');
   let r = await call(signup.onRequestPost, 'POST', '/api/auth/signup', null, {}, { email: 'fresh.person@example.test', displayName: 'Fresh Person', intent: 'homeowner' });
   const fresh = one("SELECT terms_version, terms_accepted_at FROM users WHERE email = 'fresh.person@example.test'");
-  check('a fresh signup records 2026-11-05', [201, 202].includes(r.status) && fresh && fresh.terms_version === '2026-11-05' && !!fresh.terms_accepted_at, r.text);
+  check('a fresh signup records 2026-11-11', [201, 202].includes(r.status) && fresh && fresh.terms_version === '2026-11-11' && !!fresh.terms_accepted_at, r.text);
   check('signup.js keeps no local TERMS_VERSION', !/const TERMS_VERSION\s*=/.test(read('functions/api/auth/signup.js')));
   const me = await mod('functions/api/me.js');
   run("UPDATE users SET terms_version = '2026-11-04' WHERE id = 6");
   r = await call(me.onRequestGet, 'GET', '/api/me', 6);
   check('/api/me: an account on the 11-04 Terms -> termsCurrent false, current version + label, private no-store',
-    r.status === 200 && r.json.user.termsCurrent === false && r.json.user.termsVersion === '2026-11-04' && r.json.user.currentTermsVersion === '2026-11-05' && r.json.user.termsUpdatedLabel === 'November 5, 2026' && /private/.test(r.headers.get('Cache-Control') || '') && /no-store/.test(r.headers.get('Cache-Control') || ''), r.text.slice(0, 300));
+    r.status === 200 && r.json.user.termsCurrent === false && r.json.user.termsVersion === '2026-11-04' && r.json.user.currentTermsVersion === '2026-11-11' && r.json.user.termsUpdatedLabel === 'November 11, 2026' && /private/.test(r.headers.get('Cache-Control') || '') && /no-store/.test(r.headers.get('Cache-Control') || ''), r.text.slice(0, 300));
   r = await call(me.onRequestGet, 'GET', '/api/me', 13);
   check('/api/me: an account with no recorded version (NULL) is not current either', r.json.user.termsCurrent === false && r.json.user.termsVersion === null);
   r = await call(me.onRequestGet, 'GET', '/api/me', null);
@@ -458,12 +458,12 @@ await section('S9', async () => {
   const accept = await mod('functions/api/account/accept-terms.js');
   r = await call(accept.onRequestPost, 'POST', '/api/account/accept-terms', 6, {}, { version: '2026-11-04' });
   check('accepting an old version -> 409 terms_changed, nothing stored', r.status === 409 && r.json.code === 'terms_changed' && one('SELECT terms_version FROM users WHERE id = 6').terms_version === '2026-11-04' && /no-store/.test(r.headers.get('Cache-Control') || ''), r.text);
-  r = await call(accept.onRequestPost, 'POST', '/api/account/accept-terms', 6, {}, { version: '2026-11-05' });
+  r = await call(accept.onRequestPost, 'POST', '/api/account/accept-terms', 6, {}, { version: '2026-11-11' });
   const row6 = one('SELECT terms_version, terms_accepted_at FROM users WHERE id = 6');
-  check("accepting the current version stores it with a datetime('now')-shaped time", r.status === 200 && r.json.ok === true && row6.terms_version === '2026-11-05' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(row6.terms_accepted_at || '') && /no-store/.test(r.headers.get('Cache-Control') || ''), JSON.stringify(row6));
+  check("accepting the current version stores it with a datetime('now')-shaped time", r.status === 200 && r.json.ok === true && row6.terms_version === '2026-11-11' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(row6.terms_accepted_at || '') && /no-store/.test(r.headers.get('Cache-Control') || ''), JSON.stringify(row6));
   r = await call(me.onRequestGet, 'GET', '/api/me', 6);
   check('...and /api/me is current after that', r.json.user.termsCurrent === true);
-  r = await call(accept.onRequestPost, 'POST', '/api/account/accept-terms', null, {}, { version: '2026-11-05' });
+  r = await call(accept.onRequestPost, 'POST', '/api/account/accept-terms', null, {}, { version: '2026-11-11' });
   check('accept-terms signed out -> 401', r.status === 401);
   const termsHtml = read('terms.html'), privacy = read('privacy.html');
   check('terms.html carries the same version, privacy.html the same date', termsHtml.includes(`(version ${terms.CURRENT_TERMS_VERSION})`) && privacy.includes(`Last updated ${terms.TERMS_UPDATED_LABEL}.`));
@@ -718,14 +718,15 @@ await section('S20', async () => {
   const names = touched.filter(f => existsSync(`${root}/${f}`) && /mckelvey|\bpatti\b|\bjeff\b/i.test(read(f)));
   check('no McKelvey / Patti / Jeff in any file this batch touched', names.length === 0, names.join(', '));
   // L1.1 had no schema change (spec decision); batch R3-1b adds migration_v44 (3 tables, 33 columns) and the owner tools
-  // batch adds migration_v45 (6 tables, 82 columns), so these two checks follow them.
+  // batch adds migration_v45 (6 tables, 82 columns) and the home facts batch adds migration_v46 (no tables, 19 columns),
+  // so these two checks follow them.
   const s = new DatabaseSync(':memory:');
   s.exec(read('schema.sql'));
   const tables = s.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all();
   const cols = tables.reduce((n, t) => n + s.prepare(`PRAGMA table_info(${t.name})`).all().length, 0);
   const userCols = s.prepare('PRAGMA table_info(users)').all().map(c => c.name);
-  check('schema.sql: only the v44 + v45 tables and columns are new (95 tables, 862 columns, as at v45); users has terms_version + terms_accepted_at', tables.length === 95 && cols === 862 && userCols.includes('terms_version') && userCols.includes('terms_accepted_at'), `${tables.length} tables, ${cols} columns`);
-  check('migration_v44.sql and migration_v45.sql are there, and no migration_v46.sql', existsSync(`${root}/migration_v44.sql`) && existsSync(`${root}/migration_v45.sql`) && !existsSync(`${root}/migration_v46.sql`));
+  check('schema.sql: only the v44 + v45 + v46 tables and columns are new (95 tables, 881 columns, as at v46); users has terms_version + terms_accepted_at', tables.length === 95 && cols === 881 && userCols.includes('terms_version') && userCols.includes('terms_accepted_at'), `${tables.length} tables, ${cols} columns`);
+  check('migration_v44/45/46.sql are there, and no migration_v47.sql', existsSync(`${root}/migration_v44.sql`) && existsSync(`${root}/migration_v45.sql`) && existsSync(`${root}/migration_v46.sql`) && !existsSync(`${root}/migration_v47.sql`));
 });
 
 console.log = realLog;

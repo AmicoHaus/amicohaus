@@ -9,6 +9,7 @@
 import { withSecurityHeaders } from './_lib/withSecurityHeaders.js';
 import { unlistedOwnerSql } from './_lib/util.js';
 import { VIDEO_TWINS } from './_lib/videoTwins.js';
+import { SPANISH_LIVE } from './_lib/spanishLive.js';
 
 const STATIC_URLS = [
   { loc: 'https://amicohaus.com/', freq: 'weekly', priority: '1.0' },
@@ -26,6 +27,18 @@ const STATIC_URLS = [
   { loc: 'https://amicohaus.com/terms', freq: 'yearly', priority: '0.3' },
   { loc: 'https://amicohaus.com/privacy', freq: 'yearly', priority: '0.3' },
   { loc: 'https://amicohaus.com/accessibility', freq: 'yearly', priority: '0.3' },
+  // The Spanish twins (es/*.html), each with its English twin's freq and priority. /es/registro and
+  // /es/iniciar-sesion are noindex, like /signup and /login, so they stay out.
+  // Left out while SPANISH_LIVE is off (functions/_lib/spanishLive.js).
+  ...(SPANISH_LIVE ? [
+    { loc: 'https://amicohaus.com/es/', freq: 'weekly', priority: '0.8' },
+    { loc: 'https://amicohaus.com/es/acerca', freq: 'monthly', priority: '0.7' },
+    { loc: 'https://amicohaus.com/es/agentes', freq: 'monthly', priority: '0.8' },
+    { loc: 'https://amicohaus.com/es/contacto', freq: 'monthly', priority: '0.6' },
+    { loc: 'https://amicohaus.com/es/accesibilidad', freq: 'yearly', priority: '0.3' },
+    { loc: 'https://amicohaus.com/es/terminos', freq: 'yearly', priority: '0.3' },
+    { loc: 'https://amicohaus.com/es/privacidad', freq: 'yearly', priority: '0.3' },
+  ] : []),
 ];
 
 export async function onRequestGet(context) {

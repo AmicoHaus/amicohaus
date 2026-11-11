@@ -40,7 +40,7 @@ function countingDb(db, used) {
 }
 function maybeRunDueJobs(context) {
   if (!context.env || !context.env.DB || typeof context.waitUntil !== 'function') return;
-  // The data export runs 45 statements in one batch; the jobs run in the same invocation and would count against D1's
+  // The data export runs 46 statements in one batch; the jobs run in the same invocation and would count against D1's
   // per-invocation query limit.
   if (new URL(context.request.url).pathname === '/api/account/export') return;
   const now = Date.now();

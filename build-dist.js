@@ -59,10 +59,46 @@ for (const entry of fs.readdirSync(ROOT, { withFileTypes: true })) {
 // then looks up element ids the old script has never heard of and crashes.
 // Tagging each reference with a hash of the file's contents gives a changed
 // file a new URL (fetched fresh) while an unchanged one keeps its cached copy.
+// Every .html under dist/, at any depth (the Spanish pages live in es/). Their asset links start with "/", so they
+// resolve from dist/ the same as the top-level pages' relative ones.
+function htmlFilesUnder(dir) {
+  const found = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) found.push(...htmlFilesUnder(full));
+    else if (entry.name.endsWith('.html')) found.push(full);
+  }
+  return found;
+}
+
+// Spanish hold (functions/_lib/spanishLive.js): while SPANISH_LIVE is false the Spanish pages are not published, and the
+// English pages lose their Español tab, hreflang tags and "now in Spanish" lines. The source files keep all of it,
+// so flipping the switch and rebuilding is the whole release.
+const SPANISH_LIVE = /export const SPANISH_LIVE = true;/.test(fs.readFileSync(path.join(ROOT, 'functions', '_lib', 'spanishLive.js'), 'utf8'));
+if (!SPANISH_LIVE) {
+  fs.rmSync(path.join(OUT, 'es'), { recursive: true, force: true });
+  let stripped = 0;
+  for (const file of htmlFilesUnder(OUT)) {
+    const html = fs.readFileSync(file, 'utf8');
+    const next = html
+      .replace(/^[ \t]*<link rel="alternate" hreflang="[^"]*" href="[^"]*">\r?\n/gm, '')
+      .replace(/^[ \t]*<a class="tab tab-lang"[^>]*>Español<\/a>\r?\n/gm, '')
+      .replace(/^[ \t]*<nav class="tabs">\s*<\/nav>\r?\n/gm, '')
+      .replace(/^[ \t]*<li>Key pages are now in Spanish:.*<\/li>\r?\n/gm, '')
+      .replace('<h2>Home facts, Spanish pages and your open-house plan</h2>', '<h2>Home facts and your open-house plan</h2>');
+    if (next !== html) { fs.writeFileSync(file, next); stripped++; }
+  }
+  const llms = path.join(OUT, 'llms.txt');
+  if (fs.existsSync(llms)) fs.writeFileSync(llms, fs.readFileSync(llms, 'utf8').replace(/^- Spanish pages:.*\r?\n/m, ''));
+  const left = htmlFilesUnder(OUT).filter(file => /href="\/es\/|hreflang="es"/.test(fs.readFileSync(file, 'utf8')));
+  if (left.length) { console.error('Spanish hold: these published pages still link to /es/: ' + left.map(x => path.relative(OUT, x)).join(', ')); process.exit(1); }
+  console.log(`Spanish hold: es/ left out, Spanish links stripped from ${stripped} pages`);
+}
+
 const crypto = require('crypto');
 let stamped = 0;
-for (const name of fs.readdirSync(OUT).filter(n => n.endsWith('.html'))) {
-  const file = path.join(OUT, name);
+for (const file of htmlFilesUnder(OUT)) {
+  const name = path.relative(OUT, file).split(path.sep).join('/');
   const html = fs.readFileSync(file, 'utf8');
   const next = html.replace(/\b(src|href)="((?!https?:|\/\/)[^"?#]+\.(?:js|css))"/g, (match, attr, ref) => {
     const asset = path.join(OUT, ref.replace(/^\//, ''));

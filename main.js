@@ -143,7 +143,7 @@ function goToTab(name) {
   if (name === 'listing') { loadMyListing(); if (!editingListingId) checkForListingDraft(); }
   if (name === 'groups') loadGroups();
   if (name === 'matches') loadMatches();
-  if (name === 'saved') { loadFavorites(); loadHidden(); loadTrash(); }
+  if (name === 'saved') { loadFavorites(); loadHidden(); loadTrash(); loadOpenHousePlan(); }
   if (name === 'messages') loadConversations();
   if (name === 'marketplace') loadMarketplaceTab();
   if (name === 'augmented') loadAugmentedTab();
@@ -244,9 +244,12 @@ function homeCostsFieldsHtml(prefix, costs) {
         <legend class="label">Dues include</legend>
         ${Object.entries(HOA_INCLUDE_LABELS).map(([k, label]) => `<label class="checkbox-row"><input type="checkbox" data-hoa-include value="${k}"${includes.has(k) ? ' checked' : ''}><span>${label}</span></label>`).join('')}
       </fieldset>
-      <div class="form-row three-col">
+      <div class="form-row two-col">
         <div class="field"><label for="${prefix}Rentals">Renting out</label><select id="${prefix}Rentals">${ruleOptions(['allowed', 'no_short_term', 'limited'], d.rentals)}</select></div>
         <div class="field"><label for="${prefix}Pets">Pets</label><select id="${prefix}Pets">${ruleOptions(['allowed', 'limited'], d.pets)}</select></div>
+      </div>
+      <div class="form-row two-col">
+        <div class="field"><label for="${prefix}Parking">HOA rule on RV, boat or work-truck parking</label><select id="${prefix}Parking">${ruleOptions(['allowed', 'limited'], d.parking)}</select></div>
         <div class="field"><label for="${prefix}Assessment">Special assessment, if any</label><input type="text" id="${prefix}Assessment" maxlength="120" placeholder="e.g. $40/mo for the roof, through 2027" value="${escapeHtml(d.specialAssessment || '')}"></div>
       </div>
     </details>`;
@@ -273,6 +276,7 @@ function readHomeCosts(prefix) {
       includes: [...document.querySelectorAll(`[data-costs-prefix="${prefix}"] [data-hoa-include]:checked`)].map(i => i.value),
       rentals: get('Rentals').value,
       pets: get('Pets').value,
+      parking: get('Parking').value,
       specialAssessment: get('Assessment').value.trim(),
     },
   };
@@ -287,11 +291,254 @@ function resetHomeCostsFields(containerId, prefix) {
   if (box) box.innerHTML = homeCostsFieldsHtml(prefix);
 }
 
+// ---- Home facts (yard and sun, parking and garage, pets; a pre-listing's floor plan), shared by the four home forms
+// and the in-place editors. The owner's own words and numbers: "Not sure" is never stored or shown, and the site
+// never measures or checks any of it (functions/_lib/homeFacts.js holds the keys and the server checks). A listing
+// sends its facts and floor plan in the listing body (one request); the other kinds save them right after the costs
+// (PUT /api/home-facts/...). Labels below are the form's; pages print client.js / homeFacts.js lines.
+const HF_FORM_DIRECTIONS = [['n', 'North'], ['ne', 'Northeast'], ['e', 'East'], ['se', 'Southeast'], ['s', 'South'], ['sw', 'Southwest'], ['w', 'West'], ['nw', 'Northwest']];
+const HF_FORM_OUTDOOR = [['backyard', 'Backyard'], ['front_yard', 'Front yard'], ['side_yard', 'Side yard'], ['patio', 'Patio'], ['balcony', 'Balcony'], ['deck', 'Deck'], ['courtyard', 'Courtyard'], ['rooftop', 'Rooftop'], ['none', 'None']];
+const HF_FORM_SIZES = [['small', 'Small'], ['medium', 'Medium'], ['large', 'Large']];
+const HF_FORM_FENCED = [['yes', 'Yes'], ['partly', 'Partly'], ['no', 'No']];
+const HF_FORM_AFTERNOON = [['mostly_sun', 'Mostly sun'], ['part_shade', 'Part sun, part shade'], ['mostly_shade', 'Mostly shade']];
+const HF_FORM_SHADE = [['covered_patio', 'Covered patio'], ['pergola', 'Pergola'], ['shade_trees', 'Shade trees'], ['awning', 'Awning']];
+const HF_FORM_SOLAR = [['none', 'None'], ['owned', 'Owned'], ['leased', 'Leased']];
+const HF_FORM_YES_NO = [['yes', 'Yes'], ['no', 'No']];
+const HF_FORM_RV_SPOTS = [['driveway', 'Driveway'], ['side_yard', 'Side yard'], ['pad', 'Pad']];
+const HF_FORM_RENTAL_PETS = [['considered', 'Pets considered'], ['some', 'Some pets (see notes)'], ['none', 'No pets']];
+// [min, max, the server's error] (homeFacts.js GATE_IN_RANGE, DRIVEWAY_FT_RANGE, GARAGE_RANGE).
+const HF_FORM_NUMBERS = {
+  GateIn: [24, 480, 'Gate opening should be whole inches from 24 to 480.'],
+  DrivewayFt: [5, 300, 'Driveway length should be whole feet from 5 to 300.'],
+  Garage: [0, 10, 'Garage spaces should be a whole number from 0 to 10.'],
+};
+const HF_PET_FORM_HELP = "Assistance animals (service and support animals) aren't pets, so leave them out of your pet rules. The site adds a fair-housing note about them wherever your pet rules show.";
+
+function hfSelectHtml(id, label, choices, selected, { blank = 'Not sure', attrs = '' } = {}) {
+  const options = [['', blank], ...choices].map(([k, text]) => `<option value="${k}"${(selected || '') === k ? ' selected' : ''}>${escapeHtml(text)}</option>`).join('');
+  return `<div class="field"><label for="${id}">${escapeHtml(label)}</label><select id="${id}"${attrs}>${options}</select></div>`;
+}
+function hfChecksHtml(prefix, group, legend, choices, picked) {
+  const on = new Set(Array.isArray(picked) ? picked : []);
+  return `<fieldset class="hoa-includes"><legend class="label">${escapeHtml(legend)}</legend>${choices.map(([k, text]) => `<label class="checkbox-row" for="${prefix}${group}-${k}"><input type="checkbox" id="${prefix}${group}-${k}" data-hf-${group.toLowerCase()}="${prefix}" value="${k}"${on.has(k) ? ' checked' : ''}><span>${escapeHtml(text)}</span></label>`).join('')}</fieldset>`;
+}
+function hfNumberHtml(prefix, key, label, value) {
+  const [min, max] = HF_FORM_NUMBERS[key];
+  return `<div class="field"><label for="${prefix}Toy${key}">${escapeHtml(label)}</label><input type="number" id="${prefix}Toy${key}" min="${min}" max="${max}" step="1" inputmode="numeric" value="${Number.isInteger(value) ? value : ''}"></div>`;
+}
+// A listing row or an API object -> the facts object (listings keep it as home_facts_json text).
+function hfFactsFromRow(row) {
+  if (!row) return null;
+  if (row.facts && typeof row.facts === 'object') return row.facts;
+  try { const v = JSON.parse(row.home_facts_json || '{}'); return v && typeof v === 'object' ? v : {}; } catch { return {}; }
+}
+// The landlord's pet policy (listing rentals only; it sits in the rental terms, under the minimum lease).
+function hfRentalPetsFieldHtml(prefix, facts) {
+  const pets = (facts && facts.pets) || {};
+  return hfSelectHtml(`${prefix}PetsRental`, 'Pet policy for renters', HF_FORM_RENTAL_PETS, pets.rental, { blank: 'Not set' });
+}
+
+function homeFactsFieldsHtml(prefix, facts, { kind = '', isRental = false } = {}) {
+  const f = facts || {};
+  const y = f.yard || {}, t = f.toy || {}, pt = f.pets || {}, pl = f.plan || {};
+  const filled = ['yard', 'toy', 'pets', 'plan'].some(g => f[g] && Object.keys(f[g]).length);
+  const v = x => escapeHtml(x || '');
+  return `
+    <details class="score-breakdown home-facts-fields" data-facts-prefix="${prefix}"${filled ? ' open' : ''}>
+      <summary>Yard, sun, parking and pets (optional)</summary>
+      <fieldset class="facts-group">
+        <legend class="label">Yard and sun</legend>
+        <div class="form-row two-col">
+          ${hfSelectHtml(`${prefix}YardFaces`, 'Backyard faces', HF_FORM_DIRECTIONS, y.faces)}
+          ${hfSelectHtml(`${prefix}YardFrontFaces`, 'Front of the home faces', HF_FORM_DIRECTIONS, y.frontFaces)}
+        </div>
+        <p class="tiny field-hint">Stand at the back door looking out; your phone's compass shows the direction.</p>
+        ${hfChecksHtml(prefix, 'Outdoor', 'Outdoor space', HF_FORM_OUTDOOR, y.outdoor)}
+        <div class="form-row three-col">
+          ${hfSelectHtml(`${prefix}YardSize`, "Yard size (as you'd describe it)", HF_FORM_SIZES, y.size)}
+          ${hfSelectHtml(`${prefix}YardFenced`, 'Fenced', HF_FORM_FENCED, y.fenced)}
+          ${hfSelectHtml(`${prefix}YardAfternoon`, 'Afternoon in the backyard', HF_FORM_AFTERNOON, y.afternoonSun)}
+        </div>
+        ${hfChecksHtml(prefix, 'Shade', 'Shade', HF_FORM_SHADE, y.shade)}
+        ${hfSelectHtml(`${prefix}YardSolar`, 'Solar panels', HF_FORM_SOLAR, y.solar)}
+        <div class="field"><label for="${prefix}YardNotes">Anything else about the yard (optional)</label><textarea id="${prefix}YardNotes" maxlength="160">${v(y.notes)}</textarea><p class="tiny field-hint composer-note">${escapeHtml(HOME_TEXT_NOTE)}</p></div>
+      </fieldset>
+      <fieldset class="facts-group">
+        <legend class="label">Parking and garage</legend>
+        <div class="form-row two-col">
+          ${hfSelectHtml(`${prefix}ToyRv`, 'RV or boat parking on the lot', HF_FORM_YES_NO, t.rv, { attrs: ` data-hf-rv="${prefix}"` })}
+          <div id="${prefix}ToyRvSpotField"${t.rv === 'yes' ? '' : ' class="hidden"'}>${hfSelectHtml(`${prefix}ToyRvSpot`, 'Where', HF_FORM_RV_SPOTS, t.rvSpot)}</div>
+        </div>
+        ${hfSelectHtml(`${prefix}ToySideAccess`, 'Side or back yard access for a vehicle or trailer', HF_FORM_YES_NO, t.sideAccess)}
+        <div class="form-row three-col">
+          ${hfNumberHtml(prefix, 'GateIn', 'Gate opening (inches, measured by you)', t.gateIn)}
+          ${hfNumberHtml(prefix, 'DrivewayFt', 'Driveway length (feet, measured by you)', t.drivewayFt)}
+          ${hfNumberHtml(prefix, 'Garage', 'Garage spaces', t.garage)}
+        </div>
+        <div class="form-row three-col">
+          ${hfSelectHtml(`${prefix}ToyTandem`, 'Tandem garage', HF_FORM_YES_NO, t.tandem)}
+          ${hfSelectHtml(`${prefix}ToyWorkshop`, 'Workshop space', HF_FORM_YES_NO, t.workshop)}
+          ${hfSelectHtml(`${prefix}ToyEv240`, '240V or EV charger outlet at the parking', HF_FORM_YES_NO, t.ev240)}
+        </div>
+        <p class="tiny field-hint">Only fill in what you know. "Not sure" is never shown and never matches a search.</p>
+      </fieldset>
+      <fieldset class="facts-group">
+        <legend class="label">Pets</legend>
+        ${isRental ? hfRentalPetsFieldHtml(prefix, f) : ''}
+        <div class="field"><label for="${prefix}PetsNotes">Pet notes (optional)</label><input type="text" id="${prefix}PetsNotes" maxlength="160" placeholder="e.g. one dog under 40 lb; HOA limits pets to two" value="${v(pt.notes)}"></div>
+        <p class="tiny field-hint">${escapeHtml(HF_PET_FORM_HELP)}</p>
+      </fieldset>
+      ${kind === 'pre_listing' ? `
+      <fieldset class="facts-group">
+        <legend class="label">Floor plan (optional)</legend>
+        <div class="form-row three-col">
+          <div class="field"><label for="${prefix}FactsPlanBuilder">Builder</label><input type="text" id="${prefix}FactsPlanBuilder" maxlength="60" value="${v(pl.builder)}"></div>
+          <div class="field"><label for="${prefix}FactsPlanName">Plan name or number</label><input type="text" id="${prefix}FactsPlanName" maxlength="40" placeholder="e.g. Plan 3" value="${v(pl.name)}"></div>
+          <div class="field"><label for="${prefix}FactsPlanCommunity">Community or tract</label><input type="text" id="${prefix}FactsPlanCommunity" maxlength="60" placeholder="e.g. Otay Ranch Village 11" value="${v(pl.community)}"></div>
+        </div>
+        <p class="tiny field-hint">Agents see this with your pre-listing.</p>
+      </fieldset>` : ''}
+    </details>`;
+}
+
+// The form -> the facts body. '' = "Not sure" (the server drops it). A number outside its range stops the submit
+// with the server's own words, before anything is saved; text is checked by the server.
+function readHomeFacts(prefix) {
+  const get = idName => document.getElementById(prefix + idName);
+  if (!get('YardFaces')) return null;
+  const val = idName => (get(idName) ? get(idName).value : '');
+  const checked = group => [...document.querySelectorAll(`[data-hf-${group}="${prefix}"]:checked`)].map(i => i.value);
+  const num = key => {
+    const typed = val(`Toy${key}`).trim();
+    if (!typed) return '';
+    const [min, max, error] = HF_FORM_NUMBERS[key];
+    const n = Number(typed);
+    if (!/^\d+$/.test(typed) || n < min || n > max) throw new Error(error);
+    return n;
+  };
+  const facts = {
+    yard: {
+      faces: val('YardFaces'), frontFaces: val('YardFrontFaces'), outdoor: checked('outdoor'), size: val('YardSize'),
+      fenced: val('YardFenced'), afternoonSun: val('YardAfternoon'), shade: checked('shade'), solar: val('YardSolar'),
+      notes: val('YardNotes').trim(),
+    },
+    toy: {
+      rv: val('ToyRv'), rvSpot: val('ToyRv') === 'yes' ? val('ToyRvSpot') : '', sideAccess: val('ToySideAccess'),
+      gateIn: num('GateIn'), drivewayFt: num('DrivewayFt'), garage: num('Garage'),
+      tandem: val('ToyTandem'), workshop: val('ToyWorkshop'), ev240: val('ToyEv240'),
+    },
+    pets: { rental: val('PetsRental'), notes: val('PetsNotes').trim() },
+  };
+  if (get('FactsPlanBuilder')) facts.plan = { builder: val('FactsPlanBuilder').trim(), name: val('FactsPlanName').trim(), community: val('FactsPlanCommunity').trim() };
+  return facts;
+}
+
+async function saveHomeFacts(kind, id, facts) {
+  if (facts) await apiPut(`/api/home-facts/${kind}/${id}`, facts);
+}
+
+function resetHomeFactsFields(containerId, prefix, opts = {}) {
+  const box = document.getElementById(containerId);
+  if (box) box.innerHTML = homeFactsFieldsHtml(prefix, null, opts);
+}
+
+// A listing's floor plan (listing form only; never on a portfolio or a buyer profile). Shown with same-plan homes only
+// when the box is ticked, and never as a price comparison (planTwins.js).
+function floorPlanFieldsHtml(prefix, listing) {
+  const l = listing || {};
+  const v = x => escapeHtml(x || '');
+  return `
+    <fieldset class="facts-group floor-plan-fields">
+      <legend class="label">Floor plan (optional)</legend>
+      <div class="form-row three-col">
+        <div class="field"><label for="${prefix}PlanBuilder">Builder</label><input type="text" id="${prefix}PlanBuilder" maxlength="60" list="${prefix}PlanBuilders" value="${v(l.plan_builder)}"><datalist id="${prefix}PlanBuilders"></datalist></div>
+        <div class="field"><label for="${prefix}PlanName">Plan name or number</label><input type="text" id="${prefix}PlanName" maxlength="40" list="${prefix}PlanNames" placeholder="e.g. Plan 3" value="${v(l.plan_name)}"><datalist id="${prefix}PlanNames"></datalist></div>
+        <div class="field"><label for="${prefix}PlanCommunity">Community or tract</label><input type="text" id="${prefix}PlanCommunity" maxlength="60" list="${prefix}PlanCommunities" placeholder="e.g. Otay Ranch Village 11" value="${v(l.plan_community)}"><datalist id="${prefix}PlanCommunities"></datalist></div>
+      </div>
+      <label class="checkbox-row" for="${prefix}PlanTwins"><input type="checkbox" id="${prefix}PlanTwins"${l.plan_twins ? ' checked' : ''}><span>List my home with other homes on Amico Haus that share my floor plan</span></label>
+      <p class="tiny field-hint">Type it the way your purchase papers or HOA show it. It's only shown when the box is ticked, and never as a price comparison.</p>
+    </fieldset>`;
+}
+
+function readFloorPlan(prefix) {
+  const get = idName => document.getElementById(prefix + idName);
+  if (!get('PlanBuilder') || !get('PlanTwins')) return null;
+  return { builder: get('PlanBuilder').value.trim(), name: get('PlanName').value.trim(), community: get('PlanCommunity').value.trim(), showTwins: get('PlanTwins').checked };
+}
+
+// Typeahead for the floor-plan fields: plans other owners in that city chose to list (GET /api/floor-plans, no counts or
+// owners). A miss just leaves the boxes as plain text fields.
+async function hfLoadFloorPlanSuggestions(prefix, city) {
+  const lists = { builder: `${prefix}PlanBuilders`, name: `${prefix}PlanNames`, community: `${prefix}PlanCommunities` };
+  if (!document.getElementById(lists.builder)) return;
+  let plans = [];
+  if (String(city || '').trim()) {
+    try { ({ plans = [] } = await apiGet(`/api/floor-plans?city=${encodeURIComponent(String(city).trim())}`)); } catch { plans = []; }
+  }
+  for (const [key, id] of Object.entries(lists)) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    const values = [...new Set((plans || []).map(pl => pl && pl[key]).filter(x => typeof x === 'string' && x.trim()))];
+    el.textContent = '';
+    for (const value of values) { const o = document.createElement('option'); o.value = value; el.appendChild(o); }
+  }
+}
+
+// "Floor plan (from the owner): Plan 3 by Lennar, Otay Ranch Village 11" on a pre-listing (agents read it; any blank
+// part is left out). Never matched or compared.
+function hfPlanLineHtml(facts) {
+  const pl = (facts && facts.plan) || {};
+  const head = pl.name && pl.builder ? `${pl.name} by ${pl.builder}` : (pl.name || pl.builder || '');
+  const text = [head, pl.community].filter(Boolean).join(', ');
+  return text ? `<p class="tiny home-facts"><span class="label">Floor plan (from the owner)</span> ${escapeHtml(text)}</p>` : '';
+}
+
+// Open-house times are stored as ISO (UTC); labeled in Pacific time, like the server's pacificTime.js
+// ("Sat, Nov 14, 1:00 PM – 4:00 PM Pacific time").
+function hfPacificWhenLabel(startIso, endIso) {
+  const clean = x => x.replace(/\u202f/g, ' ');
+  const start = clean(new Date(startIso).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }));
+  const end = clean(new Date(endIso).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', minute: '2-digit' }));
+  return `${start} – ${end} Pacific time`;
+}
+// Under every RSVP button a signed-in visitor sees.
+const HF_RSVP_NAME_LINE = 'When you RSVP, the owner sees your display name.';
+
+// Someone who picked Español as their display language: a one-time note (per device) that the app is English for now.
+const HF_ES_BANNER_KEY = 'amico.esBanner.v1';
+function hfInitEsAppBanner(user) {
+  if (!SPANISH_LIVE || !user || user.uiLang !== 'es') return;
+  try { if (localStorage.getItem(HF_ES_BANNER_KEY)) return; } catch { /* storage off: show it */ }
+  const host = document.querySelector('main');
+  if (!host) return;
+  const banner = document.createElement('div');
+  banner.className = 'card es-app-banner';
+  banner.lang = 'es';
+  banner.innerHTML = '<p>La aplicación está en inglés por ahora. <a href="/es/">Páginas en español</a></p><div class="form-actions"><button type="button" class="btn btn-ghost btn-sm">Cerrar</button></div>';
+  host.insertBefore(banner, host.firstChild);
+  banner.querySelector('button').addEventListener('click', () => {
+    try { localStorage.setItem(HF_ES_BANNER_KEY, '1'); } catch { /* this visit only */ }
+    banner.remove();
+  });
+}
+
+
+// The listing form's facts, floor plan and rental pet policy (blank, or from a listing row; a clone starts blank).
+function hfResetListingFactsFields(l = null) {
+  const facts = l ? hfFactsFromRow(l) : null;
+  const factsBox = document.getElementById('listingFactsFields');
+  if (factsBox) factsBox.innerHTML = homeFactsFieldsHtml('lf', facts, { kind: 'listing' });
+  const planBox = document.getElementById('listingPlanFields');
+  if (planBox) planBox.innerHTML = floorPlanFieldsHtml('lf', l);
+  const petsBox = document.getElementById('listingRentalPetsField');
+  if (petsBox) petsBox.innerHTML = hfRentalPetsFieldHtml('lf', facts);
+}
 
 function resetListingFormToCreateMode() {
   editingListingId = null;
   cloneSourceListingId = null;
   resetHomeCostsFields('listingCostsFields', 'lc');
+  hfResetListingFactsFields();
   document.getElementById('listingSubmitBtn').textContent = 'Create Listing';
   document.getElementById('isBuyerOnly').disabled = false;
   document.getElementById('isRental').disabled = false;
@@ -304,6 +551,7 @@ function resetListingFormToCreateMode() {
 function fillListingFormFields(l, { forClone } = {}) {
   const costsBox = document.getElementById('listingCostsFields');
   if (costsBox) costsBox.innerHTML = homeCostsFieldsHtml('lc', forClone ? null : homeCostsFromRow(l));
+  hfResetListingFactsFields(forClone ? null : l);
   document.getElementById('isBuyerOnly').checked = !!l.is_buyer_only;
   document.getElementById('isRental').checked = !!l.is_rental;
   setBuyerOnlyFieldsetState(!!l.is_buyer_only);
@@ -1084,6 +1332,7 @@ async function loadMyListing() {
             <input type="datetime-local" id="ohEnd-${l.id}">
           </div>
           <div class="field"><input type="text" id="ohNote-${l.id}" maxlength="300" placeholder="Note (optional)"></div>
+          ${openHouseShareFieldHtml(`lst${l.id}`)}
           <div class="form-actions"><button type="button" class="btn btn-ghost btn-sm" data-action="add-open-house" data-id="${l.id}">Schedule</button></div>
         </details>
         <details class="panel">
@@ -1144,9 +1393,10 @@ async function loadOpenHousesInto(listingId) {
     const { openHouses } = await apiGet(`/api/listings/${listingId}/open-houses`);
     el.innerHTML = openHouses.length ? openHouses.map(oh => `
       <div class="side">
-        <strong>${new Date(oh.startsAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</strong>
+        <strong>${escapeHtml(hfPacificWhenLabel(oh.startsAt, oh.endsAt))}</strong>
         <span class="tiny">${oh.rsvpCount} RSVP${oh.rsvpCount === 1 ? '' : 's'}${oh.note ? ` — ${escapeHtml(oh.note)}` : ''}</span>
         <button type="button" class="link-btn" data-action="delete-open-house" data-listing-id="${listingId}" data-id="${oh.id}">Cancel</button>
+        ${openHouseOwnerExtrasHtml('listing', listingId, oh)}
       </div>
     `).join('') : '<span class="tiny">None scheduled.</span>';
   } catch { el.innerHTML = '<span class="tiny">Could not load open houses.</span>'; }
@@ -2393,6 +2643,10 @@ function renderControlPanel() {
           <button type="button" class="btn btn-ghost btn-sm" data-control-action="clear-quiet"${hasQuiet ? '' : ' disabled'}>Clear</button>
         </div>
       </div>
+      <div class="control-section${SPANISH_LIVE ? '' : ' hidden'}">
+        <div class="field"><label for="uiLangSelect">Display language</label><select id="uiLangSelect"><option value="en"${currentUser && currentUser.uiLang === 'es' ? '' : ' selected'}>English</option><option value="es" lang="es"${currentUser && currentUser.uiLang === 'es' ? ' selected' : ''}>Español</option></select></div>
+        <p class="tiny">Only you see this. It sets the language of the Spanish pages and sign-up emails, and never changes which homes or agents you see.</p>
+      </div>
       <div class="control-section">
         <label class="checkbox-row"><input type="checkbox" id="phonePublicToggle"${s.phonePublic && s.hasPhone ? ' checked' : ''}${s.hasPhone ? '' : ' disabled'}><span>Show my phone number on my public profile and listings<br><span class="tiny">Off by default. When it's off, people reach you through Amico Haus messages.</span></span></label>
         ${s.hasPhone ? '' : `<p class="tiny"><a href="/profile.html?id=${Number(currentUser && currentUser.id) || ''}">Add a phone number on your profile first</a></p>`}
@@ -2460,6 +2714,14 @@ function wireControlPanel() {
         // Compared when its turn comes, against what the save before it left saved.
         queueContactSave(() => (mode !== currentContactMode() ? saveContactSettings({ contactMode: mode }, CONTACT_MODE_SAVED[mode]) : null));
       }, DIAL_SAVE_DELAY_MS);
+    } else if (e.target.id === 'uiLangSelect') {
+      // A setting on the person (PUT /api/me), private, used only for display.
+      const uiLang = e.target.value === 'es' ? 'es' : 'en';
+      e.target.disabled = true;
+      apiPut('/api/me', { uiLang })
+        .then(() => { if (currentUser) currentUser.uiLang = uiLang; toast(uiLang === 'es' ? 'Saved. Display language: Español.' : 'Saved. Display language: English.'); })
+        .catch(err => { toast(err.message); e.target.value = currentUser && currentUser.uiLang === 'es' ? 'es' : 'en'; })
+        .finally(() => { e.target.disabled = false; });
     } else if (e.target.id === 'phonePublicToggle') {
       const on = e.target.checked;
       queueContactSave(() => saveContactSettings({ phonePublic: on }, on ? 'Saved. Your phone number now shows on your public profile and listings.' : 'Saved. Your phone number is private.'));
@@ -3027,6 +3289,7 @@ function renderPreListingEditForm(p) {
         <p class="tiny">Up to 8 in total. Added photos upload when you save. ${escapeHtml(PHOTO_RIGHTS_NOTE)}</p>
       </div>
       ${homeCostsFieldsHtml('plec', p.costs)}
+      ${homeFactsFieldsHtml('plef', p.facts, { kind: 'pre_listing' })}
       <div class="form-actions">
         <button type="button" class="btn btn-primary btn-sm" data-action="save-pre-listing">Save changes</button>
         <button type="button" class="btn btn-ghost btn-sm" data-action="cancel-edit-pre-listing">Cancel</button>
@@ -3078,6 +3341,7 @@ async function savePreListingEdit(id) {
   btn.disabled = true;
   try {
     const costs = readHomeCosts('plec');
+    const facts = readHomeFacts('plef');
     const result = await apiPut(`/api/pre-listings/${id}`, {
       title: val('Title').trim(),
       askingPrice, // null = open to price opinions
@@ -3102,6 +3366,7 @@ async function savePreListingEdit(id) {
       prefersLocalSpecialist: checked('PrefersLocalSpecialist'),
     });
     await saveHomeCosts('pre_listing', id, costs);
+    await saveHomeFacts('pre_listing', id, facts);
     // Privacy Sweep: the swept copies where the owner made them, else the picked files (privacy-sweep.js).
     const photoResult = await uploadPhotos(`/api/pre-listings/${id}/photos`, typeof sweepPickedFiles === 'function' ? await sweepPickedFiles('plePhotos') : [...document.getElementById('plePhotos').files]);
     toastWithPhotoResult(result.votesCleared ? 'Saved — the old price votes were cleared so agents can weigh in on the new price.' : 'Pre-listing updated.', photoResult);
@@ -3326,6 +3591,8 @@ async function openPreListingDetail(id, opts = {}) {
         ${timingFactsHtml(p, isOwner)}
         ${p.specialInstructions ? `<p class="tiny"><span class="label">Notes for agents</span> ${escapeHtml(p.specialInstructions)}</p>` : ''}
         ${homeCostsDetailHtml(p.costs)}
+        ${homeFactsDetailHtml(p.facts, p.costs, { isRental: false })}
+        ${hfPlanLineHtml(p.facts)}
         ${renderStipulations(p)}
         ${p.distanceMiles !== null && p.distanceMiles !== undefined ? `<p class="tiny">${p.inServiceArea ? `✅ ${p.distanceMiles} miles from your nearest service zip — within your 20-mile area.` : `⚠️ ${p.distanceMiles} miles from your nearest service zip — outside your declared 20-mile area.`}</p>` : ''}
         ${p.description ? `<p>${escapeHtml(p.description)}</p>` : ''}
@@ -3604,6 +3871,8 @@ async function openAugmentedHomeDetail(id) {
         ${h.adaptationNotes ? `<p class="tiny"><span class="label">Seller's notes</span> ${escapeHtml(h.adaptationNotes)}</p>` : ''}
         ${homeCostsDetailHtml(h.costs)}
         ${isOwner ? `<div class="panel home-costs-editor">${homeCostsFieldsHtml('ahc', h.costs)}<div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="save-home-costs" data-kind="augmented_home" data-id="${h.id}" data-prefix="ahc">Save Mello-Roos and HOA</button></div></div>` : ''}
+        ${homeFactsDetailHtml(h.facts, h.costs, { isRental: false })}
+        ${isOwner ? `<div class="panel home-facts-editor">${homeFactsFieldsHtml('ahf', h.facts, { kind: 'augmented_home' })}<div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="save-home-facts" data-kind="augmented_home" data-id="${h.id}" data-prefix="ahf">Save yard, sun, parking and pets</button></div></div>` : ''}
         ${renderPriceHistory(h.priceHistory)}
         ${sparklineHtml(seriesFromPriceHistory(h.priceHistory, h.askingPrice))}
         ${!isOwner ? `
@@ -3623,6 +3892,7 @@ async function openAugmentedHomeDetail(id) {
             <input type="datetime-local" id="augOhEnd-${h.id}">
           </div>
           <div class="field"><input type="text" id="augOhNote-${h.id}" maxlength="300" placeholder="Note (optional)"></div>
+          ${openHouseShareFieldHtml(`aug${h.id}`)}
           <div class="form-actions"><button type="button" class="btn btn-ghost btn-sm" data-action="add-augmented-open-house" data-id="${h.id}">Schedule</button></div>
         ` : ''}
       </div>
@@ -3645,14 +3915,22 @@ async function loadAugmentedOpenHousesInto(homeId) {
   if (!el) return;
   try {
     const { openHouses } = await apiGet(`/api/augmented-homes/${homeId}/open-houses`);
+    // The owner gets Cancel and the address-sharing controls; a visitor gets I'm Going (and the address once shared).
+    const isOwner = !!augmentedDetail && String(augmentedDetail.id) === String(homeId) && !!augmentedDetail.isOwner;
     el.innerHTML = openHouses.length ? openHouses.map(oh => `
       <div class="side" data-open-house-id="${oh.id}">
-        <strong>${new Date(oh.startsAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</strong>
+        <strong>${escapeHtml(hfPacificWhenLabel(oh.startsAt, oh.endsAt))}</strong>
         <span class="tiny" data-rsvp-count>${oh.rsvpCount} ${oh.rsvpCount === 1 ? 'person is' : 'people are'} going${oh.note ? ` — ${escapeHtml(oh.note)}` : ''}</span>
+        ${isOwner ? `
         <div class="card-actions">
-          <button type="button" class="btn ${oh.imGoing ? 'btn-ghost' : 'btn-primary'} btn-sm" data-action="rsvp-augmented-open-house" data-home-id="${homeId}" data-id="${oh.id}">${oh.imGoing ? "I'm Going ✓" : "I'm Going"}</button>
           <button type="button" class="link-btn" data-action="delete-augmented-open-house" data-home-id="${homeId}" data-id="${oh.id}">Cancel</button>
         </div>
+        ${openHouseOwnerExtrasHtml('augmented_home', homeId, oh)}` : `
+        ${openHouseVisitorAddressHtml(oh)}
+        <div class="card-actions">
+          <button type="button" class="btn ${oh.imGoing ? 'btn-ghost' : 'btn-primary'} btn-sm" data-action="rsvp-augmented-open-house" data-home-id="${homeId}" data-id="${oh.id}">${oh.imGoing ? "I'm Going ✓" : "I'm Going"}</button>
+        </div>
+        <p class="tiny">${HF_RSVP_NAME_LINE}</p>`}
       </div>
     `).join('') : '<span class="tiny">None scheduled.</span>';
   } catch { el.innerHTML = '<span class="tiny">Could not load open houses.</span>'; }
@@ -3913,6 +4191,8 @@ async function openGreenHomeDetail(id) {
         ${h.featureNotes ? `<p class="tiny"><span class="label">Seller's notes</span> ${escapeHtml(h.featureNotes)}</p>` : ''}
         ${homeCostsDetailHtml(h.costs)}
         ${isOwner ? `<div class="panel home-costs-editor">${homeCostsFieldsHtml('ghc', h.costs)}<div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="save-home-costs" data-kind="green_home" data-id="${h.id}" data-prefix="ghc">Save Mello-Roos and HOA</button></div></div>` : ''}
+        ${homeFactsDetailHtml(h.facts, h.costs, { isRental: false })}
+        ${isOwner ? `<div class="panel home-facts-editor">${homeFactsFieldsHtml('ghf', h.facts, { kind: 'green_home' })}<div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="save-home-facts" data-kind="green_home" data-id="${h.id}" data-prefix="ghf">Save yard, sun, parking and pets</button></div></div>` : ''}
         ${renderPriceHistory(h.priceHistory)}
         ${sparklineHtml(seriesFromPriceHistory(h.priceHistory, h.askingPrice))}
         ${!isOwner ? `
@@ -3932,6 +4212,7 @@ async function openGreenHomeDetail(id) {
             <input type="datetime-local" id="greenOhEnd-${h.id}">
           </div>
           <div class="field"><input type="text" id="greenOhNote-${h.id}" maxlength="300" placeholder="Note (optional)"></div>
+          ${openHouseShareFieldHtml(`green${h.id}`)}
           <div class="form-actions"><button type="button" class="btn btn-ghost btn-sm" data-action="add-green-open-house" data-id="${h.id}">Schedule</button></div>
         ` : ''}
       </div>
@@ -3954,14 +4235,22 @@ async function loadGreenOpenHousesInto(homeId) {
   if (!el) return;
   try {
     const { openHouses } = await apiGet(`/api/green-homes/${homeId}/open-houses`);
+    // The owner gets Cancel and the address-sharing controls; a visitor gets I'm Going (and the address once shared).
+    const isOwner = !!greenDetail && String(greenDetail.id) === String(homeId) && !!greenDetail.isOwner;
     el.innerHTML = openHouses.length ? openHouses.map(oh => `
       <div class="side" data-open-house-id="${oh.id}">
-        <strong>${new Date(oh.startsAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</strong>
+        <strong>${escapeHtml(hfPacificWhenLabel(oh.startsAt, oh.endsAt))}</strong>
         <span class="tiny" data-rsvp-count>${oh.rsvpCount} ${oh.rsvpCount === 1 ? 'person is' : 'people are'} going${oh.note ? ` — ${escapeHtml(oh.note)}` : ''}</span>
+        ${isOwner ? `
         <div class="card-actions">
-          <button type="button" class="btn ${oh.imGoing ? 'btn-ghost' : 'btn-primary'} btn-sm" data-action="rsvp-green-open-house" data-home-id="${homeId}" data-id="${oh.id}">${oh.imGoing ? "I'm Going ✓" : "I'm Going"}</button>
           <button type="button" class="link-btn" data-action="delete-green-open-house" data-home-id="${homeId}" data-id="${oh.id}">Cancel</button>
         </div>
+        ${openHouseOwnerExtrasHtml('green_home', homeId, oh)}` : `
+        ${openHouseVisitorAddressHtml(oh)}
+        <div class="card-actions">
+          <button type="button" class="btn ${oh.imGoing ? 'btn-ghost' : 'btn-primary'} btn-sm" data-action="rsvp-green-open-house" data-home-id="${homeId}" data-id="${oh.id}">${oh.imGoing ? "I'm Going ✓" : "I'm Going"}</button>
+        </div>
+        <p class="tiny">${HF_RSVP_NAME_LINE}</p>`}
       </div>
     `).join('') : '<span class="tiny">None scheduled.</span>';
   } catch { el.innerHTML = '<span class="tiny">Could not load open houses.</span>'; }
@@ -4831,6 +5120,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (!user) return;
   document.getElementById('whoami').textContent = user.displayName;
   initTermsUpdateBanner(user);
+  hfInitEsAppBanner(user);
   primeAgentListingTools();
 
   fillTypeSelect(document.getElementById('propertyType'), false);
@@ -4980,6 +5270,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     const wasEditing = !!editingListingId;
     try {
       const costs = readHomeCosts('lc');
+      // Home facts and the floor plan go in the listing body (stored with the listing, so a saved search sees them
+      // at create). A buyer profile has no home, so it sends neither.
+      if (!payload.isBuyerOnly) {
+        const homeFacts = readHomeFacts('lf');
+        if (homeFacts && !payload.isRental) homeFacts.pets.rental = '';
+        if (homeFacts) payload.homeFacts = homeFacts;
+        const floorPlan = readFloorPlan('lf');
+        if (floorPlan) payload.floorPlan = floorPlan;
+      }
       let listingId = editingListingId;
       if (editingListingId) {
         await apiPut(`/api/listings/${editingListingId}`, { ...payload, action: 'edit' });
@@ -5104,6 +5403,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         await apiPost(`/api/listings/${listingId}/open-houses`, {
           startsAt: new Date(start).toISOString(), endsAt: new Date(end).toISOString(),
           note: document.getElementById(`ohNote-${listingId}`).value.trim(),
+          shareAddressWithRsvps: readOpenHouseShare(`lst${listingId}`),
         });
         document.getElementById(`ohStart-${listingId}`).value = '';
         document.getElementById(`ohEnd-${listingId}`).value = '';
@@ -5239,8 +5539,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         priceMin: priceMin || 0,
         priceMax: priceMax || 0,
         ...savedSearchTimingFromForm(),
+        // Only homes whose owner shared these details can match (an unknown is never a match).
+        toy: {
+          rv: document.getElementById('ssRv').checked, sideAccess: document.getElementById('ssSideAccess').checked,
+          workshop: document.getElementById('ssWorkshop').checked, ev240: document.getElementById('ssEv240').checked,
+          minGateIn: document.getElementById('ssGateMin').value ? Number(document.getElementById('ssGateMin').value) : null,
+          minGarage: document.getElementById('ssGarageMin').value ? Number(document.getElementById('ssGarageMin').value) : null,
+        },
       });
-      ['savedLocations', 'savedPriceMin', 'savedPriceMax'].forEach(id => { document.getElementById(id).value = ''; });
+      ['savedLocations', 'savedPriceMin', 'savedPriceMax', 'ssGateMin', 'ssGarageMin'].forEach(id => { document.getElementById(id).value = ''; });
+      ['ssRv', 'ssSideAccess', 'ssWorkshop', 'ssEv240'].forEach(id => { document.getElementById(id).checked = false; });
       resetSavedSearchTimingForm();
       toast('Saved search added.');
       loadSavedSearches();
@@ -5406,7 +5714,30 @@ document.addEventListener('DOMContentLoaded', async () => {
   /* ---- Marketplace wiring ---- */
   wireControlPanel();
   resetHomeCostsFields('listingCostsFields', 'lc');
+  hfResetListingFactsFields();
   resetHomeCostsFields('plCostsFields', 'plc');
+  resetHomeFactsFields('plFactsFields', 'plf', { kind: 'pre_listing' });
+  // The owner's yard, sun, parking and pets editor on an AugmentedHomes or GreenHomes detail view.
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-action="save-home-facts"]');
+    if (!btn) return;
+    btn.disabled = true;
+    try {
+      await saveHomeFacts(btn.dataset.kind, btn.dataset.id, readHomeFacts(btn.dataset.prefix));
+      toast('Yard, sun, parking and pets saved.');
+      if (btn.dataset.kind === 'augmented_home') openAugmentedHomeDetail(btn.dataset.id);
+      else if (btn.dataset.kind === 'green_home') openGreenHomeDetail(btn.dataset.id);
+    } catch (err) { toast(err.message); } finally { btn.disabled = false; }
+  });
+  // "Where" (the RV or boat spot) shows only once RV parking is Yes.
+  document.addEventListener('change', (e) => {
+    const sel = e.target.closest && e.target.closest('[data-hf-rv]');
+    if (!sel) return;
+    const field = document.getElementById(`${sel.dataset.hfRv}ToyRvSpotField`);
+    if (field) field.classList.toggle('hidden', sel.value !== 'yes');
+  });
+  // Floor-plan typeahead follows the listing's city.
+  document.getElementById('city').addEventListener('change', (e) => { hfLoadFloorPlanSuggestions('lf', e.target.value); });
   // The owner's Mello-Roos / HOA editor on an AugmentedHomes or GreenHomes detail view.
   document.addEventListener('click', async (e) => {
     const btn = e.target.closest('[data-action="save-home-costs"]');
@@ -5421,6 +5752,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   resetHomeCostsFields('augCostsFields', 'augc');
   resetHomeCostsFields('greenCostsFields', 'grc');
+  resetHomeFactsFields('augFactsFields', 'augf', { kind: 'augmented_home' });
+  resetHomeFactsFields('greenFactsFields', 'grf', { kind: 'green_home' });
 
   document.getElementById('createPreListingBtn').addEventListener('click', async () => {
     const btn = document.getElementById('createPreListingBtn');
@@ -5431,6 +5764,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     btn.disabled = true;
     try {
       const costs = readHomeCosts('plc');
+      const facts = readHomeFacts('plf');
       const { id } = await apiPost('/api/pre-listings', {
         title: document.getElementById('plTitle').value.trim(),
         askingPrice: parseAskingPriceInput(document.getElementById('plAskingPrice').value).value, // null = open to price opinions
@@ -5457,6 +5791,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
       await saveHomeCosts('pre_listing', id, costs);
       resetHomeCostsFields('plCostsFields', 'plc');
+      await saveHomeFacts('pre_listing', id, facts);
+      resetHomeFactsFields('plFactsFields', 'plf', { kind: 'pre_listing' });
       // The contact dial is a setting on the person, not the home: saved only when it changed. A hiccup here never
       // undoes the post; the You're in Control panel below shows what's actually saved.
       let dialNote = '';
@@ -6092,6 +6428,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       const adaptations = [...document.querySelectorAll('.augmented-create-check:checked')].map(c => c.value);
       const costs = readHomeCosts('augc');
+      const facts = readHomeFacts('augf');
       const { id } = await apiPost('/api/augmented-homes', {
         title: document.getElementById('augTitle').value.trim(),
         askingPrice: document.getElementById('augAskingPrice').value,
@@ -6111,6 +6448,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
       await saveHomeCosts('augmented_home', id, costs);
       resetHomeCostsFields('augCostsFields', 'augc');
+      await saveHomeFacts('augmented_home', id, facts);
+      resetHomeFactsFields('augFactsFields', 'augf', { kind: 'augmented_home' });
       const photoResult = await uploadPhotos(`/api/augmented-homes/${id}/photos`, [...document.getElementById('augPhotos').files]);
       toastWithPhotoResult('Listed on AugmentedHomes.', photoResult);
       document.getElementById('postAugmentedWrap').open = false;
@@ -6206,6 +6545,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         await apiPost(`/api/augmented-homes/${homeId}/open-houses`, {
           startsAt: new Date(start).toISOString(), endsAt: new Date(end).toISOString(),
           note: document.getElementById(`augOhNote-${homeId}`).value.trim(),
+          shareAddressWithRsvps: readOpenHouseShare(`aug${homeId}`),
         });
         toast('Open house scheduled.');
         loadAugmentedOpenHousesInto(homeId);
@@ -6265,6 +6605,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       const greenFeatures = [...document.querySelectorAll('.green-create-check:checked')].map(c => c.value);
       const costs = readHomeCosts('grc');
+      const facts = readHomeFacts('grf');
       const { id } = await apiPost('/api/green-homes', {
         title: document.getElementById('greenTitle').value.trim(),
         askingPrice: document.getElementById('greenAskingPrice').value,
@@ -6284,6 +6625,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
       await saveHomeCosts('green_home', id, costs);
       resetHomeCostsFields('greenCostsFields', 'grc');
+      await saveHomeFacts('green_home', id, facts);
+      resetHomeFactsFields('greenFactsFields', 'grf', { kind: 'green_home' });
       const photoResult = await uploadPhotos(`/api/green-homes/${id}/photos`, [...document.getElementById('greenPhotos').files]);
       toastWithPhotoResult('Listed on GreenHomes.', photoResult);
       document.getElementById('postGreenWrap').open = false;
@@ -6379,6 +6722,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         await apiPost(`/api/green-homes/${homeId}/open-houses`, {
           startsAt: new Date(start).toISOString(), endsAt: new Date(end).toISOString(),
           note: document.getElementById(`greenOhNote-${homeId}`).value.trim(),
+          shareAddressWithRsvps: readOpenHouseShare(`green${homeId}`),
         });
         toast('Open house scheduled.');
         loadGreenOpenHousesInto(homeId);

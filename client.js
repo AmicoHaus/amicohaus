@@ -6,6 +6,18 @@ if ('serviceWorker' in navigator) {
   });
 }
 
+// Mirrors SPANISH_LIVE in functions/_lib/spanishLive.js (tools/spanish-test.mjs checks they agree). While false the
+// app shows no Display language setting and no Spanish note.
+const SPANISH_LIVE = false;
+
+// The page's language: the /es/ pages say lang="es". Only these shared strings follow it (the password toggle and the
+// generic error); everything else in client.js stays English in v1.
+const HF_LANG = (document.documentElement && document.documentElement.lang) === 'es' ? 'es' : 'en';
+const HF_SHARED_COPY = {
+  en: { showPassword: 'Show password', hidePassword: 'Hide password', genericError: 'Something went wrong. Please try again.' },
+  es: { showPassword: 'Mostrar contraseña', hidePassword: 'Ocultar contraseña', genericError: 'Algo salió mal. Inténtelo de nuevo.' },
+}[HF_LANG];
+
 // Adds a show/hide toggle to every password field on the page. Runs once at
 // load — every password input on this site is present in the markup from
 // the start (just hidden behind a parent .hidden class in a couple of
@@ -22,14 +34,14 @@ if ('serviceWorker' in navigator) {
     btn.type = 'button';
     btn.className = 'password-toggle';
     btn.textContent = '👁';
-    btn.setAttribute('aria-label', 'Show password');
+    btn.setAttribute('aria-label', HF_SHARED_COPY.showPassword);
     wrap.appendChild(btn);
 
     btn.addEventListener('click', () => {
       const showing = input.type === 'text';
       input.type = showing ? 'password' : 'text';
       btn.textContent = showing ? '👁' : '🙈';
-      btn.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+      btn.setAttribute('aria-label', showing ? HF_SHARED_COPY.showPassword : HF_SHARED_COPY.hidePassword);
     });
   });
 })();
@@ -84,6 +96,18 @@ function getAttribution() {
   } catch { return null; }
 }
 
+// The Spanish pages (es/*.html) and their English twins.
+const ES_LANDING_TWINS = { '': '/', index: '/', registro: '/signup', 'iniciar-sesion': '/login', acerca: '/about', agentes: '/for-agents',
+  contacto: '/contact', terminos: '/terms', privacidad: '/privacy', accesibilidad: '/accessibility' };
+// A landing path with no trace of the language: /es/<page> -> its English twin, anything else under /es -> "/".
+function englishLandingPath(pathname) {
+  const path = String(pathname || '') || '/';
+  const m = /^\/es(?:\/(.*))?$/i.exec(path);
+  if (!m) return path;
+  const page = (m[1] || '').replace(/\/+$/, '').replace(/\.html$/i, '').toLowerCase();
+  return Object.prototype.hasOwnProperty.call(ES_LANDING_TWINS, page) ? ES_LANDING_TWINS[page] : '/';
+}
+
 (function captureAttribution() {
   try {
     const params = new URLSearchParams(window.location.search);
@@ -99,7 +123,10 @@ function getAttribution() {
       if (ref.host !== window.location.host) referrer = ref.host;
     } catch { /* no referrer */ }
     const inApp = inAppBrowser();
-    localStorage.setItem(ATTRIBUTION_KEY, JSON.stringify({ ...tags, landing: window.location.pathname.slice(0, 200), referrer, ...(inApp ? { in_app: inApp } : {}), at: Date.now() }));
+    // Language stays out of lead records and Rudy's lead alerts (fair housing: ui_lang-style privacy): a Spanish page
+    // is stored as its English twin, so /es/registro is "/signup", never "/registro".
+    const landing = englishLandingPath(window.location.pathname);
+    localStorage.setItem(ATTRIBUTION_KEY, JSON.stringify({ ...tags, landing: landing.slice(0, 200), referrer, ...(inApp ? { in_app: inApp } : {}), at: Date.now() }));
   } catch { /* storage blocked (private mode etc.): tracking the source is optional */ }
 })();
 
@@ -202,7 +229,7 @@ function homeCostsDetailHtml(costs) {
   const extras = [
     inc.length && `Includes ${inc.join(', ').toLowerCase()}`,
     d.rentals && HOA_RULE_LABELS[d.rentals] && `Renting out: ${HOA_RULE_LABELS[d.rentals].toLowerCase()}`,
-    d.pets && HOA_RULE_LABELS[d.pets] && `Pets: ${HOA_RULE_LABELS[d.pets].toLowerCase()}`,
+    // HOA pets render in homeFactsDetailHtml's pets block, with the assistance-animal note.
     d.specialAssessment && `Special assessment: ${d.specialAssessment}`,
   ].filter(Boolean);
   return `
@@ -212,6 +239,74 @@ function homeCostsDetailHtml(costs) {
       <div class="mini-block"><span class="label">HOA</span>${escapeHtml(hoa)}${extras.length ? `<br><span class="tiny">${escapeHtml(extras.join(' · '))}</span>` : ''}</div>
     </div>
     <p class="tiny">${escapeHtml(HOME_COSTS_CONFIRM_LINE)}</p>`;
+}
+
+// Home facts, kept in sync by hand with functions/_lib/homeFacts.js (labels, headings, lines and both
+// assistance-animal lines word for word; tools/home-facts-ui-test.mjs compares the HTML with the server pages').
+// Everything shown is the owner's own words and numbers: nothing here is computed or checked.
+const HF_DIRECTIONS = { n: 'north', ne: 'northeast', e: 'east', se: 'southeast', s: 'south', sw: 'southwest', w: 'west', nw: 'northwest' };
+const HF_OUTDOOR = { backyard: 'backyard', front_yard: 'front yard', side_yard: 'side yard', patio: 'patio', balcony: 'balcony', deck: 'deck', courtyard: 'courtyard', rooftop: 'rooftop', none: 'none' };
+const HF_YARD_SIZES = { small: 'small', medium: 'medium', large: 'large' };
+const HF_FENCED = { yes: 'yes', partly: 'partly', no: 'no' };
+const HF_AFTERNOON_SUN = { mostly_sun: 'mostly sun', part_shade: 'part sun, part shade', mostly_shade: 'mostly shade' };
+const HF_SHADE = { covered_patio: 'covered patio', pergola: 'pergola', shade_trees: 'shade trees', awning: 'awning' };
+const HF_SOLAR = { none: 'none', owned: 'owned', leased: 'leased' };
+const HF_YES_NO = { yes: 'yes', no: 'no' };
+const HF_RV_SPOTS = { driveway: 'driveway', side_yard: 'side yard', pad: 'pad' };
+const HF_RENTAL_PETS = { considered: 'pets considered', some: 'some pets (see notes)', none: 'no pets' };
+const HF_HOA_RULES = { allowed: 'allowed', limited: 'limited (see HOA rules)' };
+const HF_YARD_HEADING = 'Yard and sun (from the owner)';
+const HF_YARD_SEASON_LINE = 'Sun changes with the season, trees and nearby buildings, so visit at the time of day that matters to you.';
+const HF_TOY_HEADING = 'Parking and garage (from the owner)';
+const HF_TOY_CONFIRM_LINE = 'Measure and confirm on your visit. HOA and city rules on parking RVs, boats and work trucks vary; check them first.';
+const HF_PETS_HEADING = 'Pets (from the owner)';
+const HF_ASSISTANCE_ANIMAL_LINE = "Assistance animals (service and support animals) are not pets, and pet limits and pet fees don't apply to them. Under California fair housing law, a request to keep one is handled as a reasonable accommodation.";
+const HF_ASSISTANCE_ANIMAL_LINE_LONG = "Assistance animals (service and support animals) are not pets, and pet limits, pet deposits and pet fees don't apply to them. Under California fair housing law, a request to keep one is handled as a reasonable accommodation (Cal. Gov. Code §§ 12927, 12955; Cal. Code Regs. tit. 2, §§ 12005, 12176, 12185).";
+
+function hfFactsLines(facts, costs, { isRental = false, longNote = false } = {}) {
+  const obj = v => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
+  const f = obj(facts), y = obj(f.yard), t = obj(f.toy), p = obj(f.pets);
+  const hoa = costs ? obj(costs.hoaDetails) : {};
+  const labels = (map, list) => (Array.isArray(list) ? list.map(k => map[k]).filter(Boolean) : []);
+  const yard = [];
+  if (HF_DIRECTIONS[y.faces]) yard.push(`Backyard faces ${HF_DIRECTIONS[y.faces]}`);
+  if (HF_DIRECTIONS[y.frontFaces]) yard.push(`Front faces ${HF_DIRECTIONS[y.frontFaces]}`);
+  const outdoor = labels(HF_OUTDOOR, y.outdoor);
+  if (outdoor.length) yard.push(`Outdoor space: ${outdoor.join(', ')}`);
+  if (HF_YARD_SIZES[y.size]) yard.push(`Yard size: ${HF_YARD_SIZES[y.size]}`);
+  if (HF_FENCED[y.fenced]) yard.push(`Fenced: ${HF_FENCED[y.fenced]}`);
+  if (HF_AFTERNOON_SUN[y.afternoonSun]) yard.push(`Afternoon in the backyard: ${HF_AFTERNOON_SUN[y.afternoonSun]}`);
+  const shade = labels(HF_SHADE, y.shade);
+  if (shade.length) yard.push(`Shade: ${shade.join(', ')}`);
+  if (HF_SOLAR[y.solar]) yard.push(`Solar panels: ${HF_SOLAR[y.solar]}`);
+  if (y.notes) yard.push(`Owner's notes: ${y.notes}`);
+  const toy = [];
+  if (t.rv === 'yes') toy.push(`RV or boat parking: yes${HF_RV_SPOTS[t.rvSpot] ? ` (${HF_RV_SPOTS[t.rvSpot]})` : ''}`);
+  else if (t.rv === 'no') toy.push('RV or boat parking: no');
+  if (HF_YES_NO[t.sideAccess]) toy.push(`Side or back yard vehicle access: ${t.sideAccess}`);
+  if (Number.isInteger(t.gateIn)) toy.push(`Gate opening about ${t.gateIn} in. (owner measured)`);
+  if (Number.isInteger(t.drivewayFt)) toy.push(`Driveway about ${t.drivewayFt} ft long (owner measured)`);
+  if (t.garage === 0) toy.push('Garage: none');
+  else if (Number.isInteger(t.garage)) toy.push(`Garage: ${t.garage} space${t.garage === 1 ? '' : 's'}${t.tandem === 'yes' ? ', tandem' : ''}`);
+  if (HF_YES_NO[t.workshop]) toy.push(`Workshop space: ${t.workshop}`);
+  if (HF_YES_NO[t.ev240]) toy.push(`240V or EV outlet at the parking: ${t.ev240}`);
+  if (HF_HOA_RULES[hoa.parking]) toy.push(`HOA RV/boat parking: ${HF_HOA_RULES[hoa.parking]}`);
+  const pets = [];
+  if (HF_HOA_RULES[hoa.pets]) pets.push(`HOA pets: ${HF_HOA_RULES[hoa.pets]}`);
+  if (isRental && HF_RENTAL_PETS[p.rental]) pets.push(`Renters: ${HF_RENTAL_PETS[p.rental]}`);
+  if (p.notes) pets.push(`Owner's pet notes: ${p.notes}`);
+  // The assistance-animal note is always the pets block's last line; no renderer may drop it.
+  if (pets.length) pets.push(longNote ? HF_ASSISTANCE_ANIMAL_LINE_LONG : HF_ASSISTANCE_ANIMAL_LINE);
+  return { yard, toy, pets };
+}
+
+// The detail-view HTML: the same blocks the server pages print (classes home-facts and assist-note). On a rental the
+// pets block carries the long note with the California cites, as on the listing page.
+function homeFactsDetailHtml(facts, costs, { isRental = false } = {}) {
+  const g = hfFactsLines(facts, costs, { isRental: !!isRental, longNote: !!isRental });
+  const block = (heading, lines, extra) => (lines.length ? `<p class="tiny home-facts"><span class="label">${escapeHtml(heading)}</span> ${escapeHtml(lines.join(' · '))}</p>${extra ? `<p class="tiny">${escapeHtml(extra)}</p>` : ''}` : '');
+  const pets = g.pets.length ? `<p class="tiny home-facts"><span class="label">${escapeHtml(HF_PETS_HEADING)}</span> ${escapeHtml(g.pets.slice(0, -1).join(' · '))}</p><p class="tiny assist-note">${escapeHtml(g.pets[g.pets.length - 1])}</p>` : '';
+  return block(HF_YARD_HEADING, g.yard, HF_YARD_SEASON_LINE) + block(HF_TOY_HEADING, g.toy, HF_TOY_CONFIRM_LINE) + pets;
 }
 
 function escapeHtml(str) {
@@ -521,7 +616,7 @@ function apiErrorCode(err) {
 function contactErrorMessage(err, where = '') {
   const code = apiErrorCode(err);
   if (code === 'contact_quiet' && where === 'showing') return CONTACT_ERROR_COPY.contact_quiet_showing;
-  return CONTACT_ERROR_COPY[code] || (err && err.message) || 'Something went wrong. Please try again.';
+  return CONTACT_ERROR_COPY[code] || (err && err.message) || HF_SHARED_COPY.genericError;
 }
 
 // A per-person limit (HTTP 429, code rate_limited): the toast shows the server's own words, a little longer.
@@ -601,7 +696,14 @@ function priceRangeLabel(min, max) {
 function savedSearchLabel(s) {
   const range = priceRangeLabel(s.price_min ?? s.priceMin, s.price_max ?? s.priceMax);
   const type = s.property_type || s.propertyType || 'Any';
-  return `${type === 'Any' ? 'Any type' : type} in ${s.locations || ''}${range ? ` ${range}` : ''}`;
+  const flags = Number(s.toy_flags ?? s.toyFlags) || 0;
+  const gate = Number(s.min_gate_in ?? s.minGateIn) || 0;
+  const garage = Number(s.min_garage ?? s.minGarage) || 0;
+  const toy = [
+    flags & 1 ? ' · RV/boat parking' : '', flags & 2 ? ' · side access' : '', flags & 4 ? ' · workshop' : '', flags & 8 ? ' · 240V/EV outlet' : '',
+    gate ? ` · gate ${gate}+ in.` : '', garage ? ` · ${garage}+ garage spaces` : '',
+  ].join('');
+  return `${type === 'Any' ? 'Any type' : type} in ${s.locations || ''}${range ? ` ${range}` : ''}${toy}`;
 }
 
 // Real alt text for a home's own photo: "Photo of this condo in Chula Vista".
@@ -909,6 +1011,81 @@ function recentlyViewedHref(kind, id) {
     recompute();
   });
 })();
+
+// "Plan your drive" (listing, AugmentedHomes and GreenHomes pages): up to 2 places the visitor goes often, saved only in
+// this browser (localStorage), each as its own Google Maps link from that place to the home's area. Never sent to Amico
+// Haus: no network call, no beacon, no analytics, and no preset places. Built from DOM nodes (textContent), never innerHTML.
+const HF_DRIVE_PLACES_KEY = 'amico.drivePlaces.v1';
+const HF_DRIVE_PLACES_MAX = 2;
+function hfPlanDriveHref(area, origin = '') {
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(area)}&travelmode=driving` + (origin ? `&origin=${encodeURIComponent(origin)}` : '');
+}
+(function hfDrivePlaces() {
+  const readPlaces = () => {
+    try {
+      const v = JSON.parse(localStorage.getItem(HF_DRIVE_PLACES_KEY) || '[]');
+      return Array.isArray(v) ? v.filter(x => typeof x === 'string' && x.trim()).map(x => x.trim().slice(0, 80)).slice(0, HF_DRIVE_PLACES_MAX) : [];
+    } catch { return []; }
+  };
+  const writePlaces = list => { try { localStorage.setItem(HF_DRIVE_PLACES_KEY, JSON.stringify(list)); } catch { /* storage off: this visit only */ } };
+  const start = () => {
+    if (typeof document.querySelector !== 'function') return;
+    const link = document.querySelector('a[data-drive-area]');
+    if (!link || !link.parentNode) return;
+    const area = link.getAttribute('data-drive-area') || '';
+    let places = readPlaces();
+    const host = (link.closest && link.closest('.drive-link')) || link.parentNode;
+    const box = document.createElement('div');
+    box.className = 'drive-places';
+    host.parentNode.insertBefore(box, host.nextSibling);
+    const make = (tag, props) => Object.assign(document.createElement(tag), props || {});
+    const render = (message = '') => {
+      box.textContent = '';
+      box.appendChild(make('p', { className: 'tiny', textContent: 'Places you go often (saved only in this browser):' }));
+      if (places.length) {
+        const list = make('div', { className: 'chip-row' });
+        places.forEach((place, i) => {
+          const chip = make('span', { className: 'drive-place-chip' });
+          chip.appendChild(make('a', { href: hfPlanDriveHref(area, place), target: '_blank', rel: 'noopener noreferrer', textContent: `From ${place} ↗` }));
+          const remove = make('button', { type: 'button', className: 'link-btn', textContent: '×' });
+          remove.setAttribute('aria-label', `Remove ${place}`);
+          remove.addEventListener('click', () => { places = places.filter((_, j) => j !== i); writePlaces(places); render(); });
+          chip.appendChild(remove);
+          list.appendChild(chip);
+        });
+        box.appendChild(list);
+      }
+      const row = make('div', { className: 'drive-place-add' });
+      row.appendChild(make('label', { htmlFor: 'hfDrivePlace', textContent: 'Add a place' }));
+      const input = make('input', { type: 'text', id: 'hfDrivePlace', maxLength: 80, placeholder: 'e.g. a work address or a city' });
+      const add = make('button', { type: 'button', className: 'btn btn-ghost btn-sm', textContent: 'Add' });
+      const addPlace = () => {
+        const place = input.value.trim().slice(0, 80);
+        if (!place) return;
+        if (places.length >= HF_DRIVE_PLACES_MAX) { render('You can keep up to 2 places.'); return; }
+        if (!places.includes(place)) places = [...places, place];
+        writePlaces(places);
+        render();
+      };
+      add.addEventListener('click', addPlace);
+      input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addPlace(); } });
+      row.appendChild(input);
+      row.appendChild(add);
+      box.appendChild(row);
+      if (message) {
+        const note = make('p', { className: 'tiny', textContent: message });
+        note.setAttribute('role', 'status');
+        box.appendChild(note);
+      }
+    };
+    render();
+  };
+  try {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => { try { start(); } catch { /* optional */ } });
+    else start();
+  } catch { /* the drive link works on its own */ }
+})();
+// (end of hfDrivePlaces)
 
 // Keeps --topbar-h equal to the sticky header's height (0 when it isn't
 // sticky) so in-page jumps land below it — see scroll-padding-top in styles.css.

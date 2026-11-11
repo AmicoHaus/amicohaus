@@ -35,6 +35,10 @@ export async function onRequestPost(context) {
   const source = sanitizeAttribution(body.source);
   // A page to come back to after confirming (only a past-client review link), carried in the emailed link.
   const next = /^\/past-client-review\?t=[A-Za-z0-9]{8,64}$/.test(String(body.next || '')) ? body.next : '';
+  // Display language (users.ui_lang, migration_v46): the Spanish sign-up page sends 'es'. It only picks the language
+  // of the confirmation email and the Spanish pages; it never touches preferred_language, agent languages, search
+  // alerts, directory filters, intent, source or any admin alert.
+  const uiLang = body.uiLang === 'es' ? 'es' : 'en';
 
   if (!EMAIL_RE.test(email)) return badRequest('Enter a valid email address.');
   if (!displayName) return badRequest('Enter your name.');
@@ -57,8 +61,8 @@ export async function onRequestPost(context) {
     // Signing up again is agreeing again, to today's version.
     await db.prepare(
       `UPDATE users SET display_name = ?, signup_intent = COALESCE(?, signup_intent), signup_source = COALESCE(signup_source, ?), created_at = datetime('now'),
-         terms_version = ?, terms_accepted_at = datetime('now') WHERE id = ?`
-    ).bind(displayName, intent || null, source, CURRENT_TERMS_VERSION, userId).run();
+         terms_version = ?, terms_accepted_at = datetime('now'), ui_lang = ? WHERE id = ?`
+    ).bind(displayName, intent || null, source, CURRENT_TERMS_VERSION, uiLang, userId).run();
     // At most one delivered email per address every couple of minutes (like resend-confirmation), so repeat signups
     // can't flood an inbox or keep replacing the code someone is about to type. A send that failed doesn't count.
     const recent = await db.prepare("SELECT 1 FROM users WHERE id = ? AND verify_sent_at > datetime('now', '-2 minutes')").bind(userId).first();
@@ -73,9 +77,9 @@ export async function onRequestPost(context) {
 
     const insert = (code) => db.prepare(
       `INSERT INTO users (email, password_hash, display_name, role, referral_code, referred_by, email_confirmation_pending, signup_intent, signup_source,
-         terms_version, terms_accepted_at)
-       VALUES (?, NULL, ?, 'user', ?, ?, 1, ?, ?, ?, datetime('now'))`
-    ).bind(email, displayName, code, referredBy, intent || null, source, CURRENT_TERMS_VERSION).run();
+         terms_version, terms_accepted_at, ui_lang)
+       VALUES (?, NULL, ?, 'user', ?, ?, 1, ?, ?, ?, datetime('now'), ?)`
+    ).bind(email, displayName, code, referredBy, intent || null, source, CURRENT_TERMS_VERSION, uiLang).run();
 
     let result;
     try {
@@ -97,7 +101,7 @@ export async function onRequestPost(context) {
     userId = result.meta.last_row_id;
   }
 
-  const sent = await sendConfirmationLink(context, { id: userId, email, displayName }, { intent, next });
+  const sent = await sendConfirmationLink(context, { id: userId, email, displayName }, { intent, next, uiLang });
   if (!sent) {
     // Keep the pending account (nothing is usable until the link is opened) and say so on the next
     // screen, where "send it again" retries; signing up again with the same email also works. The

@@ -4,12 +4,36 @@ import { escapeHtml, unlistedOwnerSql } from '../_lib/util.js';
 import { ASSET_VERSIONS } from '../_lib/assetVersions.js';
 import { withSecurityHeaders } from '../_lib/withSecurityHeaders.js';
 import { homeCostsFromRow, homeCostsLines, HOME_COSTS_HEADING, HOME_COSTS_CONFIRM_LINE } from '../_lib/homeCosts.js';
+import { homeFactsFromRow, homeFactsLines, driveArea, planDriveHref, YARD_HEADING, YARD_SEASON_LINE, TOY_HEADING, TOY_CONFIRM_LINE,
+  PETS_HEADING, PLAN_DRIVE_LABEL, PLAN_DRIVE_CAPTION } from '../_lib/homeFacts.js';
 import { GREEN_FEATURE_ITEMS } from '../_lib/greenFeatures.js';
 import { fetchSimilarEntities, similarEntitiesHtml } from '../_lib/similarEntities.js';
 import { mortgageCalcHtml } from '../_lib/mortgageCalc.js';
 import { realEstateListingJsonLd } from '../_lib/structuredData.js';
+import { SPANISH_LIVE } from '../_lib/spanishLive.js';
 
 const GREEN_FEATURE_LABELS = Object.fromEntries(GREEN_FEATURE_ITEMS.map(i => [i.key, i.label]));
+
+// The owner's home facts, each under its "(from the owner)" heading; the pets block always ends with the
+// assistance-animal note on its own line (same HTML as functions/listing/[id].js and client.js homeFactsDetailHtml).
+function factsBlockHtml(heading, lines, extra) {
+  if (!lines.length) return '';
+  return `<p class="tiny home-facts"><span class="label">${escapeHtml(heading)}</span> ${escapeHtml(lines.join(' · '))}</p>${extra ? `<p class="tiny">${escapeHtml(extra)}</p>` : ''}`;
+}
+function petsBlockHtml(lines) {
+  if (!lines.length) return '';
+  return `<p class="tiny home-facts"><span class="label">${escapeHtml(PETS_HEADING)}</span> ${escapeHtml(lines.slice(0, -1).join(' · '))}</p><p class="tiny assist-note">${escapeHtml(lines.at(-1))}</p>`;
+}
+function homeFactsHtml(row) {
+  const g = homeFactsLines(homeFactsFromRow(row), homeCostsFromRow(row));
+  return factsBlockHtml(YARD_HEADING, g.yard, YARD_SEASON_LINE) + factsBlockHtml(TOY_HEADING, g.toy, TOY_CONFIRM_LINE) + petsBlockHtml(g.pets);
+}
+// "Plan your drive": Google Maps to the home's AREA (never the street address). Google works out the time, not us.
+function driveLinkHtml(row) {
+  const area = driveArea(row);
+  if (!area) return '';
+  return `<p class="tiny drive-link"><a href="${escapeHtml(planDriveHref(area))}" target="_blank" rel="noopener noreferrer" data-drive-area="${escapeHtml(area)}">${PLAN_DRIVE_LABEL} ↗</a> ${escapeHtml(PLAN_DRIVE_CAPTION)}</p>`;
+}
 
 function money(n) {
   n = Number(n) || 0;
@@ -63,6 +87,7 @@ ${jsonLd}
       <a class="tab tab-cta tab-cta-agent" href="/signup?as=agent">I'm an Agent</a>
       <a class="tab" href="/#how">How it works</a>
       <a class="tab" href="/about">About</a>
+      ${SPANISH_LIVE ? '<a class="tab tab-lang" href="/es/" hreflang="es" lang="es">Español</a>' : ''}
     </nav>
     <div class="auth-cta">${authCta || '<a class="btn btn-ghost btn-sm" href="/login">Log In</a> <a class="btn btn-primary btn-sm" href="/signup">Sign Up</a>'}</div>
   </header>
@@ -146,8 +171,10 @@ async function renderPage(context) {
         <span class="label">Has</span>
         ${escapeHtml(home.property_type)} · ${home.beds}bd/${home.baths}ba${home.sqft ? ` · ${home.sqft.toLocaleString('en-US')} sqft` : ''}<br>
         ${loc}<br>
+        ${driveLinkHtml(home)}
         ${money(home.asking_price)} asking
         ${(() => { const lines = homeCostsLines(homeCostsFromRow(home)); return lines.length ? `<p class="tiny"><span class="label">${escapeHtml(HOME_COSTS_HEADING)}</span> ${escapeHtml(lines.join(' · '))}</p><p class="tiny">${escapeHtml(HOME_COSTS_CONFIRM_LINE)}</p>` : ''; })()}
+        ${homeFactsHtml(home)}
       </div>
 
       ${home.description ? `<p>${escapeHtml(home.description)}</p>` : ''}

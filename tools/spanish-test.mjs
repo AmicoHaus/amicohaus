@@ -40,6 +40,7 @@ const css = read('styles.css');
 const AGENT_STRIP = '<a class="agent-strip" href="/es/acerca">Presentado por <strong>Rudy Flores</strong> &middot; Coldwell Banker West &middot; DRE #02257808</a>';
 const FOOTER_LEGAL_ES = '<p class="footer-legal">Equal Housing Opportunity · Igualdad de Oportunidad en la Vivienda · <a href="/es/accesibilidad">Accesibilidad</a></p>';
 const TAGLINE = "Amico Haus: the real estate marketplace of tomorrow! Everything that's missing from the real estate market for the homeowner!";
+const ES_TAGLINE = "Amico Haus: ¡el mercado inmobiliario del mañana! ¡Todo lo que le falta al mercado inmobiliario para el propietario!";
 const NAV_ES = [
   ['tab tab-demo', '/demo', 'Demo (en inglés)'],
   ['tab tab-cta tab-cta-post', '/es/registro?as=homeowner', 'Publicar un pre-listado'],
@@ -101,7 +102,7 @@ for (const [esFile, esPath, enFile, enPath, indexable] of PAGES) {
   check(`${esFile}: footer links (Acerca de, Contacto, Términos de uso (resumen), Privacidad (resumen), Accesibilidad)`,
     ['<a href="/es/acerca">Acerca de</a>', '<a href="/es/contacto">Contacto</a>', '<a href="/es/terminos">Términos de uso (resumen)</a>', '<a href="/es/privacidad">Privacidad (resumen)</a>', '<a href="/es/accesibilidad">Accesibilidad</a>'].every(s => es.includes(s)));
   check(`${esFile}: DRE #02257808 and Coldwell Banker West`, es.includes('DRE #02257808') && es.includes('Coldwell Banker West'));
-  check(`${esFile}: the English tagline (until Rudy OKs a Spanish one)`, es.includes(TAGLINE) && !es.includes('mercado inmobiliario del mañana'));
+  check(`${esFile}: the Spanish tagline Rudy approved 11.11 (no English one)`, es.includes(ES_TAGLINE) && !es.includes(TAGLINE));
   check(`${enFile}: the English Equal Housing Opportunity line is still there`, /<p class="footer-legal">[^\n]*Equal Housing Opportunity · <a href="\/accessibility">Accessibility<\/a><\/p>/.test(en));
   check(`${esFile}: no McKelvey, Patti or Jeff`, !/mckelvey|\bpatti\b|\bjeff\b/i.test(es));
   // Fair housing: nothing about who speaks Spanish; no language filter in any link.

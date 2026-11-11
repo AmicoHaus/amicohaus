@@ -8,7 +8,7 @@ if ('serviceWorker' in navigator) {
 
 // Mirrors SPANISH_LIVE in functions/_lib/spanishLive.js (tools/spanish-test.mjs checks they agree). While false the
 // app shows no Display language setting and no Spanish note.
-const SPANISH_LIVE = false;
+const SPANISH_LIVE = true;
 
 // The page's language: the /es/ pages say lang="es". Only these shared strings follow it (the password toggle and the
 // generic error); everything else in client.js stays English in v1.

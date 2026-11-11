@@ -3,7 +3,7 @@
 // static pages get, so a deploy never leaves them on a stale stylesheet.
 export const ASSET_VERSIONS = {
   '/styles.css': 'ca57c1e5',
-  '/client.js': '408cfd43',
+  '/client.js': '124a7444',
   '/listing-actions.js': 'dbd0154f',
   '/profile-actions.js': 'd6f0e5a7',
   '/report-actions.js': 'ea96c11a',

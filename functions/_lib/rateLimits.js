@@ -1,8 +1,9 @@
 // Per-person limits on actions that notify someone else (batch L1): new conversations, messages, proposals, price
 // opinions, showing requests, broker-preview RSVPs, open-house RSVPs (owners see who is going; home facts batch),
 // agent invites, saved searches and reports, owner timing edits (they change what buyers' timing counts show;
-// R3-1b), and swept photo replacements and Then & Now pairs (owner
-// tools). Each action is one row in user_action_log (migration_v43.sql), checked and recorded in ONE statement, so two requests at the same moment can't both slip
+// R3-1b), swept photo replacements and Then & Now pairs (owner
+// tools), and watch areas, head starts, standing interest and replies to it, trial stays, listed ideas and
+// price schedules (nuanced ideas batch). Each action is one row in user_action_log (migration_v43.sql), checked and recorded in ONE statement, so two requests at the same moment can't both slip
 // under the limit (D1 runs one statement at a time). Rows are pruned by the lazy jobs in functions/api/_middleware.js.
 import { json } from './util.js';
 
@@ -23,6 +24,14 @@ export const USER_LIMITS = {
   timing_edit: [{ max: 10, minutes: DAY }],
   photo_sweep: [{ max: 40, minutes: 60 }, { max: 120, minutes: DAY }], // ref pre_listing:<id>; swept replacements and Then & Now pairs
   report: [{ max: 10, minutes: DAY }],
+  watch_area_edit: [{ max: 10, minutes: DAY }],
+  head_start: [{ max: 3, minutes: DAY }],                                                       // each one notifies the ZIP's watchers
+  home_claim: [{ max: 3, minutes: 30 * DAY }],
+  standing_interest: [{ max: 5, minutes: DAY }, { max: 15, minutes: 30 * DAY }],
+  interest_reply: [{ max: 10, minutes: DAY }, { max: 1, minutes: 90 * DAY, perRef: true }],     // ref standing_interest:<id>
+  trade_trial: [{ max: 5, minutes: DAY }, { max: 3, minutes: 7 * DAY, perRef: true }],          // ref pair:<lowListingId>-<highListingId>
+  idea_post: [{ max: 20, minutes: DAY }],                                                       // saving a listed outline or an Open For flag set
+  step_down_edit: [{ max: 6, minutes: DAY }],
 };
 
 export const RATE_LIMITED_ERROR = "You're doing that a lot right now. Please take a short break and try again later.";

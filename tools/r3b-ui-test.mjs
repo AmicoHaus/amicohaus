@@ -26,7 +26,8 @@ const css = read('styles.css');
 const scripts = [...app.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1]);
 // The owner tools batch adds share-moment.js after decision-night.js and its four tool files after opinion-refresh.js.
 const WANT_ORDER = ['client.js', 'agent-cards.js', 'seller-prep.js', 'decision-night.js', 'share-moment.js', 'timing-match.js', 'ready-meter.js', 'opinion-refresh.js',
-  'privacy-sweep.js', 'then-now.js', 'visit-feedback.js', 'handoff-binder.js', 'agent-growth.js', 'open-house-plan.js', 'main.js'];
+  'privacy-sweep.js', 'then-now.js', 'visit-feedback.js', 'handoff-binder.js', 'agent-growth.js', 'open-house-plan.js',
+  'listing-terms.js', 'neighbors.js', 'ideas.js', 'main.js']; // the nuanced ideas batch adds its three files before main.js
 check('app.html: script order', JSON.stringify(scripts) === JSON.stringify(WANT_ORDER), JSON.stringify(scripts));
 
 for (const id of ['plCloseFrom', 'plCloseTo', 'plStayAfterDays', 'savedMoveFrom', 'savedMoveTo', 'savedStayOffer']) {
@@ -118,12 +119,13 @@ const PRIVACY_SENTENCES = [
 PRIVACY_SENTENCES.forEach((sentence, i) => check(`privacy.html: R3-1b sentence ${i + 1} verbatim`, privacy.includes(sentence)));
 const prePara = privacy.indexOf('<p><strong>Pre-listings are shared only with approved agents.</strong>');
 check('privacy.html: the timing paragraph comes right after the pre-listings paragraph', prePara > 0 && privacy.indexOf('</p>', prePara) + 4 < privacy.indexOf('<strong>Timing, check-ins and price opinion history.</strong>') && privacy.slice(privacy.indexOf('</p>', prePara) + 4, privacy.indexOf('<strong>Timing, check-ins')).trim() === '<p>');
-// The home facts batch moved the date to November 12 (launch-test pins it).
-check('privacy.html: still "Last updated November 11, 2026."', privacy.includes('Last updated November 11, 2026.'));
+// The nuanced ideas batch moved the date to November 13 (launch-test pins it).
+check('privacy.html: "Last updated November 13, 2026."', privacy.includes('Last updated November 13, 2026.'));
 const whatsNew = read('whats-new.html');
-// The home facts batch put its card first and the owner tools card is second, so the R3-1b card is now the third one
+// The nuanced ideas card is first, then home facts, then owner tools, so the R3-1b card is now the fourth one
 // (firstCard below is the owner tools card).
-const firstCard = whatsNew.indexOf('<div class="card about-card">', whatsNew.indexOf('<div class="card about-card">') + 1);
+const homeFactsCard = whatsNew.indexOf('<div class="card about-card">', whatsNew.indexOf('<div class="card about-card">') + 1);
+const firstCard = whatsNew.indexOf('<div class="card about-card">', homeFactsCard + 1);
 const secondCard = whatsNew.indexOf('<div class="card about-card">', firstCard + 1);
 check('whats-new.html: the R3-1b card, right after the owner tools card', firstCard > 0 && secondCard > firstCard && whatsNew.indexOf('<h2>Timing, a weekly check-in and fresh price opinions</h2>') > secondCard && whatsNew.indexOf('<h2>Timing, a weekly check-in and fresh price opinions</h2>') < whatsNew.indexOf('<div class="card about-card">', secondCard + 1));
 check('whats-new.html: up to 29 days, the agents write the rent-back terms', whatsNew.includes("how long you'd like to stay after closing, up to 29 days. Your agents write the rent-back terms.") && !/30 days/.test(whatsNew));

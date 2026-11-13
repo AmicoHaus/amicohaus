@@ -17,6 +17,7 @@ export async function onRequestGet(context) {
      JOIN listings ON listings.id = listing_feedback.listing_id
      JOIN users ON users.id = listings.user_id
      WHERE listing_feedback.user_id = ? AND listing_feedback.feedback = 'down'
+       AND listings.head_start_until IS NULL
      ORDER BY listing_feedback.created_at DESC`
   ).bind(user.id).all();
 

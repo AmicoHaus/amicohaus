@@ -1,6 +1,7 @@
 import { locationMatches } from './matching.js';
 import { DEMO_EMAIL_PATTERN } from './util.js';
 import { notBlockedSql } from './blocks.js';
+import { homeFactsFromRow } from './homeFacts.js';
 
 // Rather than a cron job (which Pages Functions can't run on their own),
 // every new listing is checked against everyone's saved searches at the
@@ -9,7 +10,8 @@ import { notBlockedSql } from './blocks.js';
 // (context.waitUntil) by the create endpoints, never inside the request.
 //
 // listings: one new trade listing, or an array of them from one owner (the bulk upload):
-//   { id, user_id, city, state, neighborhood, property_type, estimated_value, toy } (toy: the owner's parking facts)
+//   { id, user_id, city, state, neighborhood, property_type, estimated_value, toy, owner_carry, assumable }
+//   (toy: the owner's parking facts; owner_carry / assumable: the owner's two financing flags, 0 or 1)
 // Only real, active owners alert anyone; demo, suspended and blocked people are left out both ways; each person gets
 // ONE alert however many of their searches (or of the new listings) match.
 export async function notifySavedSearches(db, listings) {
@@ -22,7 +24,8 @@ export async function notifySavedSearches(db, listings) {
       .bind(ownerId, DEMO_EMAIL_PATTERN).first();
     if (!owner) continue;
     const searches = await db.prepare(
-      `SELECT s.user_id, s.locations, s.property_type, s.price_min, s.price_max, s.toy_flags, s.min_gate_in, s.min_garage
+      `SELECT s.user_id, s.locations, s.property_type, s.price_min, s.price_max, s.toy_flags, s.min_gate_in, s.min_garage,
+              s.deal_flags
        FROM saved_searches s JOIN users ON users.id = s.user_id
        WHERE users.status = 'active' AND users.email NOT LIKE ?1 AND s.user_id != ?2
          AND ${notBlockedSql('s.user_id', '?2')}
@@ -47,6 +50,10 @@ export async function notifySavedSearches(db, listings) {
         if ((s.toy_flags & 8) && toy.ev240 !== 'yes') continue;
         if (s.min_gate_in && !(toy.gateIn >= s.min_gate_in)) continue;
         if (s.min_garage && !(toy.garage >= s.min_garage)) continue;
+        // Owner Will Carry (deal_flags: 1 owner open to seller financing, 2 loan may be assumable): only a home whose
+        // owner said so matches. The alert text stays the same (it never says financing is available).
+        if ((s.deal_flags & 1) && !home.owner_carry) continue;
+        if ((s.deal_flags & 2) && !home.assumable) continue;
         const mine = hits.get(s.user_id) || new Set();
         mine.add(home);
         hits.set(s.user_id, mine);
@@ -77,5 +84,19 @@ export function savedSearchHome(id, userId, d) {
     property_type: d.propertyType, estimated_value: d.estimatedValue,
     // The owner's parking and garage facts arrive in the same create request, so a toy-box search can match at once.
     toy: (d.homeFacts && d.homeFacts.toy) || {},
+    // The owner's two financing flags (already narrowed to the tools that are live for the owner).
+    owner_carry: d.terms && d.terms.ownerCarry ? 1 : 0, assumable: d.terms && d.terms.assumable ? 1 : 0,
+  };
+}
+
+// The same object from a stored listings row (listings.js announceNewListing: a head-start listing is announced when
+// it opens, not when it was created). null for a buyer-only profile, a rental or a portfolio.
+export function savedSearchHomeFromRow(row) {
+  if (!row || !row.id || row.is_buyer_only || row.is_rental || row.is_portfolio) return null;
+  return {
+    id: row.id, user_id: row.user_id, city: row.city, state: row.state, neighborhood: row.neighborhood || '',
+    property_type: row.property_type, estimated_value: row.estimated_value,
+    toy: homeFactsFromRow(row).toy || {},
+    owner_carry: Number(row.owner_carry) === 1 ? 1 : 0, assumable: Number(row.assumable) === 1 ? 1 : 0,
   };
 }

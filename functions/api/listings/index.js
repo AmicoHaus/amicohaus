@@ -8,6 +8,10 @@ import { logMarketEventUnlessDemo, fetchRecentActivityBatch } from '../../_lib/m
 import { fetchPriceSeriesBatch, fetchListingFavoriteCountBatch } from '../../_lib/priceSeries.js';
 import { fetchCommentCountBatch } from '../../_lib/dealThreads.js';
 import { isApprovedAgent } from '../../_lib/agents.js';
+import { liveTools } from '../../_lib/nuancedGate.js';
+import { termsForCreate, creditTermsProblem } from '../../_lib/listingTerms.js';
+import { validateHeadStart, headStartUntil, notifyWatchers } from '../../_lib/watchAreas.js';
+import { claimUserAction, rateLimited } from '../../_lib/rateLimits.js';
 
 export async function onRequestGet(context) {
   const user = await getSessionUser(context);
@@ -53,9 +57,18 @@ export async function onRequestPost(context) {
   let body;
   try { body = await context.request.json(); } catch { return badRequest('Invalid request body.'); }
 
-  const validated = validateListingInput(body);
+  const validated = validateListingInput(body, { withTerms: true });
   if (validated.error) return badRequest(validated.error);
   const db = context.env.DB;
+  const d = validated.data;
+  // Nuanced-ideas tools (nuancedGate.js): a tool that isn't live for this person has its fields ignored (stored as
+  // the defaults). With a financing flag on, the title and description can't state loan terms.
+  const live = liveTools(context.env, user);
+  d.terms = termsForCreate(d.terms, live);
+  if (d.terms.ownerCarry || d.terms.assumable) {
+    const creditError = creditTermsProblem(`${d.title} ${d.neighborhood || ''} ${d.description}`);
+    if (creditError) return badRequest(creditError);
+  }
   // Posting a home for a client (the Client name field) is for approved agents only (Rudy 11.05); a homeowner posts
   // their own home without it.
   if (validated.data.clientName && !(await isApprovedAgent(db, user.id))) {
@@ -68,6 +81,22 @@ export async function onRequestPost(context) {
     const source = await db.prepare('SELECT hidden_at FROM listings WHERE id = ? AND user_id = ?').bind(cloneOf, user.id).first();
     if (source && source.hidden_at) {
       return json({ error: "This listing was paused by Amico Haus, so it can't be copied. Questions? Use Contact.", code: 'moderation_paused' }, { status: 409 });
+    }
+  }
+
+  // Neighbors First head start (watchAreas.js): the owner's own home, shown first to members who watch its ZIP. The
+  // listing is stored paused until the head start ends, so the three create-time alerts wait until it opens
+  // (announceNewListing); only the ZIP's watchers are told now, in-app. Never for a home posted by or for an agent.
+  if (live.headStart && !d.isBuyerOnly && body.headStart && Number(body.headStart.hours) > 0) {
+    const headStart = validateHeadStart(body.headStart, { agentPosted: !!d.clientName || await isApprovedAgent(db, user.id), zip: d.zip });
+    if (headStart.error) return badRequest(headStart.error);
+    const until = headStart.data.hours > 0 ? headStartUntil(headStart.data.hours, Date.now()) : null;
+    if (until) {
+      if (!(await claimUserAction(db, 'head_start', user.id))) return rateLimited();
+      const id = await insertListing(db, user.id, d, { headStartUntil: until });
+      context.waitUntil(Promise.resolve(notifyWatchers(context, { kind: 'listing', id, ownerId: user.id, zip: d.zip, until }))
+        .catch(err => console.log(`[watch notify failed] ${err.message}`)));
+      return json({ id, headStartUntil: until }, { status: 201 });
     }
   }
 

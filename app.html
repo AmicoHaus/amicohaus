@@ -29,6 +29,7 @@
       <button class="tab" data-tab="groups">Groups</button>
       <button class="tab" data-tab="matches">Matches</button>
       <button class="tab" data-tab="saved">Saved</button>
+      <button class="tab" data-tab="ideas">Ideas</button>
       <button class="tab" data-tab="messages">Messages <span id="messagesTabBadge" class="tab-badge hidden"></span></button>
       <button class="tab" data-tab="augmented">AugmentedHomes</button>
       <button class="tab" data-tab="findermine">FinderMine</button>
@@ -49,7 +50,7 @@
   </header>
 
   <main>
-    <div id="termsUpdateBanner" class="card terms-update-banner hidden" role="region" aria-labelledby="termsUpdateTitle"><h3 id="termsUpdateTitle">We updated our Terms of Use and Privacy Policy</h3><p>Updated <span id="termsUpdateDate">November 11, 2026</span>: home facts and floor plans you add, sharing an open house's address with people who RSVP (and seeing who's going), your display language, Plan your drive links, and Spanish page summaries (the English versions control). Read the <a href="/terms">Terms of Use</a> and <a href="/privacy">Privacy Policy</a>.</p><div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="termsAgreeBtn">I agree</button> <button type="button" class="btn btn-ghost btn-sm" id="termsLaterBtn">Not now</button></div></div>
+    <div id="termsUpdateBanner" class="card terms-update-banner hidden" role="region" aria-labelledby="termsUpdateTitle"><h3 id="termsUpdateTitle">We updated our Terms of Use and Privacy Policy</h3><p>Updated <span id="termsUpdateDate">November 13, 2026</span>: bills, room measurements and signal tests you add to a home, terms wish lists, the ZIP codes you watch, and a new section on idea tools. Read the <a href="/terms">Terms of Use</a> and <a href="/privacy">Privacy Policy</a>.</p><div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="termsAgreeBtn">I agree</button> <button type="button" class="btn btn-ghost btn-sm" id="termsLaterBtn">Not now</button></div></div>
     <!-- FEED -->
     <section id="tab-feed" class="tab-panel">
       <h1>Feed</h1>
@@ -194,10 +195,12 @@
               <legend>🏠 What you have</legend>
               <div class="field"><label for="title">Title (optional)</label><input type="text" id="title" maxlength="120" placeholder="e.g. 3bd Condo near the Marina"></div>
               <div class="field hidden" id="clientNameField"><label for="clientName">Client name (leave blank if this is your own home)</label><input type="text" id="clientName" maxlength="100" placeholder="e.g. Jane Smith"><p class="tiny field-hint composer-note">Agents: if this home is under your listing agreement, posting it here counts as public marketing under your MLS's Clear Cooperation rule (CRMLS Rule 7.9), which can require MLS entry within one business day. Check your MLS rules before posting.</p></div>
-              <div class="form-row two-col">
+              <div class="form-row three-col">
                 <div class="field"><label for="city">City <span class="required-mark">*</span></label><input type="text" id="city" required maxlength="80"></div>
                 <div class="field"><label for="state">State <span class="required-mark">*</span></label><input type="text" id="state" required maxlength="20"></div>
+                <div class="field"><label for="listingZip">ZIP code</label><input type="text" id="listingZip" maxlength="5" inputmode="numeric" autocomplete="postal-code" aria-describedby="listingZipHint"></div>
               </div>
+              <p class="tiny field-hint" id="listingZipHint">Optional. It lets members who watch your ZIP code find your home.</p>
               <div class="field"><label for="neighborhood">Neighborhood (public)</label><input type="text" id="neighborhood" maxlength="80"></div>
               <div class="field"><label for="address">Street address (private — only you can see it unless you share it with people going to one of your open houses)</label><input type="text" id="address" maxlength="150"></div>
               <div class="form-row two-col">
@@ -214,6 +217,9 @@
               <div id="listingCostsFields"></div>
               <div id="listingFactsFields"></div>
               <div id="listingPlanFields"></div>
+              <div id="listingTermsFields"></div>
+              <div id="listingHeadStartField"></div>
+              <div id="listingDataFields"></div>
               <div class="field"><label for="listingPhotos">Photos (up to 8, added after you create the listing)</label><input type="file" id="listingPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple><p class="tiny field-hint">By adding photos you confirm: I took these photos or have permission to use them.</p></div>
               <div class="field">
                 <label id="lifeEventTagsFieldsLabel">Why you're moving (optional, shown only to your matches)</label>
@@ -332,6 +338,7 @@
           </div>
           <p class="tiny field-hint">Only homes whose owner shared these details can match.</p>
         </fieldset>
+        <div id="ssDealFields"></div>
       </form>
       <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="addSavedSearchBtn">Add Saved Search</button></div>
       <div class="stack" id="savedSearchList"></div>
@@ -413,6 +420,9 @@
 
           <div id="plCostsFields"></div>
           <div id="plFactsFields"></div>
+          <div id="plTermsFields"></div>
+          <div id="plHeadStartField"></div>
+          <div id="plDataFields"></div>
           <div class="field"><label for="plPhotos">Photos (up to 8, added after posting)</label><input type="file" id="plPhotos" accept="image/jpeg,image/png,image/webp,image/gif" multiple><p class="tiny field-hint">By adding photos you confirm: I took these photos or have permission to use them. When you pick photos, Privacy Sweep opens so you can blur or cover anything private first.</p></div>
           <div id="plContactDial"></div>
           <label class="checkbox-row"><input type="checkbox" id="ownerConfirmPreListing"><span>I own this home, or I'm its trustee, executor or attorney-in-fact, or I'm a California-licensed agent with the owner's written permission to post it here.</span></label>
@@ -675,6 +685,7 @@
           <div class="field"><label for="marketState">State</label><input type="text" id="marketState"></div>
         </form>
         <label class="checkbox-row"><input type="checkbox" id="marketOnlyInArea"><span>Only show pre-listings within 20 miles of my service zips</span></label>
+        <div id="marketPreListingFilter"></div>
         <div class="grid" id="marketplaceBrowseList"><div class="empty-state">Loading…</div></div>
       </div>
 
@@ -688,6 +699,7 @@
     <section id="tab-saved" class="tab-panel">
       <h1>Saved</h1>
       <div id="openHousePlan"></div>
+      <div id="watchAreasPanel"></div>
       <h2>Favorites</h2>
       <div class="grid" id="favoritesList"><div class="empty-state">Loading…</div></div>
       <h2>Hidden Listings</h2>
@@ -697,6 +709,9 @@
       <p class="section-sub">Deleted listings stay here for 7 days before they're gone for good — restore one if you deleted it by mistake.</p>
       <div class="stack" id="trashList"></div>
     </section>
+
+    <!-- IDEAS -->
+    <section id="tab-ideas" class="tab-panel"><h1>Ideas</h1><div id="ideasRoot"></div></section>
 
     <!-- MESSAGES -->
     <section id="tab-messages" class="tab-panel">
@@ -1003,6 +1018,9 @@
 <script src="handoff-binder.js"></script>
 <script src="agent-growth.js"></script>
 <script src="open-house-plan.js"></script>
+<script src="listing-terms.js"></script>
+<script src="neighbors.js"></script>
+<script src="ideas.js"></script>
 <script src="main.js"></script>
 <!-- Cloudflare Web Analytics -->
 <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "91a193988b2d45e58aa1c27d5abf6bdb"}'></script>

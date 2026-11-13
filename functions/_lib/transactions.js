@@ -14,14 +14,12 @@ const LISTING_FIELDS = `listings.id, listings.user_id, listings.city, listings.s
             desired_criteria.locations, desired_criteria.property_type AS desired_type,
             desired_criteria.min_beds, desired_criteria.min_baths, desired_criteria.price_min, desired_criteria.price_max`;
 
-// Opened from an EXISTING mutual match — re-verified here rather than
-// trusted from the client, since a transaction request is otherwise just
-// two arbitrary listing ids. Matches are never persisted anywhere (matches.js
-// computes them fresh every time), so this is the one place that has to
-// re-derive "are these two actually a mutual match" from scratch.
-// Returns { id, isNew, confirmedNow }: a new request waits for the other partner; the other partner asking for the
-// same trade counts as confirming it (confirmedNow).
-export async function openTransactionRequest(db, openedByUserId, listingId1, listingId2, note) {
+// The pair checks behind a trade request and a trial stay (tradeTrials.js): two different active listings, one of
+// them the caller's, neither a buyer profile nor a rental, no block either way, and each one a match for the other.
+// Matches are never persisted anywhere (matches.js computes them fresh every time), so this is the one place that
+// re-derives "are these two actually a mutual match" from scratch instead of trusting the client's two listing ids.
+// Returns { error } or { lowId, highId, rowLow, rowHigh }. Two statements (the listings, the block check).
+export async function verifyMutualPair(db, userId, listingId1, listingId2) {
   const id1 = Number(listingId1);
   const id2 = Number(listingId2);
   if (!Number.isInteger(id1) || !Number.isInteger(id2) || id1 === id2) {
@@ -37,7 +35,7 @@ export async function openTransactionRequest(db, openedByUserId, listingId1, lis
   const rowHigh = rows.results.find(r => r.id === highId);
   if (!rowLow || !rowHigh) return { error: 'Both listings must be active.' };
   if (rowLow.user_id === rowHigh.user_id) return { error: "You can't open a transaction request against your own listing." };
-  if (rowLow.user_id !== openedByUserId && rowHigh.user_id !== openedByUserId) {
+  if (rowLow.user_id !== userId && rowHigh.user_id !== userId) {
     return { error: 'You must own one of these two listings.' };
   }
   if (rowLow.is_buyer_only || rowHigh.is_buyer_only || rowLow.is_rental || rowHigh.is_rental) {
@@ -55,6 +53,16 @@ export async function openTransactionRequest(db, openedByUserId, listingId1, lis
   if (scoreLowWantsHigh < MATCH_THRESHOLD || scoreHighWantsLow < MATCH_THRESHOLD) {
     return { error: "These two listings aren't actually a mutual match." };
   }
+  return { lowId, highId, rowLow, rowHigh };
+}
+
+// Opened from an EXISTING mutual match, re-verified by verifyMutualPair rather than trusted from the client.
+// Returns { id, isNew, confirmedNow }: a new request waits for the other partner; the other partner asking for the
+// same trade counts as confirming it (confirmedNow).
+export async function openTransactionRequest(db, openedByUserId, listingId1, listingId2, note) {
+  const pair = await verifyMutualPair(db, openedByUserId, listingId1, listingId2);
+  if (pair.error) return { error: pair.error };
+  const { lowId, highId, rowLow, rowHigh } = pair;
 
   const existing = await db.prepare('SELECT id, status, opened_by_user_id, partner_confirmed_at FROM transaction_requests WHERE listing_a_id = ? AND listing_b_id = ?').bind(lowId, highId).first();
   if (existing && existing.status === 'closed') {

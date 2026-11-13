@@ -159,14 +159,16 @@ check('es/privacidad: h1 + the exact controlling banner, linking /privacy, and "
   && privEs.includes('Este resumen es solo informativo. La <a href="/privacy">Política de privacidad en inglés</a> es la versión que rige; si hay alguna diferencia, prevalece la versión en inglés.') && privEs.includes('<p>No vendemos sus datos.</p>'));
 const olItems = (html) => ((html.match(/<ol>([\s\S]*?)<\/ol>/) || [])[1] || '').match(/<li>[^<]+<\/li>/g) || [];
 const h2Count = (html) => (html.match(/<h2[^>]*>\d+\./g) || []).length;
-check('es/terminos: one summary item per numbered section of terms.html (21, ending in Traducciones)', olItems(termsEs).length === 21 && h2Count(terms) === 21 && olItems(termsEs)[20] === '<li>Traducciones</li>', `${olItems(termsEs).length} / ${h2Count(terms)}`);
+// terms.html gained section 22 (idea tools) in the nuanced ideas batch. Its Spanish summary item ships only after Rudy
+// OKs the wording (no Spanish string ships unreviewed), so the summary lists sections 1-21 until then.
+check('es/terminos: one summary item per numbered section of terms.html through 21 (ending in Traducciones); section 22 waits for the reviewed Spanish wording', olItems(termsEs).length === 21 && h2Count(terms) === 22 && olItems(termsEs)[20] === '<li>Traducciones</li>', `${olItems(termsEs).length} / ${h2Count(terms)}`);
 check('es/privacidad: one summary item per numbered section of privacy.html (10)', olItems(privEs).length === 10 && h2Count(privacy) === 10, `${olItems(privEs).length} / ${h2Count(privacy)}`);
 check('both summaries: the contact line', [termsEs, privEs].every(h => h.includes('<p>¿Preguntas? Escríbanos por el <a href="/es/contacto">formulario de contacto</a>.</p>')));
 check('terms.html: §21 Translations, exactly, after §20', terms.includes('<h2>21. Translations</h2><p>We may offer pages or summaries in other languages, such as Spanish, for convenience. These English Terms are the binding version; if a translation differs, the English version controls.</p>') && terms.indexOf('<h2>21. Translations</h2>') > terms.indexOf('<h2>20. Contact</h2>'));
 const PRIV_NEW = [
   ['§1', 1, '<li>Your display language (English or Spanish), if you pick one. Only you see it; we use it only to show the Spanish pages and sign-up emails in that language, never to choose which homes or agents you see.</li>'],
   ['§1', 1, '<li>Home facts you add to a listing (yard and sun, parking and garage, pets, floor plan). They show on the listing as your own words; your floor plan is listed with other homes only if you turn that on.</li>'],
-  ['§3', 3, '<p>Your exact street address is never shown to other users — only your city and, if you choose to share it, your neighborhood — unless you share your contact info with an agent on a pre-listing, open a broker preview, or turn on address sharing for one of your open houses (all below). "Why you\'re moving" tags are left off public listing pages and flyers.</p>'],
+  ['§3', 3, '<p>Your exact street address is never shown to other users — only your city and, if you choose to share them, your neighborhood and ZIP code — unless you share your contact info with an agent on a pre-listing, open a broker preview, or turn on address sharing for one of your open houses (all below). "Why you\'re moving" tags are left off public listing pages and flyers.</p>'],
   ['§3', 3, '<p>Open houses: if you turn on "Share the street address with people who RSVP" for an open house, people who RSVP\'d see that address from 24 hours before it starts until it ends, and you see the display names of the people going. When you RSVP to someone else\'s open house, its owner sees your display name (RSVPs made before November 11, 2026 show only in the count). Blocking either way hides the address and your name from each other.</p>'],
   ['§5', 5, "<p>When you tap Plan your drive, Directions or Open the whole route, the area or address you picked opens in Google Maps or Apple Maps under their privacy policies. We don't send it to them ourselves.</p>"],
   ['§8', 8, '<p>Places you type into "Plan your drive" and the order of your open-house plan stay in your browser\'s storage; we don\'t receive them.</p>'],
@@ -177,9 +179,9 @@ check('privacy.html: the old "...on a pre-listing (below)." promise is gone', !p
 
 // ---------------------------------------------------------------- dates agree (one bump)
 const T = await mod('functions/_lib/terms.js');
-check('terms.js: one bump, 2026-11-11 / November 11, 2026', T.CURRENT_TERMS_VERSION === '2026-11-11' && T.TERMS_UPDATED_LABEL === 'November 11, 2026');
+check('terms.js: one bump, 2026-11-13 / November 13, 2026', T.CURRENT_TERMS_VERSION === '2026-11-13' && T.TERMS_UPDATED_LABEL === 'November 13, 2026');
 check('terms.html and privacy.html carry the same version and date', terms.includes(`Last updated ${T.TERMS_UPDATED_LABEL} (version ${T.CURRENT_TERMS_VERSION}).`) && privacy.includes(`<p class="section-sub">Last updated ${T.TERMS_UPDATED_LABEL}.</p>`));
-check('privacy.html: the RSVP-names date is the same day', privacy.includes(`RSVPs made before ${T.TERMS_UPDATED_LABEL} show only in the count`));
+check('privacy.html: the RSVP-names date stays the day names began (November 11, 2026)', privacy.includes('RSVPs made before November 11, 2026 show only in the count'));
 if (existsSync(`${root}/functions/_lib/openHousePlan.js`)) {
   const ohp = await mod('functions/_lib/openHousePlan.js');
   // Names come from each RSVP's rsvp_named flag, not a date (an RSVP made on the old code before the deploy is never named).
@@ -188,11 +190,13 @@ if (existsSync(`${root}/functions/_lib/openHousePlan.js`)) {
 
 // ---------------------------------------------------------------- What's New + llms.txt
 const whatsNew = read('whats-new.html');
-const firstCard = whatsNew.slice(whatsNew.indexOf('<div class="card about-card">'), whatsNew.indexOf('</div>', whatsNew.indexOf('<div class="card about-card">')));
+// The nuanced ideas card is first now; the home facts card is the second one (firstCard below).
+const homeFactsAt = whatsNew.indexOf('<div class="card about-card">', whatsNew.indexOf('<div class="card about-card">') + 1);
+const firstCard = whatsNew.slice(homeFactsAt, whatsNew.indexOf('</div>', homeFactsAt));
 const WN = ["Owners can add yard and sun, parking and garage, and pet details to a home, shown as the owner's own words.", 'Search live listings for RV or boat parking, a wide gate, garage spaces, a workshop or a 240V outlet.',
   'Owners can list their home with other homes on Amico Haus that share its floor plan.', "Plan your drive opens Google Maps from a home's area.",
   "Your open-house plan in the Saved tab: the open houses you RSVP'd to or saved, in your own order, with directions when the owner shares the address.", 'Key pages are now in Spanish: amicohaus.com/es/'];
-check("whats-new.html: the home facts card is first, with all six lines", firstCard.includes('<h2>Home facts, Spanish pages and your open-house plan</h2>') && WN.every(l => textOf(firstCard).includes(l)), textOf(firstCard).slice(0, 300));
+check("whats-new.html: the home facts card (second, after the nuanced ideas card), with all six lines", firstCard.includes('<h2>Home facts, Spanish pages and your open-house plan</h2>') && WN.every(l => textOf(firstCard).includes(l)), textOf(firstCard).slice(0, 300));
 check('whats-new.html: the new card makes no value/ranking/guarantee claim', !/\bvalue\b|guarantee|verified|best|ideal|score/i.test(textOf(firstCard)));
 const llms = read('llms.txt');
 check('llms.txt: the Spanish pages line', llms.split('\n').some(l => l.replace(/^- /, '') === 'Spanish pages: https://amicohaus.com/es/ (informational; the English Terms of Use and Privacy Policy control).'));

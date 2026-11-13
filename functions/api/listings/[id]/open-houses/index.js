@@ -13,7 +13,9 @@ export async function onRequestGet(context) {
   const viewer = await getSessionUser(context);
   // One row for the open-house extras: the owner gets the names of people going; the address (shared by the owner with
   // people going) is considered only while the home is active. Per viewer (imGoing, address), so never cached.
-  const home = await db.prepare('SELECT user_id, address, status FROM listings WHERE id = ?').bind(id).first();
+  const home = await db.prepare('SELECT user_id, address, status, head_start_until FROM listings WHERE id = ?').bind(id).first();
+  // A home still in its Neighbors First head start (watchAreas.js) isn't public yet: only its owner (and an admin) sees its open houses.
+  if (home && home.head_start_until && !(viewer && (viewer.id === home.user_id || viewer.role === 'admin'))) return json({ openHouses: [] }, NO_STORE);
   const opts = home ? { ownerId: home.user_id, ...(home.status === 'active' ? { address: home.address } : {}) } : {};
   const openHouses = await fetchOpenHouses(db, id, viewer ? viewer.id : null, opts);
   return json({ openHouses }, NO_STORE);
@@ -25,7 +27,7 @@ export async function onRequestPost(context) {
   if (!user) return unauthorized();
 
   const db = context.env.DB;
-  const listing = await db.prepare('SELECT user_id, city, state FROM listings WHERE id = ?').bind(id).first();
+  const listing = await db.prepare('SELECT user_id, city, state, head_start_until FROM listings WHERE id = ?').bind(id).first();
   if (!listing) return notFound('Listing not found.');
   if (listing.user_id !== user.id) return forbidden();
 
@@ -35,6 +37,10 @@ export async function onRequestPost(context) {
   if (validated.error) return badRequest(validated.error);
 
   const openHouseId = await createOpenHouse(db, id, validated.data);
+
+  // During a Neighbors First head start (watchAreas.js) the home isn't public yet, so nothing is announced: no
+  // notice and no Market Pulse event.
+  if (listing.head_start_until) return json({ id: openHouseId }, { status: 201 });
 
   const favoriters = await db.prepare("SELECT user_id FROM listing_feedback WHERE listing_id = ? AND feedback = 'up'").bind(id).all();
   context.waitUntil(notifyOpenHouseScheduled(context, `/listing/${id}`, favoriters.results.map(r => r.user_id), validated.data.startsAt));

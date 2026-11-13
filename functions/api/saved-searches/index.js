@@ -3,6 +3,7 @@ import { json, badRequest, unauthorized, clampString } from '../../_lib/util.js'
 import { PROPERTY_TYPES, num } from '../../_lib/listings.js';
 import { claimUserAction, rateLimited } from '../../_lib/rateLimits.js';
 import { validateSearchTiming } from '../../_lib/timingMatch.js';
+import { toolLive } from '../../_lib/nuancedGate.js';
 
 const MAX_SAVED_SEARCHES = 10;
 const MAX_PRICE = 500000000;
@@ -30,16 +31,29 @@ function toySearch(input) {
   return { data: { toyFlags, minGateIn: gate.value, minGarage: garage.value } };
 }
 
+// Owner Will Carry: { ownerCarry, assumable } ticks -> deal_flags (1 owner open to seller financing, 2 loan may be
+// assumable). Only a home whose owner said so can match; nothing else about financing is stored.
+const DEAL_FLAG_BITS = { ownerCarry: 1, assumable: 2 };
+function dealSearch(input) {
+  const t = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+  let dealFlags = 0;
+  for (const [k, bit] of Object.entries(DEAL_FLAG_BITS)) if (ticked(t[k])) dealFlags |= bit;
+  return dealFlags;
+}
+
 export async function onRequestGet(context) {
   const user = await getSessionUser(context);
   if (!user) return unauthorized();
 
   const rows = await context.env.DB.prepare(
     `SELECT id, locations, property_type, price_min, price_max, move_from, move_to, stay_offer_days,
-            toy_flags, min_gate_in, min_garage, created_at
+            toy_flags, min_gate_in, min_garage, deal_flags, created_at
      FROM saved_searches WHERE user_id = ? ORDER BY created_at DESC, id DESC`
   ).bind(user.id).all();
-  return json({ searches: rows.results, max: MAX_SAVED_SEARCHES }, NO_STORE);
+  // The financing flags go out only while that tool is live for this person (nuancedGate.js).
+  const dealLive = toolLive(context.env, 'ownerCarry', user);
+  const searches = dealLive ? rows.results : rows.results.map(({ deal_flags, ...s }) => s);
+  return json({ searches, max: MAX_SAVED_SEARCHES }, NO_STORE);
 }
 
 export async function onRequestPost(context) {
@@ -64,14 +78,16 @@ export async function onRequestPost(context) {
   const toy = toySearch(body.toy);
   if (toy.error) return badRequest(toy.error);
   const { toyFlags, minGateIn, minGarage } = toy.data;
+  // Owner Will Carry (optional): ignored (stored as 0) while the tool isn't live for this person.
+  const dealFlags = toolLive(context.env, 'ownerCarry', user) ? dealSearch(body.deal) : 0;
 
   const db = context.env.DB;
   const { n } = await db.prepare('SELECT COUNT(*) AS n FROM saved_searches WHERE user_id = ?').bind(user.id).first();
   if (n >= MAX_SAVED_SEARCHES) return json({ error: LIMIT_ERROR, code: 'saved_search_limit' }, { status: 400 });
   const dupSql = `SELECT 1 FROM saved_searches WHERE user_id = ?1 AND lower(locations) = lower(?2)
     AND property_type = ?3 AND price_min = ?4 AND price_max = ?5
-    AND toy_flags = ?6 AND min_gate_in IS ?7 AND min_garage IS ?8`;
-  const dup = await db.prepare(dupSql).bind(user.id, locations, propertyType, priceMin, priceMax, toyFlags, minGateIn, minGarage).first();
+    AND toy_flags = ?6 AND min_gate_in IS ?7 AND min_garage IS ?8 AND deal_flags = ?9`;
+  const dup = await db.prepare(dupSql).bind(user.id, locations, propertyType, priceMin, priceMax, toyFlags, minGateIn, minGarage, dealFlags).first();
   if (dup) return json({ error: 'You already have this saved search.', code: 'saved_search_duplicate' }, { status: 400 });
 
   if (!(await claimUserAction(db, 'saved_search', user.id))) return rateLimited();
@@ -80,10 +96,10 @@ export async function onRequestPost(context) {
   // The duplicate check looks at the criteria only: timing is edited on a search (PUT), never a different search.
   const result = await db.prepare(
     `INSERT INTO saved_searches (user_id, locations, property_type, price_min, price_max, toy_flags, min_gate_in, min_garage,
-       move_from, move_to, stay_offer_days)
-     SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11
+       deal_flags, move_from, move_to, stay_offer_days)
+     SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12
      WHERE (SELECT COUNT(*) FROM saved_searches WHERE user_id = ?1) < ${MAX_SAVED_SEARCHES} AND NOT EXISTS (${dupSql})`
-  ).bind(user.id, locations, propertyType, priceMin, priceMax, toyFlags, minGateIn, minGarage, moveFrom, moveTo, stayOfferDays).run();
+  ).bind(user.id, locations, propertyType, priceMin, priceMax, toyFlags, minGateIn, minGarage, dealFlags, moveFrom, moveTo, stayOfferDays).run();
   if (!result.meta.changes) return json({ error: LIMIT_ERROR, code: 'saved_search_limit' }, { status: 400 });
 
   return json({ id: result.meta.last_row_id }, { status: 201 });

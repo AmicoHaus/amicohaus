@@ -168,7 +168,8 @@ r = await call(photoApi.onRequestDelete, 'DELETE', 2, { id: '10', photoId: Strin
 check('DELETE is still owner or admin only', r.status === 403);
 
 // ---- USER_LIMITS ----
-check('USER_LIMITS order: ... saved_search, timing_edit, photo_sweep, report', Object.keys(rl.USER_LIMITS).slice(-4).join() === 'saved_search,timing_edit,photo_sweep,report', Object.keys(rl.USER_LIMITS).join());
+// The nuanced ideas batch adds its eight kinds after report.
+check('USER_LIMITS order: ... saved_search, timing_edit, photo_sweep, report', Object.keys(rl.USER_LIMITS).slice(0, Object.keys(rl.USER_LIMITS).indexOf('report') + 1).slice(-4).join() === 'saved_search,timing_edit,photo_sweep,report', Object.keys(rl.USER_LIMITS).join());
 check('photo_sweep is 40 an hour and 120 a day', JSON.stringify(rl.USER_LIMITS.photo_sweep) === JSON.stringify([{ max: 40, minutes: 60 }, { max: 120, minutes: 1440 }]));
 
 // ---- The client editor, in a stubbed browser ----

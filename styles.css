@@ -1350,6 +1350,90 @@ body.reel-open .toast { z-index: 1100; }
 .oh-plan-stop-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .oh-overlap { color: var(--muted); font-style: italic; }
 :root[data-theme="dark"] .drive-place-chip, :root[data-theme="dark"] .es-app-banner, :root[data-theme="dark"] .legal-summary-banner { background: var(--navy-2); }
+/* ---- Nuanced ideas batch (migration_v47): every new class for the home data, terms, neighbors and ideas tools. ---- */
+/* Home data: the owner's bills, measurements and signal log, and the fit checker (answers carry an icon and words,
+   never color alone). A card inside a card (the app's detail views) sits flat. */
+.card .card.about-card { margin-top: 6px; padding: 12px 14px; box-shadow: none; }
+.home-data-fields .signal-grid, .signal-grid { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); align-items: end; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px dashed var(--border); }
+.hd-context { margin: 4px 0 8px; padding: 0 0 0 10px; border-left: 3px solid var(--border); }
+.hd-context:empty { display: none; }
+.hd-context p { margin: 0 0 6px; color: var(--muted); }
+.fit-checker { margin-top: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); min-width: 0; }
+.fit-checker .chip-row { margin: 0 0 6px; }
+.home-data-fields .form-actions { margin: 4px 0 12px; }
+.fit-result { margin-top: 8px; }
+.fit-result p { margin: 0 0 4px; overflow-wrap: anywhere; }
+/* Captions and confirm lines in the fit and signal cards read as small print under the owner's lines. */
+.fit-checker > .tiny, .fit-result > .tiny:last-child, [data-fit] > .tiny, .about-card:has(> .home-facts) > .tiny:not(.home-facts) { font-size: 0.82rem; color: var(--muted); margin: 0; }
+.fit-ok, .fit-no { color: var(--ink); font-weight: 600; }
+.fit-unknown { color: var(--muted); }
+.fit-ok span, .fit-no span, .fit-unknown span { display: inline-block; min-width: 1.2em; font-weight: 700; }
+.fit-ok span { color: var(--success); }
+.fit-no span { color: var(--danger); }
+/* Terms wish list, financing flags, the price schedule, and the stay and head-start badges. */
+.terms-wishlist ol { margin: 0 0 6px; padding-left: 22px; }
+.terms-wishlist li { margin: 2px 0; }
+.financing-flags { font-size: 0.82rem; margin: 8px 0 2px; }
+.financing-flags .label { display: inline; margin-right: 4px; }
+.step-schedule { margin: 8px 0; }
+.step-schedule ol { margin: 4px 0 6px; padding-left: 20px; }
+.step-schedule li { margin: 2px 0; }
+.step-now { font-weight: 700; list-style-type: disc; }
+.sell-stay-badge, .head-start-badge { background: transparent; border: 1px solid var(--border); color: var(--muted); font-weight: 600; white-space: normal; }
+.head-start-badge { border-style: dashed; }
+/* The owner's head-start notice is a block (a line and a button), not an inline badge. */
+div.head-start-badge { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; padding: 8px 10px; border-radius: var(--radius-sm); font-weight: 400; min-width: 0; overflow-wrap: anywhere; }
+div.head-start-badge .tiny { flex: 1 1 220px; margin: 0; font-size: 0.82rem; }
+/* Neighbors: watch areas, the early-look cards, the digest, standing interest and trial stays. */
+.watch-areas { margin: 0 0 24px; }
+.watch-areas .tiny { color: var(--muted); }
+.watch-area-chip { display: inline-flex; align-items: center; gap: 6px; margin: 0 6px 6px 0; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; font-size: 0.82rem; background: var(--card); }
+.watch-area-chip .link-btn { padding: 0 2px; }
+.watch-digest { margin: 8px 0; padding: 0; list-style: none; }
+.watch-digest li { padding: 8px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.early-look-card, .standing-interest-card, .trial-card { padding: 12px 14px; margin: 0 0 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--card); min-width: 0; overflow-wrap: anywhere; }
+.early-look-card { border-left: 4px solid var(--gold); }
+.standing-interest-card h3, .standing-interest-card h4, .trial-card h3, .trial-card h4, .early-look-card h3, .early-look-card h4 { margin: 0 0 4px; }
+.trial-checklist { margin: 8px 0; padding: 0; border: 0; min-width: 0; list-style: none; }
+.trial-checklist li, .trial-checklist label { display: flex; align-items: flex-start; gap: 8px; margin: 4px 0; font-size: 0.85rem; }
+/* Ideas: idea cards, the outline builder and its option ladder, the lot sketch, and the Open For chips. */
+.idea-card { padding: 14px 16px; margin: 0 0 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); min-width: 0; overflow-wrap: anywhere; }
+.idea-card h3, .idea-card h4 { margin: 0 0 6px; }
+/* Legal and help lines in the Ideas tab and on the packet read as small print. */
+#ideasRoot .tiny, .packet .tiny { font-size: 0.82rem; color: var(--muted); margin: 2px 0 6px; }
+.idea-card-lines { margin: 6px 0; padding-left: 20px; font-size: 0.88rem; }
+.idea-card-lines li { margin: 3px 0; }
+.outline-builder { margin: 12px 0; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); min-width: 0; }
+.outline-builder fieldset { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); min-width: 0; }
+.outline-ladder { display: grid; gap: 8px; margin: 8px 0; }
+.outline-option { display: block; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--card); cursor: pointer; min-width: 0; overflow-wrap: anywhere; }
+.outline-option:has(input:checked) { border-color: var(--gold); border-width: 2px; }
+.outline-option input { margin-right: 8px; }
+.outline-notes { margin: 6px 0 0; padding-left: 20px; font-size: 0.82rem; color: var(--muted); }
+.outline-notes li { margin: 2px 0; }
+.sketch-grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 1px; width: 100%; max-width: 360px; margin: 8px 0; }
+svg.sketch-grid { display: block; height: auto; }
+.sk-cell { aspect-ratio: 1 / 1; min-width: 0; padding: 0; border: 1px solid var(--border); border-radius: 0; background: var(--card); fill: var(--card); stroke: var(--border); stroke-width: 1; cursor: pointer; }
+.sk-area { background: rgba(169, 121, 63, 0.45); fill: rgba(169, 121, 63, 0.45); border-color: var(--gold); stroke: var(--gold); }
+.sk-house { background: var(--navy-2); fill: var(--navy-2); border-color: var(--navy-2); stroke: var(--navy-2); }
+svg.sketch-grid text { fill: var(--muted); font-size: 12px; }
+.open-for-chip { display: inline-flex; align-items: center; margin: 0 6px 6px 0; padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; font-size: 0.78rem; color: var(--muted); background: transparent; }
+.open-for-long { border-style: dashed; }
+/* The idea-outline packet page (functions/idea-outline): plain lines on screen, and a clean sheet on paper. */
+.packet { max-width: 760px; margin: 0 auto; overflow-wrap: anywhere; }
+.packet-line { margin: 0 0 8px; padding: 0 0 6px; border-bottom: 1px solid var(--border); }
+.packet-line input[type="text"] { width: 100%; max-width: 420px; }
+@media print {
+  body:has(.packet) .agent-strip, body:has(.packet) .topbar, body:has(.packet) .site-footer, body:has(.packet) .app-footer,
+  body:has(.packet) button, body:has(.packet) .btn, body:has(.packet) .form-actions { display: none !important; }
+  .packet { max-width: none; color: #000; }
+  .packet a { color: inherit; text-decoration: none; }
+  .packet-line { break-inside: avoid; border-color: #999; }
+  .packet .sketch-grid { max-width: 240px; }
+  .packet .sk-cell { stroke: #999; fill: #fff; }
+  .packet .sk-area { fill: #bbb; }
+  .packet .sk-house { fill: #333; }
+}
 /* Printing from the Saved tab prints only the open-house plan (its "Print plan" button). */
 @media print {
   body:has(#tab-saved.active) .topbar, body:has(#tab-saved.active) .agent-strip, body:has(#tab-saved.active) .app-footer,
@@ -1383,5 +1467,9 @@ body.reel-open .toast { z-index: 1100; }
   .facts-group { padding: 8px 10px; }
   .drive-place-add input { flex-basis: 100%; }
   .oh-plan-stop-actions .btn { flex: 1 1 40%; }
+  /* Nuanced ideas batch */
+  .signal-grid { grid-template-columns: 1fr 1fr; }
+  .fit-checker .chip-row .btn { flex: 1 1 100%; }
+  .outline-builder, .idea-card { padding: 12px; }
 }
 

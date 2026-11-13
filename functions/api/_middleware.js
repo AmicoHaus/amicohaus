@@ -9,6 +9,8 @@ import { runPruneActionLogs } from '../_lib/rateLimits.js';
 import { runPurgeExpiredTrash } from '../_lib/trash.js';
 import { runDueVisitFeedbackPrompts } from '../_lib/visitFeedback.js';
 import { runDueSellerReports } from '../_lib/sellerReport.js';
+import { runDueHeadStarts } from '../_lib/watchAreas.js';
+import { runDueStepDowns } from '../_lib/stepDown.js';
 
 // Runs in front of every /api route only (Pages scopes a middleware file to its
 // own directory), so static pages and images never pass through it.
@@ -53,9 +55,11 @@ function maybeRunDueJobs(context) {
     // The weekly agent-message delivery runs right after held emails (its emails can be held by quiet hours too).
     // The weekly check-in nudge (in-app only, Thursday to Saturday) after the scorecards.
     // Visit feedback prompts (in-app only) after the nudges, then the Monday seller report (email, paced like the scorecards).
+    // Then head starts that have ended open to everyone (watchAreas.js) and price schedules take their next step
+    // (stepDown.js); in-app only.
     // Then listings past their 7 days in the trash go for good (trash.js). Last: old per-person action and sign-in
     // attempt rows are pruned (rateLimits.js). Neither sends anything.
-    for (const job of [runDueDecisionNights, runDueHeldEmails, runDueWeeklyMessages, runDueScorecards, runDueReadyNudges, runDueVisitFeedbackPrompts, runDueSellerReports, runPurgeExpiredTrash, runPruneActionLogs]) {
+    for (const job of [runDueDecisionNights, runDueHeldEmails, runDueWeeklyMessages, runDueScorecards, runDueReadyNudges, runDueVisitFeedbackPrompts, runDueSellerReports, runDueHeadStarts, runDueStepDowns, runPurgeExpiredTrash, runPruneActionLogs]) {
       if (Date.now() - now > 22000 || used.n >= JOB_STATEMENT_BUDGET) break;
       try { await job(jobContext); } catch (err) { console.log(`[due jobs failed] ${err && err.message}`); }
     }

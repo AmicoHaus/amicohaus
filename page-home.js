@@ -30,6 +30,20 @@ function toyChipsHtml(toy) {
   return `<div class="chip-row">${chips.slice(0, 3).map(c => `<span class="chip toy-chip">${escapeHtml(c)}</span>`).join('')}</div>`;
 }
 
+// Owner Will Carry: up to 2 chips from the owner's two yes/no financing flags, always marked as the owner's word. The
+// directory sends the flags only while the tool is live for this viewer, so there is nothing to show otherwise.
+function ltDealChipsHtml(l) {
+  const chips = [];
+  if (l && Number(l.owner_carry) === 1) chips.push('Open to seller financing (owner says)');
+  if (l && Number(l.assumable) === 1) chips.push('Loan may be assumable (owner says)');
+  if (!chips.length) return '';
+  return `<div class="chip-row">${chips.map(c => `<span class="chip">${escapeHtml(c)}</span>`).join('')}</div>`;
+}
+// The two financing filters stay hidden until the directory says the tool is live for this viewer (dealFilters).
+function ltShowDealFilters(on) {
+  document.getElementById('filterDealFields')?.classList.toggle('hidden', !on);
+}
+
 function toyPlanFilterHtml() {
   return `<div class="chip-row"><button type="button" class="chip" id="toyPlanClear" aria-label="Remove the same floor plan filter">Same floor plan ×</button></div>
     <p class="tiny">${escapeHtml(TOY_TWINS_NOT_COMPS_LINE)}</p>`;
@@ -77,6 +91,7 @@ function directoryCardHtml(l) {
       <p class="tiny">${daysOnMarketLabel(l.created_at)}</p>
       ${homeCostChipsHtml(l.mello_roos_annual, l.hoa_monthly)}
       ${toyChipsHtml(l.toy)}
+      ${ltDealChipsHtml(l)}
       ${socialProofHtml(l.favorite_count, l.comment_count)}
       ${l.is_portfolio ? `<div class="mini-block"><span class="label">Includes</span>${(l.portfolio_members || []).map(m => `${escapeHtml(m.propertyType)} in ${escapeHtml(m.city)}, ${escapeHtml(m.state)} (${money(m.estimatedValue)})`).join('<br>')}</div>` : ''}
       ${l.is_rental
@@ -161,6 +176,10 @@ function directoryFilterParams() {
   if (gateMin) params.set('minGateIn', gateMin);
   if (garageMin) params.set('minGarage', garageMin);
   if (toyPlanKey) params.set('plan', toyPlanKey);
+  // Financing ideas (from the owner): each only matches homes whose owner said so. Ignored by the server unless live.
+  for (const [id, name] of [['filterOwnerCarry', 'ownerCarry'], ['filterAssumable', 'assumable']]) {
+    if (document.getElementById(id)?.checked) params.set(name, '1');
+  }
   return { params, city, state };
 }
 
@@ -173,7 +192,8 @@ async function loadDirectory() {
   const { params, city, state } = directoryFilterParams();
   loadMomentumBanner('directoryMomentum', 'listing', city, state);
   try {
-    const { listings, hasMore } = await apiGet(`/api/directory?${params.toString()}`);
+    const { listings, hasMore, dealFilters } = await apiGet(`/api/directory?${params.toString()}`);
+    ltShowDealFilters(!!dealFilters);
     window.__lastListings = listings; // cached so toggling to map view doesn't need a re-fetch
     directoryOffset = listings.length;
     directoryHasMore = !!hasMore;

@@ -75,14 +75,18 @@ export async function restoreFromTrash(db, userId, trashId) {
   const l = snap.listing;
 
   // The owner's costs, home facts, floor plan and moving reasons come back too (an older snapshot without them gets
-  // the column defaults). 33 bound params, one statement.
+  // the column defaults). So do the ZIP, the terms wish list, the two financing flags and the owner's bills, sizes
+  // and signal notes (migration_v47). A price schedule and a head start are NOT restored: the listing comes back with
+  // neither. 40 bound params, one statement.
   const result = await db.prepare(
     `INSERT INTO listings (user_id, title, description, address, neighborhood, client_name, city, state, property_type,
        beds, baths, sqft, estimated_value, price_tier, show_exact_address, external_links, is_buyer_only,
        is_rental, rent_amount, min_lease_months, is_portfolio, status, hidden_at, hidden_reason,
        life_event_tags_json, mello_roos_annual, hoa_monthly, hoa_details_json, home_facts_json,
-       plan_builder, plan_name, plan_community, plan_key, plan_twins)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       plan_builder, plan_name, plan_community, plan_key, plan_twins,
+       zip, terms_wishlist_json, owner_carry, assumable, run_costs_json, fit_json, signal_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+       ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     userId, l.title, l.description, l.address, l.neighborhood, l.client_name,
     l.city, l.state, l.property_type, l.beds, l.baths, l.sqft, l.estimated_value, l.price_tier,
@@ -91,7 +95,9 @@ export async function restoreFromTrash(db, userId, trashId) {
     l.hidden_at ? 'paused' : 'active', l.hidden_at || null, l.hidden_at ? (l.hidden_reason || null) : null,
     l.life_event_tags_json ?? '[]', l.mello_roos_annual ?? null, l.hoa_monthly ?? null, l.hoa_details_json ?? '{}',
     l.home_facts_json ?? '{}', l.plan_builder ?? null, l.plan_name ?? null, l.plan_community ?? null, l.plan_key ?? null,
-    l.plan_twins ?? 0
+    l.plan_twins ?? 0,
+    l.zip ?? '', l.terms_wishlist_json ?? '[]', l.owner_carry ?? 0, l.assumable ?? 0,
+    l.run_costs_json ?? '{}', l.fit_json ?? '{}', l.signal_json ?? '{}'
   ).run();
   const newId = result.meta.last_row_id;
 

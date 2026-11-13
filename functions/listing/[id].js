@@ -18,6 +18,10 @@ import { pacificWhenLabel } from '../_lib/pacificTime.js';
 import { homeFactsFromRow, homeFactsLines, driveArea, planDriveHref, YARD_HEADING, YARD_SEASON_LINE, TOY_HEADING, TOY_CONFIRM_LINE,
   PETS_HEADING, PLAN_DRIVE_LABEL, PLAN_DRIVE_CAPTION } from '../_lib/homeFacts.js';
 import { SPANISH_LIVE } from '../_lib/spanishLive.js';
+import { homeDataBlocksHtml } from '../_lib/homeData.js';
+import { termsBlocksHtml } from '../_lib/listingTerms.js';
+import { stepDownBlockHtml, shownPrice } from '../_lib/stepDown.js';
+import { liveTools } from '../_lib/nuancedGate.js';
 
 // The owner's home facts as the page shows them (homeFacts.js lines, escaped), each under its "(from the owner)"
 // heading. The pets block always ends with the assistance-animal note on its own line; nothing may drop it. The
@@ -216,6 +220,13 @@ async function renderListingPage(context) {
   const showAddress = isOwnerOrAdmin && listing.address;
   // A single home (not a portfolio or a buyer profile) carries home facts and the drive link.
   const singleHome = !listing.is_portfolio && !listing.is_buyer_only;
+  // The nuanced-ideas blocks (nuancedGate.js decides per viewer which tools show). Each one reads the row already
+  // fetched, so the page runs no extra query for them, and none of it enters JSON-LD, the description or the og tags.
+  const live = liveTools(context.env, viewer);
+  const ownerFacts = singleHome ? homeFactsFromRow(listing) : {};
+  const hd = singleHome ? homeDataBlocksHtml(listing, live, { signedIn: !!viewer, facts: ownerFacts }) : { hasBlock: '', cards: '' };
+  const lt = singleHome && !listing.is_rental ? termsBlocksHtml(listing, live) : { financing: '', wishlist: '', offerNote: '' };
+  const stepHtml = live.stepDown && singleHome ? stepDownBlockHtml(listing, Date.now()) : '';
 
   // Don't count the owner refreshing their own page — "X people viewed this"
   // should mean actual prospective matches, not the owner checking on it.
@@ -263,7 +274,7 @@ async function renderListingPage(context) {
 
   // Home facts (the owner's words; one small JSON parse of the row already fetched, no new query). A rental's pets
   // block sits with the rent and carries the long assistance-animal note with its California cites.
-  const facts = singleHome ? homeFactsLines(homeFactsFromRow(listing), homeCostsFromRow(listing), { isRental: !!listing.is_rental, longNote: !!listing.is_rental }) : { yard: [], toy: [], pets: [] };
+  const facts = singleHome ? homeFactsLines(ownerFacts, homeCostsFromRow(listing), { isRental: !!listing.is_rental, longNote: !!listing.is_rental }) : { yard: [], toy: [], pets: [] };
   const factsHtml = factsBlockHtml(YARD_HEADING, facts.yard, YARD_SEASON_LINE) + factsBlockHtml(TOY_HEADING, facts.toy, TOY_CONFIRM_LINE) + (listing.is_rental ? '' : petsBlockHtml(facts.pets));
   // Same-plan homes: one indexed query, only when this owner opted in (no prices anywhere in the strip).
   const twins = listing.plan_twins ? await fetchPlanTwins(db, listing, viewer ? viewer.id : null) : [];
@@ -323,6 +334,7 @@ async function renderListingPage(context) {
             <div class="field"><label>Proposed closing timeline</label><input type="text" id="offerClosingTimeline" maxlength="100" placeholder="e.g. 30 days"></div>
             <div class="field"><label>Contingencies</label><input type="text" id="offerContingencies" maxlength="500" placeholder="e.g. subject to inspection, financing approval"></div>
             <div class="field"><label for="offerMessage">Note about your terms (optional)</label><textarea id="offerMessage" maxlength="1000"></textarea><p class="tiny field-hint composer-note">Stick to price, terms and timing. Leave out personal details like family, religion, age or background.</p></div>
+            ${lt.offerNote}
             <div class="form-actions"><button type="button" class="btn btn-primary btn-sm" data-action="submit-offer" data-listing-id="${id}">Submit Offer</button></div>
             <p class="form-note">${OFFER_TOOLS_LINE}</p>
           </div>`;
@@ -426,10 +438,13 @@ async function renderListingPage(context) {
           ${showAddress ? `${escapeHtml(listing.address)} <span class="tiny">(${addressLabel})</span><br>` : ''}${loc}${listing.is_portfolio ? ' (primary property)' : ''}<br>
           ${singleHome ? driveLinkHtml(listing) : ''}
           <span class="tiny">Owner's estimated value (not an appraisal or list price)</span><br>
-          ${money(listing.estimated_value)}${listing.is_portfolio ? ' combined' : ''} ${listing.is_portfolio ? '' : sparklineHtml(priceSeries)}
+          ${money(shownPrice(listing, Date.now()))}${listing.is_portfolio ? ' combined' : ''} ${listing.is_portfolio ? '' : sparklineHtml(priceSeries)}
           ${listing.is_portfolio ? '' : `<div class="tiny">${daysOnMarketLabel(listing.created_at)}</div>`}
+          ${stepHtml}
           ${(() => { const lines = homeCostsLines(homeCostsFromRow(listing)); return lines.length ? `<p class="tiny"><span class="label">${escapeHtml(HOME_COSTS_HEADING)}</span> ${escapeHtml(lines.join(' · '))}</p><p class="tiny">${escapeHtml(HOME_COSTS_CONFIRM_LINE)}</p>` : ''; })()}
+          ${lt.financing}
           ${factsHtml}
+          ${hd.hasBlock}
           ${singleHome ? floorPlanLineHtml(listing, { isOwner }) : ''}
         </div>
         ${listing.is_rental
@@ -465,7 +480,9 @@ async function renderListingPage(context) {
     </div>
 
     ${openHousesHtml}
+    ${lt.wishlist}
     ${offerHtml}
+    ${hd.cards}
     ${!listing.is_rental ? mortgageCalcHtml(listing.estimated_value, { lenderNote: false }) : ''}
     ${planTwinsHtml(twins, listing)}
     ${similarEntitiesHtml(similar)}

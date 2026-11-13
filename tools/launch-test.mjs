@@ -156,7 +156,7 @@ check('privacy: pre-listings are shared only with approved agents', /Pre-listing
 check('privacy: blocking is described', /Blocking\./.test(ptext) && /works both ways/.test(ptext));
 check('privacy: decision 2, sentence 1 verbatim', ptext.includes("When you post a pre-listing, Rudy Flores, who runs Amico Haus and also works as a real estate agent, gets an email with your name, email and the home's basics so he can run the site. He doesn't use it to contact you about your home unless you share your contact info with him, the same as any agent."));
 check('privacy: decision 2, sentence 2 verbatim', ptext.includes('Amico Haus admins can see account details to run the site.'));
-check('privacy: Last updated November 11, 2026', ptext.includes('Last updated November 11, 2026.'));
+check('privacy: Last updated November 13, 2026', ptext.includes('Last updated November 13, 2026.'));
 check('privacy: Do Not Track line', /Do Not Track/.test(ptext));
 check('privacy: public pages are on the open web and indexed', /Public pages are on the open web/.test(ptext) && /index/.test(ptext));
 check('privacy: §5 names members (per §3) and service providers', /5\. Data sharing<\/h2>\s*<p>We don't sell your data\. We share it only with other members as described in §3/.test(privacy) && /Cloudflare/.test(ptext));

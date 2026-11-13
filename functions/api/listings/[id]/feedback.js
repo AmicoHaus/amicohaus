@@ -15,7 +15,9 @@ export async function onRequestPut(context) {
   if (!['up', 'down'].includes(body.feedback)) return badRequest('feedback must be "up" or "down".');
 
   const db = context.env.DB;
-  const listing = await db.prepare('SELECT id FROM listings WHERE id = ?').bind(listingId).first();
+  // Only a listing that is public right now can be saved or hidden: a paused one (and so a home still in its
+  // Neighbors First head start, which is stored paused) answers like one that isn't there.
+  const listing = await db.prepare("SELECT id FROM listings WHERE id = ? AND status = 'active'").bind(listingId).first();
   if (!listing) return notFound('Listing not found.');
 
   await db.prepare(

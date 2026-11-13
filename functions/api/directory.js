@@ -6,6 +6,7 @@ import { fetchListingFavoriteCountBatch } from '../_lib/priceSeries.js';
 import { fetchCommentCountBatch } from '../_lib/dealThreads.js';
 import { PROPERTY_TYPES } from '../_lib/listings.js';
 import { homeFactsFromRow } from '../_lib/homeFacts.js';
+import { toolLive } from '../_lib/nuancedGate.js';
 const SORTS = {
   newest: 'listings.created_at DESC',
   price_asc: 'listings.estimated_value ASC',
@@ -45,6 +46,9 @@ export async function onRequestGet(context) {
   const minGateIn = wholeIn('minGateIn', 24, 480);
   const minGarage = wholeIn('minGarage', 1, 10);
   const plan = (url.searchParams.get('plan') || '').trim();
+  // Owner Will Carry (nuancedGate.js): the two financing filters and card flags exist only while the tool is live for
+  // this viewer; otherwise the parameters are ignored and the rows don't carry the flags.
+  const dealLive = toolLive(context.env, 'ownerCarry', viewer);
 
   // First-time/primary-buyer profiles have no home to show off — they only
   // ever surface as a one-directional match on a seller's own Matches tab.
@@ -89,6 +93,9 @@ export async function onRequestGet(context) {
   if (minGarage !== null) { conditions.push(`CAST(json_extract(listings.home_facts_json, '$.toy.garage') AS INTEGER) >= ?`); params.push(minGarage); }
   // Same floor plan: only homes whose owner listed them with same-plan homes (planTwins.js).
   if (plan && plan.length <= 200) { conditions.push('listings.plan_key = ? AND listings.plan_twins = 1'); params.push(plan); }
+  // Only homes whose owner said so (a yes/no from the owner; no loan terms are stored anywhere).
+  if (dealLive && flag('ownerCarry')) conditions.push('listings.owner_carry = 1');
+  if (dealLive && flag('assumable')) conditions.push('listings.assumable = 1');
   if (viewer) {
     conditions.push(`listings.id NOT IN (SELECT listing_id FROM listing_feedback WHERE user_id = ? AND feedback = 'down')`);
     params.push(viewer.id);
@@ -110,6 +117,7 @@ export async function onRequestGet(context) {
             listings.property_type, listings.beds, listings.baths, listings.sqft, listings.estimated_value, listings.price_tier,
             listings.external_links, listings.is_rental, listings.rent_amount, listings.min_lease_months, listings.is_portfolio,
             listings.created_at, listings.mello_roos_annual, listings.hoa_monthly, listings.home_facts_json,
+            ${dealLive ? 'listings.owner_carry, listings.assumable,' : ''}
             users.display_name AS owner_name,
             desired_criteria.locations, desired_criteria.property_type AS desired_type,
             desired_criteria.price_min, desired_criteria.price_max,
@@ -144,5 +152,6 @@ export async function onRequestGet(context) {
     favorite_count: favoriteCountById.get(r.id) || 0,
     comment_count: commentCountById.get(r.id) || 0,
   }));
-  return json({ listings, hasMore });
+  // dealFilters: the home page shows its two financing checkboxes only when the tool is live for this viewer.
+  return json(dealLive ? { listings, hasMore, dealFilters: true } : { listings, hasMore });
 }

@@ -3,6 +3,10 @@ import { syncGroupMemberships } from './groups.js';
 import { validLifeEventKeys } from './lifeEvents.js';
 import { validateHomeFacts } from './homeFacts.js';
 import { validateFloorPlan } from './planTwins.js';
+import { validateListingTerms, termsUpdateSql } from './listingTerms.js';
+import { notifyNewMatches } from './matchNotify.js';
+import { notifySavedSearches, savedSearchHomeFromRow } from './savedSearches.js';
+import { logMarketEventUnlessDemo } from './marketEvents.js';
 
 export const PROPERTY_TYPES = ['Single Family Home', 'Condo', 'Townhouse', 'Penthouse', 'Ranch / Land', 'Multi-Family', 'Investment Property'];
 
@@ -66,12 +70,26 @@ function homeExtras(body, isRental) {
   return { homeFacts: facts.data, floorPlan: plan.data };
 }
 
+// A trade listing's optional ZIP code (migration_v47): '' or 5 digits. It lets members who watch that ZIP find the home.
+export const ZIP_ERROR = 'ZIP code should be 5 digits.';
+function listingZip(body) {
+  const zip = clampString(body.zip, 10);
+  if (zip && !/^[0-9]{5}$/.test(zip)) return { error: ZIP_ERROR };
+  return { zip };
+}
+// The terms wish list and the two financing flags ride in the listing body (so a saved search can match at create).
+// A rental stores none; neither does a buyer-only profile (portfolios are made in portfolios.js: column defaults).
+// The create route narrows them to the tools that are live for the poster (listingTerms.js termsForCreate).
+const NO_TERMS = { termsWishlist: [], ownerCarry: 0, assumable: 0 };
+
 // Shared by the single-listing form (api/listings/index.js) and the broker
 // bulk-upload endpoint (api/listings/bulk.js) — one place for the validation
 // rules so the two paths can't silently drift apart.
-export function validateListingInput(body) {
+// withTerms: only the single-listing form and the edit read body.terms; the bulk upload never stores terms.
+export function validateListingInput(body, { withTerms = false } = {}) {
   const isBuyerOnly = !!body.isBuyerOnly;
   const isRental = !isBuyerOnly && !!body.isRental;
+  const termsOf = rental => (withTerms ? validateListingTerms(body.terms || {}, { kind: 'listing', isRental: rental }).data : { ...NO_TERMS, termsWishlist: [] });
 
   // A rental listing is a real property (has its own city/state/beds/etc,
   // same as a trade listing) but isn't looking for anything back — no
@@ -96,6 +114,8 @@ export function validateListingInput(body) {
     if (sourceOfIncomeError) return { error: sourceOfIncomeError };
     const extras = homeExtras(body, true);
     if (extras.error) return { error: extras.error };
+    const z = listingZip(body);
+    if (z.error) return { error: z.error };
 
     return {
       data: {
@@ -120,6 +140,7 @@ export function validateListingInput(body) {
         mustHaves: '', cashMode: 'none', cashAmount: 0,
         lifeEventTags: validLifeEventKeys(body.lifeEventTags),
         homeFacts: extras.homeFacts, floorPlan: extras.floorPlan,
+        zip: z.zip, terms: termsOf(true),
       },
     };
   }
@@ -151,6 +172,7 @@ export function validateListingInput(body) {
         cashMode: 'pay', cashAmount: priceMax || priceMin || 0,
         lifeEventTags: validLifeEventKeys(body.lifeEventTags),
         homeFacts: {}, floorPlan: { ...NO_FLOOR_PLAN },
+        zip: '', terms: { ...NO_TERMS, termsWishlist: [] },
       },
     };
   }
@@ -167,6 +189,8 @@ export function validateListingInput(body) {
   }
   const extras = homeExtras(body, false);
   if (extras.error) return { error: extras.error };
+  const z = listingZip(body);
+  if (z.error) return { error: z.error };
 
   return {
     data: {
@@ -186,6 +210,7 @@ export function validateListingInput(body) {
       cashMode: desiredValidated.data.cashMode, cashAmount: desiredValidated.data.cashAmount,
       lifeEventTags: validLifeEventKeys(body.lifeEventTags),
       homeFacts: extras.homeFacts, floorPlan: extras.floorPlan,
+      zip: z.zip, terms: termsOf(false),
     },
   };
 }
@@ -194,20 +219,25 @@ export function validateListingInput(body) {
 // can't change via edit — only the data within that kind can be updated. This
 // deliberately reuses validateListingInput's per-kind rules wholesale rather
 // than re-deriving them, so the two paths can never drift apart.
-// An edit body without a homeFacts (or floorPlan) key keeps what's stored (undefined = leave it alone in
+// An edit body without a homeFacts (or floorPlan, zip, terms) key keeps what's stored (undefined = leave it alone in
 // updateListing). A renters' pet policy stored on a listing that isn't a rental never renders (homeFacts.js).
+// The route narrows terms to what the person's live tools cover (termsForEdit) before it calls updateListing.
 export function validateListingEdit(existingIsBuyerOnly, existingIsRental, body) {
-  const v = validateListingInput({ ...body, isBuyerOnly: existingIsBuyerOnly, isRental: existingIsRental });
+  const v = validateListingInput({ ...body, isBuyerOnly: existingIsBuyerOnly, isRental: existingIsRental }, { withTerms: true });
   if (v.error) return v;
   const has = k => !!body && typeof body === 'object' && Object.hasOwn(body, k);
   if (!has('homeFacts')) v.data.homeFacts = undefined;
   if (!has('floorPlan')) v.data.floorPlan = undefined;
+  if (!has('zip')) v.data.zip = undefined;
+  if (!has('terms')) v.data.terms = undefined;
   return v;
 }
 
 export async function updateListing(db, id, userId, d) {
   const priceTier = priceTierFor(d.estimatedValue);
-  // Home facts and the floor plan change only when the edit sent them (validateListingEdit), in the same statement.
+  // Home facts, the floor plan, the ZIP and the terms change only when the edit sent them (validateListingEdit), in
+  // the same statement. d.terms here is a termsForEdit() result: only the keys it holds are written.
+  // d.clearStepDown: the owner changed the price by hand, which stops a running price schedule (stepDown.js).
   const extraCols = [];
   const extraValues = [];
   if (d.homeFacts !== undefined) { extraCols.push('home_facts_json = ?'); extraValues.push(JSON.stringify(d.homeFacts || {})); }
@@ -216,6 +246,13 @@ export async function updateListing(db, id, userId, d) {
     extraCols.push('plan_builder = ?', 'plan_name = ?', 'plan_community = ?', 'plan_key = ?', 'plan_twins = ?');
     extraValues.push(p.builder, p.name, p.community, p.key, p.showTwins ? 1 : 0);
   }
+  if (d.zip !== undefined) { extraCols.push('zip = ?'); extraValues.push(d.zip || ''); }
+  if (d.terms !== undefined) {
+    const t = termsUpdateSql(d.terms);
+    extraCols.push(...t.cols);
+    extraValues.push(...t.values);
+  }
+  if (d.clearStepDown) extraCols.push("step_down_json = '{}'", 'step_next_at = NULL');
   const extraSql = extraCols.map(c => ` ${c},`).join('');
 
   await db.prepare(
@@ -253,22 +290,28 @@ export async function updateListing(db, id, userId, d) {
   await syncGroupMemberships(db, userId, { city: d.city, state: d.state, estimatedValue: d.estimatedValue });
 }
 
-export async function insertListing(db, userId, d) {
+// headStartUntil (Neighbors First, watchAreas.js): the listing is stored paused with its head start in the same
+// INSERT, so it is hidden everywhere a paused listing is until it opens. 33 bound params, one statement.
+export async function insertListing(db, userId, d, { headStartUntil = null } = {}) {
   const priceTier = priceTierFor(d.estimatedValue);
   const plan = d.floorPlan || NO_FLOOR_PLAN;
+  const terms = d.terms || NO_TERMS;
 
   const result = await db.prepare(
     `INSERT INTO listings (user_id, title, description, address, neighborhood, client_name, city, state, property_type,
        beds, baths, sqft, estimated_value, price_tier, show_exact_address, external_links, is_buyer_only,
        is_rental, rent_amount, min_lease_months, life_event_tags_json,
-       home_facts_json, plan_builder, plan_name, plan_community, plan_key, plan_twins)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       home_facts_json, plan_builder, plan_name, plan_community, plan_key, plan_twins,
+       zip, terms_wishlist_json, owner_carry, assumable, status, head_start_until)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     userId, d.title, d.description, d.address, d.neighborhood, d.clientName || null,
     d.city, d.state, d.propertyType, d.beds, d.baths, d.sqft, d.estimatedValue, priceTier,
     d.showExactAddress ? 1 : 0, JSON.stringify(d.externalLinks), d.isBuyerOnly ? 1 : 0,
     d.isRental ? 1 : 0, d.rentAmount || 0, d.minLeaseMonths || 12, JSON.stringify(d.lifeEventTags || []),
-    JSON.stringify(d.homeFacts || {}), plan.builder, plan.name, plan.community, plan.key, plan.showTwins ? 1 : 0
+    JSON.stringify(d.homeFacts || {}), plan.builder, plan.name, plan.community, plan.key, plan.showTwins ? 1 : 0,
+    d.zip || '', JSON.stringify(terms.termsWishlist || []), terms.ownerCarry ? 1 : 0, terms.assumable ? 1 : 0,
+    headStartUntil ? 'paused' : 'active', headStartUntil || null
   ).run();
 
   const listingId = result.meta.last_row_id;
@@ -288,4 +331,28 @@ export async function insertListing(db, userId, d) {
   // Saved-search alerts are sent by the callers in the background (context.waitUntil), not here: a scan of everyone's
   // searches inside the create request is what used to make big uploads time out.
   return listingId;
+}
+
+// The three create-time alerts, run from the stored row: new mutual matches, saved-search alerts and the Market Pulse
+// "new listing" event (same headline as the create path). Used when a head start ends (watchAreas.js endHeadStart),
+// since a head-start listing skips them at create. Only an active listing announces itself. The normal create path
+// keeps its own code (it already holds the data, so it needs no extra query).
+export async function announceNewListing(context, listingId) {
+  const db = context.env.DB;
+  const row = await db.prepare("SELECT * FROM listings WHERE id = ? AND status = 'active'").bind(listingId).first();
+  if (!row) return;
+  await notifyNewMatches(context, row.id);
+  const home = savedSearchHomeFromRow(row);
+  if (home) {
+    try { await notifySavedSearches(db, home); } catch (err) { console.log(`[saved search notify failed] ${err.message}`); }
+  }
+  // Buyer-only "profiles" and bundled portfolio members aren't a standalone property to list on the ticker.
+  if (!row.is_buyer_only) {
+    const price = '$' + Number(row.estimated_value).toLocaleString('en-US');
+    await logMarketEventUnlessDemo(db, row.user_id, {
+      eventType: 'new_listing', entityKind: 'listing', entityId: row.id, city: row.city, state: row.state,
+      headline: `New listing: ${row.property_type || 'Home'} in ${row.city}, ${row.state} — ${price}`,
+      amount: row.estimated_value,
+    });
+  }
 }

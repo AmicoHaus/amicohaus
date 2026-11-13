@@ -15,7 +15,7 @@ export const YARD_SIZES = { small: 'small', medium: 'medium', large: 'large' };
 export const FENCED = { yes: 'yes', partly: 'partly', no: 'no' };
 export const AFTERNOON_SUN = { mostly_sun: 'mostly sun', part_shade: 'part sun, part shade', mostly_shade: 'mostly shade' };
 export const SHADE = { covered_patio: 'covered patio', pergola: 'pergola', shade_trees: 'shade trees', awning: 'awning' };
-export const SOLAR = { none: 'none', owned: 'owned', leased: 'leased' };
+export const SOLAR = { none: 'none', owned: 'owned', leased: 'leased', ppa: 'power purchase agreement (PPA)' };
 export const YES_NO = { yes: 'yes', no: 'no' };
 export const RV_SPOTS = { driveway: 'driveway', side_yard: 'side yard', pad: 'pad' };
 // A landlord's pet policy: only on a rental listing (dropped everywhere else, so a stale value never shows).

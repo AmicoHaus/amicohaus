@@ -204,7 +204,7 @@ check('the owner deletes the listing (to the trash)', r.status === 200 && !one('
 const trashRow = one('SELECT id FROM deleted_listings WHERE user_id = 1 ORDER BY id DESC');
 stats.statements = 0; stats.maxParams = 0;
 r = await call(trashItem.onRequestPost, 'POST', `/api/listings/trash/${trashRow.id}`, 1, { id: String(trashRow.id) });
-check('restore binds 33 params in one listings INSERT', stats.maxParams === 33, String(stats.maxParams));
+check('restore binds 40 params in one listings INSERT (33 + the 7 nuanced-ideas columns, migration_v47)', stats.maxParams === 40, String(stats.maxParams));
 const after = one('SELECT * FROM listings WHERE id = ?', r.json.id);
 const kept = ['home_facts_json', 'mello_roos_annual', 'hoa_monthly', 'hoa_details_json', 'life_event_tags_json', 'plan_builder', 'plan_name', 'plan_community', 'plan_key', 'plan_twins'];
 const lost = kept.filter(k => after[k] !== before[k]);

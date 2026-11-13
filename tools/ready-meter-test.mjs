@@ -236,7 +236,7 @@ check('deleting the pre-listing removes its check-ins', before15 === 1 && r.stat
 
 // ---- 6. The weekly nudge job ----
 const mw = read('functions/api/_middleware.js');
-check('_middleware runs the nudge right after the scorecards', /runDueScorecards, runDueReadyNudges, runDueVisitFeedbackPrompts, runDueSellerReports, runPurgeExpiredTrash/.test(mw) && mw.includes("import { runDueReadyNudges } from '../_lib/readyMeter.js';"));
+check('_middleware runs the nudge right after the scorecards', /runDueScorecards, runDueReadyNudges, runDueVisitFeedbackPrompts, runDueSellerReports, runDueHeadStarts, runDueStepDowns, runPurgeExpiredTrash/.test(mw) && mw.includes("import { runDueReadyNudges } from '../_lib/readyMeter.js';"));
 check('_middleware skips the jobs on the data export', mw.includes("if (new URL(context.request.url).pathname === '/api/account/export') return;"));
 run('UPDATE pre_listings SET ready_reminders_off = 1'); // the homes above stay out of the job's counts
 const nudgeOwners = { 40: {}, 41: {}, 42: {}, 43: {}, 44: { email: 'x44@demo.amicohaus.local' }, 45: { status: 'suspended' }, 46: {}, 47: {}, 48: {}, 49: {} };

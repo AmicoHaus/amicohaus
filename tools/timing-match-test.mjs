@@ -308,7 +308,9 @@ r = await browse(41);
 check('no timed search -> an empty list', r.status === 200 && JSON.stringify(r.json.timingFitIds) === '[]');
 r = await browse(2);
 check("an agent's full-card response also has timingFitIds", r.status === 200 && r.json.timingFitIds.includes(10) && r.json.preListings.some(p => p.id === 10 && !p.teaser), JSON.stringify(r.json.timingFitIds));
-check("the full card doesn't add the dates either", !/close_?from|closeTo|stay_?after/i.test(r.text));
+// v47 (Sell and Stay): an approved agent's full card carries the stay in days (stayAfterDays), never the closing dates.
+check("the full card doesn't add the dates either", !/close_?from|closeTo|stay_after/i.test(r.text));
+check('the full card carries the stay in days only (Sell and Stay)', r.json.preListings.every(p => p.teaser || Number.isInteger(p.stayAfterDays)), JSON.stringify(r.json.preListings[0]));
 r = await browse(1, '?mine=1');
 check('?mine=1 has no timingFitIds', r.status === 200 && !('timingFitIds' in r.json) && r.cache === 'private, no-store');
 run('UPDATE pre_listings SET stay_after_days = 29 WHERE id = 10');

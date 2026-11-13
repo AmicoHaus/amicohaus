@@ -19,6 +19,10 @@ import { preListingAccess, agentsOnly } from '../../_lib/visibility.js';
 import { deleteR2Keys } from '../../_lib/r2Cleanup.js';
 import { momentForOwner } from '../../_lib/moment.js';
 import { allUnionAll } from '../../_lib/compoundSelect.js';
+import { liveTools } from '../../_lib/nuancedGate.js';
+import { homeDataFromRow } from '../../_lib/homeData.js';
+import { listingTermsFromRow, creditTermsProblem } from '../../_lib/listingTerms.js';
+import { claimUserAction, rateLimited } from '../../_lib/rateLimits.js';
 
 export async function onRequestGet(context) {
   const id = context.params.id;
@@ -77,8 +81,18 @@ export async function onRequestGet(context) {
     status: row.status, awardedBidId: row.awarded_bid_id, createdAt: row.created_at,
     photoIds: photos.map(p => p.id), votes, costs: homeCostsFromRow(row),
     facts: homeFactsFromRow(row),
+    // Nuanced ideas (migration_v47): the owner's bills, sizes and signal notes, and their terms (set just below).
+    homeData: homeDataFromRow(row),
     priceHistory: priceHistoryRows.results.map(r => ({ oldPrice: r.old_price, newPrice: r.new_price, changedAt: r.changed_at })),
   };
+  // Terms: the ranked wish list, and the two financing flags only while that tool is live for this viewer. The head
+  // start's end time is for the owner and admins only.
+  const live = liveTools(context.env, user);
+  const terms = listingTermsFromRow(row);
+  if (!live.termsWishlist) terms.termsWishlist = [];
+  if (!live.ownerCarry) { delete terms.ownerCarry; delete terms.assumable; }
+  preListing.terms = terms;
+  if (isOwner || isAdmin) preListing.headStartUntil = row.head_start_until || null;
   // Timing Match: the owner's closing window and stay (always for the owner; for admins and approved agents once set).
   const timing = timingForViewer(row, { isOwner, isAdmin, isAgent: isApprovedAgentViewer });
   if (timing) preListing.timing = timing;
@@ -204,7 +218,7 @@ export async function onRequestPut(context) {
   if (!user) return unauthorized();
 
   const db = context.env.DB;
-  const existing = await db.prepare('SELECT user_id, status, asking_price FROM pre_listings WHERE id = ?').bind(id).first();
+  const existing = await db.prepare('SELECT user_id, status, asking_price, owner_carry, assumable, zip FROM pre_listings WHERE id = ?').bind(id).first();
   if (!existing) return notFound('Pre-listing not found.');
   if (existing.user_id !== user.id) return forbidden();
 
@@ -231,6 +245,17 @@ export async function onRequestPut(context) {
   if (existing.status !== 'open') return badRequest('Only an open pre-listing can be edited.');
   const validated = validatePreListingInput(body);
   if (validated.error) return badRequest(validated.error);
+  // A home with a financing flag can't state loan terms in its text (listingTerms.js), the same rule as a listing.
+  const live = liveTools(context.env, user);
+  if ((existing.owner_carry || existing.assumable) && live.ownerCarry) {
+    const creditError = creditTermsProblem(`${validated.data.title} ${validated.data.neighborhood || ''} ${validated.data.description}`);
+    if (creditError) return badRequest(creditError);
+  }
+  // Moving a pre-listing to another ZIP changes which standing interest reaches its owner (standingInterest.js), so
+  // it counts toward the same small budget as a home claim. Only while that tool is on for this person.
+  if (live.standingOffer && existing.zip && validated.data.zip !== existing.zip) {
+    if (!(await claimUserAction(db, 'home_claim', user.id))) return rateLimited();
+  }
   await updatePreListing(db, id, validated.data);
 
   // The price votes were opinions about the old asking price; once it changes they'd be misleading, so agents

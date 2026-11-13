@@ -144,6 +144,8 @@ function goToTab(name) {
   if (name === 'groups') loadGroups();
   if (name === 'matches') loadMatches();
   if (name === 'saved') { loadFavorites(); loadHidden(); loadTrash(); loadOpenHousePlan(); }
+  if (name === 'saved') hdLoadWatchAreas();
+  if (name === 'ideas' && typeof loadIdeasTab === 'function') loadIdeasTab();
   if (name === 'messages') loadConversations();
   if (name === 'marketplace') loadMarketplaceTab();
   if (name === 'augmented') loadAugmentedTab();
@@ -197,6 +199,8 @@ function setRentalFieldsetState(isRental) {
     document.getElementById(field).required = !isRental;
   }
   document.getElementById('rentAmount').required = isRental;
+  const terms = document.getElementById('listingTermsFields');
+  if (terms) terms.classList.toggle('hidden', isRental);
 }
 
 // Tracks which existing listing/portfolio the create-forms are currently
@@ -302,7 +306,7 @@ const HF_FORM_SIZES = [['small', 'Small'], ['medium', 'Medium'], ['large', 'Larg
 const HF_FORM_FENCED = [['yes', 'Yes'], ['partly', 'Partly'], ['no', 'No']];
 const HF_FORM_AFTERNOON = [['mostly_sun', 'Mostly sun'], ['part_shade', 'Part sun, part shade'], ['mostly_shade', 'Mostly shade']];
 const HF_FORM_SHADE = [['covered_patio', 'Covered patio'], ['pergola', 'Pergola'], ['shade_trees', 'Shade trees'], ['awning', 'Awning']];
-const HF_FORM_SOLAR = [['none', 'None'], ['owned', 'Owned'], ['leased', 'Leased']];
+const HF_FORM_SOLAR = [['none', 'None'], ['owned', 'Owned'], ['leased', 'Leased'], ['ppa', 'Power purchase agreement (PPA)']];
 const HF_FORM_YES_NO = [['yes', 'Yes'], ['no', 'No']];
 const HF_FORM_RV_SPOTS = [['driveway', 'Driveway'], ['side_yard', 'Side yard'], ['pad', 'Pad']];
 const HF_FORM_RENTAL_PETS = [['considered', 'Pets considered'], ['some', 'Some pets (see notes)'], ['none', 'No pets']];
@@ -442,6 +446,480 @@ function resetHomeFactsFields(containerId, prefix, opts = {}) {
   if (box) box.innerHTML = homeFactsFieldsHtml(prefix, null, opts);
 }
 
+// ---- Launch gate (functions/_lib/nuancedGate.js): which nuanced-ideas tools this person can use. Read once at boot
+// from GET /api/nuanced-tools into window.NUANCED; until then, and for a tool that isn't live, nothing of it shows.
+function hdLive(tool) {
+  return typeof window !== 'undefined' && !!window.NUANCED && window.NUANCED[tool] === true;
+}
+function hdFill(id, html) {
+  const box = document.getElementById(id);
+  if (box) box.innerHTML = html || '';
+}
+
+// ---- Bills, room sizes and signal (True Cost to Run, Will It Fit?, Signal Map) on the listing and pre-listing forms.
+// The owner's own numbers, saved right after the home, its costs and its facts (PUT /api/home-data/...); pages print
+// client.js / homeData.js lines under "(from the owner)" headings. Nothing is added up. Ranges and messages mirror
+// functions/_lib/homeData.js, so a bad number stops the submit before anything is saved.
+const HD_FORM_BASIS = [['last_12', 'My last 12 months of bills'], ['estimate', 'My rough estimate']];
+const HD_FORM_PROGRAMS = [['nem1', 'NEM 1.0'], ['nem2', 'NEM 2.0'], ['nbt', 'Net Billing (NBT)']];
+const HD_FORM_CONNS = [['wifi', 'Wi-Fi'], ['wired', 'Wired']];
+const HD_FORM_NETS = [['5g', '5G'], ['lte', 'LTE']];
+const HD_FORM_MAX = { rooms: 12, speedTests: 3, bars: 16 };
+const HD_FORM_ERRORS = {
+  bill: 'Monthly bills should be whole dollars from 0 to 5000.',
+  basis: 'Say whether these come from your last 12 months of bills or are a rough estimate.',
+  kw: 'System size should be between 0.5 and 50 kW.',
+  kwh12: 'Last-12-month production should be whole kWh from 0 to 60000.',
+  year: 'Year installed should be a year from 1990 to this year.',
+  warrantyEnd: 'Warranty end should be a year from 2000 to 2075.',
+  fit: 'Measurements should be whole inches in a sensible range.',
+  fitRoom: 'Pick a room for each row of sizes.',
+  speed: 'Speeds should be between 0.1 and 10000 Mbps.',
+  speedRow: 'Each speed test needs a download speed, an upload speed and the month you ran it.',
+  bars: 'Bars should be a whole number from 0 to 5.',
+  barsRow: 'Each signal spot needs a carrier, a place and the number of bars.',
+  barsDate: 'Add the month you checked the bars.',
+  month: 'Months should be from January 2020 to this month.',
+};
+// [min, max] for each whole-number field.
+const HD_FORM_RANGES = {
+  bill: [0, 5000], kwh12: [0, 60000], warrantyEnd: [2000, 2075], room: [36, 720], door: [20, 96],
+  garageDoorWidth: [60, 240], garageDoorHeight: [60, 192], garageDepth: [120, 600], garageWidth: [96, 600],
+  sideWidth: [24, 480], overhead: [60, 240], bars: [0, 5],
+};
+// A fixed map's keys and labels as select choices, each label starting with a capital.
+function hdChoices(map) {
+  return Object.entries(map).map(([k, label]) => [k, label.charAt(0).toUpperCase() + label.slice(1)]);
+}
+function hdThisMonth() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }).slice(0, 7);
+}
+function hdNumberHtml(id, label, value, [min, max], { step = '1', field = '' } = {}) {
+  const shown = value === undefined || value === null ? '' : value;
+  return `<div class="field"><label for="${id}">${escapeHtml(label)}</label><input type="number" id="${id}"${field ? ` data-hd-f="${field}"` : ''} min="${min}" max="${max}" step="${step}" inputmode="${step === '1' ? 'numeric' : 'decimal'}" value="${escapeHtml(shown)}"></div>`;
+}
+function hdMonthHtml(id, label, value, field = '') {
+  return `<div class="field"><label for="${id}">${escapeHtml(label)}</label><input type="month" id="${id}"${field ? ` data-hd-f="${field}"` : ''} min="2020-01" max="${hdThisMonth()}" placeholder="YYYY-MM" value="${escapeHtml(value || '')}"></div>`;
+}
+// One room row; i keeps the ids (and so the labels) unique within a form.
+function hdRoomRowHtml(prefix, i, r) {
+  const x = r || {};
+  const id = name => `${prefix}HdRoom${name}${i}`;
+  return `<div class="form-row signal-grid" data-hd-room-row>
+      ${hfSelectHtml(id(''), 'Room', hdChoices(HD_FIT_ROOMS), x.room, { blank: 'Choose one', attrs: ' data-hd-f="room"' })}
+      ${hdNumberHtml(id('W'), 'Width', x.widthIn, HD_FORM_RANGES.room, { field: 'widthIn' })}
+      ${hdNumberHtml(id('L'), 'Length', x.lengthIn, HD_FORM_RANGES.room, { field: 'lengthIn' })}
+      ${hdNumberHtml(id('D'), 'Narrowest doorway into it', x.doorIn, HD_FORM_RANGES.door, { field: 'doorIn' })}
+    </div>`;
+}
+// One speed-test row. "Another provider" opens a short box for its name.
+function hdSpeedRowHtml(prefix, i, t) {
+  const x = t || {};
+  const id = name => `${prefix}HdSpeed${name}${i}`;
+  return `<div class="form-row signal-grid" data-hd-speed-row>
+      ${hdNumberHtml(id('Down'), 'Download (Mbps)', x.down, [0.1, 10000], { step: '0.1', field: 'down' })}
+      ${hdNumberHtml(id('Up'), 'Upload (Mbps)', x.up, [0.1, 10000], { step: '0.1', field: 'up' })}
+      ${hfSelectHtml(id('Provider'), 'Provider', hdChoices(HD_ISPS), x.provider, { blank: 'Choose one', attrs: ` data-hd-f="provider" data-hd-other="${id('OtherField')}"` })}
+      <div class="field${x.provider === 'other' ? '' : ' hidden'}" id="${id('OtherField')}"><label for="${id('Other')}">Provider name</label><input type="text" id="${id('Other')}" data-hd-f="providerOther" maxlength="40" value="${escapeHtml(x.providerOther || '')}"></div>
+      ${hfSelectHtml(id('Conn'), 'Wi-Fi or wired', HD_FORM_CONNS, x.conn, { attrs: ' data-hd-f="conn"' })}
+      ${hdMonthHtml(id('Date'), 'Month tested', x.date, 'date')}
+    </div>`;
+}
+// One cell-signal row (a carrier, a place, the bars shown there).
+function hdBarsRowHtml(prefix, i, r) {
+  const x = r || {};
+  const id = name => `${prefix}HdBars${name}${i}`;
+  return `<div class="form-row signal-grid" data-hd-bars-row>
+      ${hfSelectHtml(id('Carrier'), 'Carrier', hdChoices(HD_CARRIERS), x.carrier, { blank: 'Choose one', attrs: ` data-hd-f="carrier" data-hd-other="${id('OtherField')}"` })}
+      <div class="field${x.carrier === 'other' ? '' : ' hidden'}" id="${id('OtherField')}"><label for="${id('Other')}">Carrier name</label><input type="text" id="${id('Other')}" data-hd-f="carrierOther" maxlength="30" value="${escapeHtml(x.carrierOther || '')}"></div>
+      ${hfSelectHtml(id('Area'), 'Where', hdChoices(HD_SIGNAL_AREAS), x.area, { blank: 'Choose one', attrs: ' data-hd-f="area"' })}
+      ${hdNumberHtml(id('N'), 'Bars (0 to 5)', x.bars, HD_FORM_RANGES.bars, { field: 'bars' })}
+      ${hfSelectHtml(id('Net'), '5G, LTE or not sure', HD_FORM_NETS, x.net === 'not_sure' ? '' : x.net, { attrs: ' data-hd-f="net"' })}
+    </div>`;
+}
+
+// A listing row or an API object -> { runCosts, fit, signal } (listings keep them as JSON text columns).
+function hdDataFromRow(row) {
+  if (!row) return null;
+  if (row.homeData && typeof row.homeData === 'object') return row.homeData;
+  const parse = (text) => { try { const v = JSON.parse(text || '{}'); return v && typeof v === 'object' ? v : {}; } catch { return {}; } };
+  return { runCosts: parse(row.run_costs_json), fit: parse(row.fit_json), signal: parse(row.signal_json) };
+}
+function hdHasSolar(value) {
+  return value === 'owned' || value === 'leased' || value === 'ppa';
+}
+
+// The form. Each group is drawn only when its tool is live for this person. facts = the home's saved facts (the solar
+// details open when "Solar panels" under Yard and sun is Owned, Leased or PPA; the facts form shares this prefix).
+function homeDataFieldsHtml(prefix, data, { kind = '', facts = null } = {}) {
+  const d = data || {};
+  const rc = d.runCosts || {}, fit = d.fit || {}, sig = d.signal || {};
+  const bills = rc.bills || {}, solar = rc.solar || {}, garage = fit.garage || {}, access = fit.access || {};
+  const groups = [];
+  if (hdLive('runCosts')) {
+    const solarOn = hdHasSolar(facts && facts.yard && facts.yard.solar);
+    groups.push(`
+      <fieldset class="facts-group">
+        <legend class="label">Bills (your monthly averages)</legend>
+        <div class="form-row two-col">
+          ${hdNumberHtml(`${prefix}HdElectric`, 'Electric ($ a month)', bills.electric, HD_FORM_RANGES.bill)}
+          ${hdNumberHtml(`${prefix}HdGas`, 'Gas ($ a month)', bills.gas, HD_FORM_RANGES.bill)}
+        </div>
+        <div class="form-row two-col">
+          ${hdNumberHtml(`${prefix}HdWater`, 'Water ($ a month)', bills.water, HD_FORM_RANGES.bill)}
+          ${hdNumberHtml(`${prefix}HdTrashSewer`, 'Trash and sewer ($ a month)', bills.trashSewer, HD_FORM_RANGES.bill)}
+        </div>
+        ${hfSelectHtml(`${prefix}HdBasis`, 'Where these come from', HD_FORM_BASIS, rc.basis, { blank: 'Choose one' })}
+        <p class="tiny field-hint">${kind === 'pre_listing'
+          ? 'Only what you want to share. Approved agents see these as your own bills, never as a prediction.'
+          : 'Only what you want to share. Anyone who opens your listing sees these as your own bills, never as a prediction.'}</p>
+      </fieldset>
+      <fieldset class="facts-group" data-hd-solar="${prefix}">
+        <legend class="label">Solar details</legend>
+        <p class="tiny field-hint${solarOn ? ' hidden' : ''}" data-hd-solar-off>Set "Solar panels" under Yard and sun to add solar details.</p>
+        <div data-hd-solar-on${solarOn ? '' : ' class="hidden"'}>
+          <div class="form-row two-col">
+            ${hdNumberHtml(`${prefix}HdSolarKw`, 'System size (kW)', solar.kw, [0.5, 50], { step: '0.1' })}
+            ${hdNumberHtml(`${prefix}HdSolarYear`, 'Year installed', solar.year, [1990, Number(hdThisMonth().slice(0, 4))])}
+          </div>
+          ${hdNumberHtml(`${prefix}HdSolarKwh`, 'Electricity made in the last 12 months (kWh, from your app or bill)', solar.kwh12, HD_FORM_RANGES.kwh12)}
+          <div class="form-row two-col">
+            ${hdNumberHtml(`${prefix}HdSolarWarranty`, 'Warranty ends (year)', solar.warrantyEnd, HD_FORM_RANGES.warrantyEnd)}
+            ${hfSelectHtml(`${prefix}HdSolarProgram`, 'Billing program', HD_FORM_PROGRAMS, solar.program === 'not_sure' ? '' : solar.program)}
+          </div>
+        </div>
+      </fieldset>`);
+  }
+  if (hdLive('willItFit')) {
+    const rooms = Array.isArray(fit.rooms) && fit.rooms.length ? fit.rooms : [null];
+    groups.push(`
+      <fieldset class="facts-group">
+        <legend class="label">Room and garage sizes (inches, measured by you)</legend>
+        <div data-hd-rooms="${prefix}">${rooms.map((r, i) => hdRoomRowHtml(prefix, i, r)).join('')}</div>
+        <div class="form-actions"><button type="button" class="btn btn-ghost btn-sm" data-action="hd-add-room" data-prefix="${prefix}">Add a room</button></div>
+        <div class="form-row two-col">
+          ${hdNumberHtml(`${prefix}HdGarageDoorW`, 'Garage door width', garage.doorWidthIn, HD_FORM_RANGES.garageDoorWidth)}
+          ${hdNumberHtml(`${prefix}HdGarageDoorH`, 'Garage door height', garage.doorHeightIn, HD_FORM_RANGES.garageDoorHeight)}
+        </div>
+        <div class="form-row two-col">
+          ${hdNumberHtml(`${prefix}HdGarageDepth`, 'Garage depth inside', garage.depthIn, HD_FORM_RANGES.garageDepth)}
+          ${hdNumberHtml(`${prefix}HdGarageWidth`, 'Garage width inside', garage.widthIn, HD_FORM_RANGES.garageWidth)}
+        </div>
+        <div class="form-row two-col">
+          ${hdNumberHtml(`${prefix}HdSideWidth`, 'Side-yard path, narrowest width', access.sideWidthIn, HD_FORM_RANGES.sideWidth)}
+          ${hdNumberHtml(`${prefix}HdOverhead`, 'Lowest overhead along the side yard (blank if open sky)', access.overheadIn, HD_FORM_RANGES.overhead)}
+        </div>
+        <p class="tiny field-hint">Your gate opening and driveway length come from Parking and garage above.</p>
+      </fieldset>`);
+  }
+  if (hdLive('signalMap')) {
+    const tests = Array.isArray(sig.speedTests) ? sig.speedTests : [];
+    const bars = Array.isArray(sig.bars) && sig.bars.length ? sig.bars : [null];
+    groups.push(`
+      <fieldset class="facts-group">
+        <legend class="label">Signal and internet (your own tests)</legend>
+        <div data-hd-speed="${prefix}">${Array.from({ length: HD_FORM_MAX.speedTests }, (_, i) => hdSpeedRowHtml(prefix, i, tests[i])).join('')}</div>
+        <div data-hd-bars="${prefix}">${bars.map((r, i) => hdBarsRowHtml(prefix, i, r)).join('')}</div>
+        <div class="form-actions"><button type="button" class="btn btn-ghost btn-sm" data-action="hd-add-spot" data-prefix="${prefix}">Add a spot</button></div>
+        ${hdMonthHtml(`${prefix}HdBarsDate`, 'Month you checked the bars', sig.date)}
+        <p class="tiny field-hint">Run a speed test on your phone or computer and type what it shows.</p>
+      </fieldset>`);
+  }
+  if (!groups.length) return '';
+  const filled = [rc, fit, sig].some(g => g && Object.keys(g).length);
+  return `
+    <details class="score-breakdown home-data-fields" data-hd-prefix="${prefix}" data-hd-kind="${escapeHtml(kind)}"${filled ? ' open' : ''}>
+      <summary>Bills, room sizes and signal (optional)</summary>
+      ${groups.join('')}
+    </details>`;
+}
+
+// The form -> the body for PUT /api/home-data (only the groups the form drew). null when the form isn't on the page.
+// A number outside its range, or a half-filled row, stops the submit with the server's own words.
+function readHomeData(prefix) {
+  const root = document.querySelector(`[data-hd-prefix="${prefix}"]`);
+  if (!root) return null;
+  const get = idName => document.getElementById(`${prefix}Hd${idName}`);
+  const typed = el => (el && typeof el.value === 'string' ? el.value.trim() : '');
+  const whole = (el, [min, max], error) => {
+    const s = typed(el);
+    if (!s) return '';
+    const n = Number(s);
+    if (!/^\d+$/.test(s) || n < min || n > max) throw new Error(error);
+    return n;
+  };
+  const decimal = (el, min, max, error) => {
+    const s = typed(el);
+    if (!s) return '';
+    const n = Number(s);
+    if (!/^\d+(\.\d+)?$/.test(s) || n < min || n > max) throw new Error(error);
+    return Math.round(n * 10) / 10;
+  };
+  const month = (el) => {
+    const s = typed(el);
+    if (!s) return '';
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(s) || s < '2020-01' || s > hdThisMonth()) throw new Error(HD_FORM_ERRORS.month);
+    return s;
+  };
+  const cell = (row, name) => row.querySelector(`[data-hd-f="${name}"]`);
+  const out = {};
+
+  if (get('Electric')) {
+    const bills = {
+      electric: whole(get('Electric'), HD_FORM_RANGES.bill, HD_FORM_ERRORS.bill), gas: whole(get('Gas'), HD_FORM_RANGES.bill, HD_FORM_ERRORS.bill),
+      water: whole(get('Water'), HD_FORM_RANGES.bill, HD_FORM_ERRORS.bill), trashSewer: whole(get('TrashSewer'), HD_FORM_RANGES.bill, HD_FORM_ERRORS.bill),
+    };
+    const basis = typed(get('Basis'));
+    if (Object.values(bills).some(v => v !== '') && !basis) throw new Error(HD_FORM_ERRORS.basis);
+    const yardSolar = document.getElementById(`${prefix}YardSolar`);
+    let solar = {};
+    if (hdHasSolar(yardSolar ? yardSolar.value : '')) {
+      solar = {
+        kw: decimal(get('SolarKw'), 0.5, 50, HD_FORM_ERRORS.kw),
+        year: whole(get('SolarYear'), [1990, Number(hdThisMonth().slice(0, 4))], HD_FORM_ERRORS.year),
+        kwh12: whole(get('SolarKwh'), HD_FORM_RANGES.kwh12, HD_FORM_ERRORS.kwh12),
+        warrantyEnd: whole(get('SolarWarranty'), HD_FORM_RANGES.warrantyEnd, HD_FORM_ERRORS.warrantyEnd),
+      };
+      // "Not sure" is only worth saying next to other solar details.
+      solar.program = typed(get('SolarProgram')) || (Object.values(solar).some(v => v !== '') ? 'not_sure' : '');
+    }
+    out.runCosts = { bills, basis, solar };
+  }
+
+  if (root.querySelector('[data-hd-rooms]')) {
+    const rooms = [];
+    root.querySelectorAll('[data-hd-room-row]').forEach(row => {
+      const room = typed(cell(row, 'room'));
+      const widthIn = whole(cell(row, 'widthIn'), HD_FORM_RANGES.room, HD_FORM_ERRORS.fit), lengthIn = whole(cell(row, 'lengthIn'), HD_FORM_RANGES.room, HD_FORM_ERRORS.fit);
+      const doorIn = whole(cell(row, 'doorIn'), HD_FORM_RANGES.door, HD_FORM_ERRORS.fit);
+      if (widthIn === '' && lengthIn === '' && doorIn === '') return; // an empty row
+      if (!room) throw new Error(HD_FORM_ERRORS.fitRoom);
+      if (widthIn === '' || lengthIn === '') throw new Error(HD_FORM_ERRORS.fit);
+      rooms.push({ room, widthIn, lengthIn, doorIn });
+    });
+    out.fit = {
+      rooms,
+      garage: {
+        doorWidthIn: whole(get('GarageDoorW'), HD_FORM_RANGES.garageDoorWidth, HD_FORM_ERRORS.fit), doorHeightIn: whole(get('GarageDoorH'), HD_FORM_RANGES.garageDoorHeight, HD_FORM_ERRORS.fit),
+        depthIn: whole(get('GarageDepth'), HD_FORM_RANGES.garageDepth, HD_FORM_ERRORS.fit), widthIn: whole(get('GarageWidth'), HD_FORM_RANGES.garageWidth, HD_FORM_ERRORS.fit),
+      },
+      access: { sideWidthIn: whole(get('SideWidth'), HD_FORM_RANGES.sideWidth, HD_FORM_ERRORS.fit), overheadIn: whole(get('Overhead'), HD_FORM_RANGES.overhead, HD_FORM_ERRORS.fit) },
+    };
+  }
+
+  if (root.querySelector('[data-hd-speed]')) {
+    const speedTests = [];
+    root.querySelectorAll('[data-hd-speed-row]').forEach(row => {
+      const down = decimal(cell(row, 'down'), 0.1, 10000, HD_FORM_ERRORS.speed), up = decimal(cell(row, 'up'), 0.1, 10000, HD_FORM_ERRORS.speed);
+      const date = month(cell(row, 'date'));
+      if (down === '' && up === '' && date === '') return; // an empty row
+      if (down === '' || up === '' || date === '') throw new Error(HD_FORM_ERRORS.speedRow);
+      const provider = typed(cell(row, 'provider'));
+      speedTests.push({ down, up, provider, providerOther: provider === 'other' ? typed(cell(row, 'providerOther')) : '', conn: typed(cell(row, 'conn')), date });
+    });
+    const bars = [];
+    root.querySelectorAll('[data-hd-bars-row]').forEach(row => {
+      const carrier = typed(cell(row, 'carrier')), area = typed(cell(row, 'area'));
+      const n = whole(cell(row, 'bars'), HD_FORM_RANGES.bars, HD_FORM_ERRORS.bars);
+      if (!carrier && !area && n === '') return; // an empty row
+      if (!carrier || !area || n === '') throw new Error(HD_FORM_ERRORS.barsRow);
+      bars.push({ carrier, carrierOther: carrier === 'other' ? typed(cell(row, 'carrierOther')) : '', area, bars: n, net: typed(cell(row, 'net')) });
+    });
+    const date = month(get('BarsDate'));
+    if (bars.length && !date) throw new Error(HD_FORM_ERRORS.barsDate);
+    out.signal = { speedTests, bars, date: bars.length ? date : '' };
+  }
+  return out;
+}
+
+// True when the form holds nothing at all (a brand-new home then skips the save).
+function hdDataIsEmpty(data) {
+  const empty = v => v === '' || v === null || v === undefined || (Array.isArray(v) ? v.every(empty) : typeof v === 'object' ? Object.values(v).every(empty) : false);
+  return !data || empty(data);
+}
+
+// Saves the groups the form drew. isNew: a home just created with nothing typed needs no request.
+async function saveHomeData(kind, id, data, { isNew = false } = {}) {
+  if (!data || !Object.keys(data).length) return;
+  if (isNew && hdDataIsEmpty(data)) return;
+  await apiPut(`/api/home-data/${kind}/${id}`, data);
+}
+
+function resetHomeDataFields(containerId, prefix, opts = {}) {
+  hdFill(containerId, homeDataFieldsHtml(prefix, null, opts));
+}
+
+// The optional extras saved right after a new home is posted (sale terms, bills, sizes, signal). A refusal here never
+// undoes the post: the note is added to the "posted" message and the owner fixes it under Edit.
+async function hdSaveAfterPost(save) {
+  try { await save(); return ''; }
+  catch (err) { return ` Some optional details weren't saved: ${(err && err.message) || 'please try again under Edit.'}`; }
+}
+
+// The solar details open only when "Solar panels" (in the facts form with the same prefix) is Owned, Leased or PPA.
+function hdSyncSolar(prefix) {
+  const box = document.querySelector(`[data-hd-solar="${prefix}"]`);
+  if (!box) return;
+  const sel = document.getElementById(`${prefix}YardSolar`);
+  const on = hdHasSolar(sel ? sel.value : '');
+  const onBox = box.querySelector('[data-hd-solar-on]'), offLine = box.querySelector('[data-hd-solar-off]');
+  if (onBox) onBox.classList.toggle('hidden', !on);
+  if (offLine) offLine.classList.toggle('hidden', on);
+}
+
+// Form wiring (delegated, wired once at boot): "Add a room", "Add a spot", the "another provider / carrier" name box,
+// and the solar details following the "Solar panels" choice.
+function hdWireHomeDataForms() {
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-action="hd-add-room"], [data-action="hd-add-spot"]');
+    if (!btn) return;
+    const room = btn.dataset.action === 'hd-add-room';
+    const list = document.querySelector(`[data-hd-${room ? 'rooms' : 'bars'}="${btn.dataset.prefix}"]`);
+    if (!list) return;
+    const count = list.querySelectorAll(room ? '[data-hd-room-row]' : '[data-hd-bars-row]').length;
+    if (count >= (room ? HD_FORM_MAX.rooms : HD_FORM_MAX.bars)) { toast(room ? 'You can add up to 12 rooms.' : 'You can add up to 16 spots.'); return; }
+    // The row index only keeps ids unique; rows are read back in page order.
+    const next = Number(list.dataset.hdNext || count);
+    list.dataset.hdNext = next + 1;
+    list.insertAdjacentHTML('beforeend', room ? hdRoomRowHtml(btn.dataset.prefix, next, null) : hdBarsRowHtml(btn.dataset.prefix, next, null));
+  });
+  document.addEventListener('change', (e) => {
+    const target = e.target;
+    if (!target || !target.closest) return;
+    const other = target.closest('[data-hd-other]');
+    if (other) {
+      const field = document.getElementById(other.dataset.hdOther);
+      if (field) field.classList.toggle('hidden', other.value !== 'other');
+    }
+    if (target.id && target.id.endsWith('YardSolar')) hdSyncSolar(target.id.slice(0, -'YardSolar'.length));
+  });
+}
+
+// ---- The other nuanced-ideas mounts in the app. Their HTML comes from listing-terms.js (lt...), neighbors.js (nb...)
+// and ideas.js, loaded before this file; each is asked only when its tool is live for this person, and a script that
+// didn't load simply draws nothing.
+// The listing form: sale terms, the head start (a new listing only) and the home data. l = the listing being edited.
+function hdResetListingMounts(l = null) {
+  const rentalBox = document.getElementById('isRental');
+  const isRental = l ? !!l.is_rental : !!(rentalBox && rentalBox.checked);
+  const agentPosted = isApprovedAgentNow();
+  hdFill('listingTermsFields', hdTermsLive() && typeof ltFieldsHtml === 'function'
+    ? ltFieldsHtml('lf', l, { kind: 'listing', isRental, agentPosted }) : '');
+  hdFill('listingHeadStartField', !editingListingId && hdLive('headStart') && typeof nbHeadStartFieldHtml === 'function'
+    ? nbHeadStartFieldHtml('lf', { kind: 'listing', agentPosted }) : '');
+  hdFill('listingDataFields', homeDataFieldsHtml('lf', l ? hdDataFromRow(l) : null, { kind: 'listing', facts: l ? hfFactsFromRow(l) : null }));
+  const terms = document.getElementById('listingTermsFields');
+  if (terms) terms.classList.toggle('hidden', isRental);
+  hdHeadStartAgent = agentPosted;
+}
+// The pre-listing post form (blank).
+function hdResetPreListingMounts() {
+  const agentPosted = isApprovedAgentNow();
+  hdFill('plTermsFields', hdTermsLive() && typeof ltFieldsHtml === 'function'
+    ? ltFieldsHtml('plc', null, { kind: 'pre_listing', isRental: false, agentPosted }) : '');
+  hdFill('plHeadStartField', hdLive('headStart') && typeof nbHeadStartFieldHtml === 'function' ? nbHeadStartFieldHtml('plc', { kind: 'pre_listing', agentPosted }) : '');
+  hdFill('plDataFields', homeDataFieldsHtml('plf', null, { kind: 'pre_listing' }));
+  hdHeadStartAgent = agentPosted;
+}
+// The head start isn't offered on a home an agent posts, so its field is redrawn once the agent check has answered.
+let hdHeadStartAgent = false;
+function hdRefreshHeadStartFields() {
+  const agentPosted = isApprovedAgentNow();
+  if (agentPosted === hdHeadStartAgent || !hdLive('headStart') || typeof nbHeadStartFieldHtml !== 'function') return;
+  hdHeadStartAgent = agentPosted;
+  if (!editingListingId) hdFill('listingHeadStartField', nbHeadStartFieldHtml('lf', { kind: 'listing', agentPosted }));
+  hdFill('plHeadStartField', nbHeadStartFieldHtml('plc', { kind: 'pre_listing', agentPosted }));
+}
+// What a form's sale-terms and head-start fields hold, or null when there's nothing to send.
+function hdTermsLive() {
+  return hdLive('termsWishlist') || hdLive('ownerCarry');
+}
+function hdReadTerms(prefix) {
+  if (!hdTermsLive() || typeof ltRead !== 'function') return null;
+  const terms = ltRead(prefix);
+  return terms && typeof terms === 'object' && Object.keys(terms).length ? terms : null;
+}
+function hdReadHeadStart(prefix) {
+  if (!hdLive('headStart') || typeof nbReadHeadStart !== 'function') return null;
+  const headStart = nbReadHeadStart(prefix);
+  if (!headStart) return null;
+  return typeof headStart !== 'object' || Object.keys(headStart).length ? headStart : null;
+}
+// The owner's own listing card: the home data as buyers see it, the sale terms, the price-schedule panel and the
+// head-start badge.
+function hdOwnerListingExtrasHtml(l) {
+  return [
+    homeDataDetailHtml(hdDataFromRow(l), hfFactsFromRow(l), { zip: l.zip || '', kind: 'listing', id: l.id }),
+    hdTermsLive() && typeof ltDetailHtml === 'function' ? ltDetailHtml(l, { kind: 'listing' }) : '',
+    hdLive('stepDown') && !l.is_rental && typeof ltStepDownPanelHtml === 'function'
+      ? `<div id="stepDownPanel-${Number(l.id)}" data-step-down-panel="${Number(l.id)}">${ltStepDownPanelHtml(l)}</div>` : '',
+    hdLive('headStart') && typeof nbHeadStartBadgeHtml === 'function' ? nbHeadStartBadgeHtml(l) : '',
+  ].join('');
+}
+// A pre-listing's detail view (the owner, approved agents and admins): the home data, the sale terms, the stay badge.
+function hdPreListingExtrasHtml(p, isOwner) {
+  return [
+    homeDataDetailHtml(p.homeData, p.facts, { zip: p.zip || '', kind: isOwner ? 'pre_listing' : '', id: p.id }),
+    hdTermsLive() && typeof ltDetailHtml === 'function' ? ltDetailHtml(p, { kind: 'pre_listing' }) : '',
+    hdSellStayBadgeHtml(p, '<div>', '</div>'),
+  ].join('');
+}
+// The "seller would like to stay" badge (listing-terms.js), wrapped when there is one (a line break on a card).
+function hdSellStayBadgeHtml(p, before = '', after = '') {
+  const badge = hdLive('sellAndStay') && typeof ltSellStayBadgeHtml === 'function' ? ltSellStayBadgeHtml(p) : '';
+  return badge ? `${before}${badge}${after}` : '';
+}
+// Under the owner's pre-listing buttons: the head-start badge and the link to standing interest that reaches the home.
+function hdOwnerBarExtrasHtml(p) {
+  return (hdLive('headStart') && typeof nbHeadStartBadgeHtml === 'function' ? nbHeadStartBadgeHtml(p) : '')
+    + (hdLive('standingOffer') && typeof nbOwnerInterestsHtml === 'function' ? nbOwnerInterestsHtml() : '');
+}
+function hdStandingInterestButtonHtml(p) {
+  return hdLive('standingOffer') && typeof nbStandingInterestButtonHtml === 'function' ? nbStandingInterestButtonHtml({ kind: 'pre_listing', id: p.id }) : '';
+}
+// A mutual trade match only: the trial-stay block.
+function hdTradeTrialHtml(m) {
+  return !m.isBuyerMatch && !m.isRentalMatch && hdLive('testDrive') && typeof nbTradeTrialHtml === 'function' ? nbTradeTrialHtml(m) : '';
+}
+// Saved searches: the financing fields, what they hold, and their part of a saved search's label (plain text).
+function hdResetSavedSearchDeal() {
+  hdFill('ssDealFields', hdLive('ownerCarry') && typeof ltSavedSearchFieldsHtml === 'function' ? ltSavedSearchFieldsHtml() : '');
+}
+function hdSavedSearchDeal() {
+  if (!hdLive('ownerCarry') || typeof ltReadSavedSearch !== 'function') return {};
+  const deal = ltReadSavedSearch();
+  return deal && typeof deal === 'object' && Object.keys(deal).length ? { deal } : {};
+}
+function hdSavedSearchDealLabel(s) {
+  return hdLive('ownerCarry') && typeof ltSavedSearchLabel === 'function' ? String(ltSavedSearchLabel(s) || '') : '';
+}
+// The agents' browse filter (Sell and Stay): drawn once for approved agents and admins, never beside teaser cards.
+function hdSyncPreListingFilter(teaserMode, known) {
+  const box = document.getElementById('marketPreListingFilter');
+  if (!box) return;
+  if (teaserMode || !hdLive('sellAndStay') || typeof ltPreListingFilterHtml !== 'function') { box.innerHTML = ''; return; }
+  if (known && !box.innerHTML.trim()) box.innerHTML = ltPreListingFilterHtml();
+}
+function hdPreListingFilterParams(params) {
+  if (!hdLive('sellAndStay') || typeof ltPreListingFilterParams !== 'function') return;
+  for (const [k, v] of Object.entries(ltPreListingFilterParams() || {})) {
+    if (v !== undefined && v !== null && v !== '') params.set(k, String(v));
+  }
+}
+// The Saved tab's watch areas (and, when they're live, the head-start cards and standing interest), from neighbors.js.
+function hdLoadWatchAreas() {
+  if ((hdLive('watchAreas') || hdLive('headStart') || hdLive('standingOffer')) && typeof loadWatchAreas === 'function') loadWatchAreas();
+}
+// The Ideas tab shows only when one of its tools is live for this person.
+const HD_IDEAS_TOOLS = ['easementIdeas', 'openFor', 'sellAndStay', 'ownerCarry', 'testDrive', 'stepDown', 'watchAreas'];
+function hdIdeasTabOn() {
+  return HD_IDEAS_TOOLS.some(hdLive);
+}
+function hdSyncIdeasTab() {
+  const btn = document.querySelector('.tab[data-tab="ideas"]');
+  if (btn) btn.classList.toggle('hidden', !hdIdeasTabOn());
+}
+
 // A listing's floor plan (listing form only; never on a portfolio or a buyer profile). Shown with same-plan homes only
 // when the box is ticked, and never as a price comparison (planTwins.js).
 function floorPlanFieldsHtml(prefix, listing) {
@@ -539,6 +1017,7 @@ function resetListingFormToCreateMode() {
   cloneSourceListingId = null;
   resetHomeCostsFields('listingCostsFields', 'lc');
   hfResetListingFactsFields();
+  hdResetListingMounts();
   document.getElementById('listingSubmitBtn').textContent = 'Create Listing';
   document.getElementById('isBuyerOnly').disabled = false;
   document.getElementById('isRental').disabled = false;
@@ -556,11 +1035,14 @@ function fillListingFormFields(l, { forClone } = {}) {
   document.getElementById('isRental').checked = !!l.is_rental;
   setBuyerOnlyFieldsetState(!!l.is_buyer_only);
   setRentalFieldsetState(!!l.is_rental);
+  // Sale terms and home data come from the listing; a copy starts them blank (a schedule or a head start is never copied).
+  hdResetListingMounts(forClone ? null : l);
 
   document.getElementById('title').value = forClone && l.title ? `${l.title} (Copy)` : (l.title || '');
   document.getElementById('clientName').value = l.client_name || '';
   document.getElementById('city').value = l.city || '';
   document.getElementById('state').value = l.state || '';
+  document.getElementById('listingZip').value = l.zip || '';
   document.getElementById('neighborhood').value = l.neighborhood || '';
   // A clone is a different property — don't imply it shares the same street
   // address or listing photos/links.
@@ -620,7 +1102,7 @@ function populateListingFormForClone(l) {
 // against a slip, not durable storage.
 const LISTING_DRAFT_KEY = 'amicohaus_listing_draft_v1';
 const LISTING_DRAFT_FIELD_IDS = [
-  'isBuyerOnly', 'isRental', 'title', 'clientName', 'city', 'state', 'neighborhood', 'address',
+  'isBuyerOnly', 'isRental', 'title', 'clientName', 'city', 'state', 'listingZip', 'neighborhood', 'address',
   'propertyType', 'estimatedValue', 'beds', 'baths', 'sqft', 'virtualTourUrl', 'externalLinks',
   'rentAmount', 'minLeaseMonths', 'locations', 'desiredType', 'priceMin', 'priceMax', 'minBeds', 'minBaths',
   'mustHaves', 'cashMode', 'cashAmount',
@@ -1323,6 +1805,7 @@ async function loadMyListing() {
         ${l.hidden_at && l.status !== 'active' ? `<p class="tiny">Paused by Amico Haus: ${escapeHtml(l.hidden_reason || 'a rules problem')}. Questions? Use <a href="/contact">Contact</a>.</p>` : ''}
         ${(l.is_buyer_only || l.is_portfolio) ? '' : renderLifeEventTags(l.life_event_tags)}
         ${(l.is_buyer_only || l.is_portfolio) ? '' : renderExternalLinks(l.external_links)}
+        ${(l.is_buyer_only || l.is_portfolio) ? '' : hdOwnerListingExtrasHtml(l)}
         ${(l.is_buyer_only || l.is_portfolio || l.is_rental) ? '' : `
         <details class="panel">
           <summary>Open Houses</summary>
@@ -1351,6 +1834,7 @@ async function loadMyListing() {
         </div>
       </div>
     `).join('');
+    hdMountFitCheckers(summaryEl);
 
     for (const l of listings) {
       if (l.is_buyer_only || l.is_portfolio) continue;
@@ -1621,6 +2105,7 @@ function renderMatchCard(m) {
       ${m.isRentalMatch ? '<p class="tiny match-disclaimer">Lease terms are negotiated directly between the two of you. Want to run your own numbers? Try the <a href="/calculator" target="_blank" rel="noopener">rent calculator</a>.</p>' : ''}
       ${goneQuietNote}
       ${renderBreakdownSection(m)}
+      ${hdTradeTrialHtml(m)}
       <div class="card-actions">
         <button class="btn btn-primary btn-sm" data-action="message-user" data-id="${other.userId}" data-name="${escapeHtml(other.owner)}">Message ${escapeHtml(other.owner)}</button>
         ${(!m.isBuyerMatch && !m.isRentalMatch) ? `<button type="button" class="btn btn-ghost btn-sm" data-action="open-to-bids" data-a="${mine.listingId}" data-b="${other.listingId}" title="Bring in approved agents to propose on finalizing this trade">Open to Agent Bids</button>` : ''}
@@ -1752,7 +2237,7 @@ async function loadSavedSearches() {
     const { searches } = await apiGet('/api/saved-searches');
     el.innerHTML = searches.length ? searches.map(s => `
       <div class="side">
-        ${escapeHtml(savedSearchLabel(s))}${savedSearchTimingHtml(s)}
+        ${escapeHtml(savedSearchLabel(s) + hdSavedSearchDealLabel(s))}${savedSearchTimingHtml(s)}
         <button class="link-btn danger" data-action="delete-saved-search" data-id="${s.id}">Remove</button>
       </div>
     `).join('') : '<span class="tiny">No saved searches yet.</span>';
@@ -1894,11 +2379,15 @@ async function renderMessages(conversationId) {
   `).join('') || '<p class="tiny">No messages yet — say hello.</p>';
 }
 
-async function startConversationWith(userId, name) {
+// draft: an optional first line (say, about an idea outline or a standing interest). It's put in the message box for
+// the person to read and send themselves; it is never sent for them.
+async function startConversationWith(userId, name, draft = '') {
   try {
     const { id } = await apiPost('/api/conversations', { userId: Number(userId) });
     goToTab('messages');
     await openConversation(id, name, userId);
+    const box = document.getElementById('messageBody');
+    if (draft && box && !box.disabled) { box.value = String(draft).slice(0, 2000); box.focus(); }
   } catch (err) { toast(contactErrorMessage(err), { durationMs: 7000 }); }
 }
 
@@ -1964,6 +2453,8 @@ function toastWithPhotoResult(message, { total, failed }) {
 
 // '#control': the You're in Control settings (contact dial, quiet hours, phone privacy), linked from profile pages.
 const AGENT_TAB_HASHES = { '#post-home': 'postHomeWrap', '#become-agent': 'becomeAgentWrap', '#find-agent': 'agentDirectoryWrap', '#control': 'youreInControl' };
+// Watch areas and standing interest live in one panel on the Saved tab (neighbors.js draws it).
+const HD_SAVED_TAB_HASHES = { '#watch-areas': 'watchAreasPanel', '#standing-interests': 'watchAreasPanel' };
 
 function openAgentTabSection(id) {
   const el = document.getElementById(id);
@@ -1976,7 +2467,7 @@ function openAgentTabSection(id) {
 // The specific thing a link like "/app#pre-listing-12" points at, or null for
 // a plain "/app" (or anything else) that has no more precise destination.
 function parseAppLink(link) {
-  const m = /#(pre-listing|transaction|messages|agent|augmented-home|dev-project|green-home)-(\d+)$/.exec(link || '');
+  const m = /#(pre-listing|transaction|messages|agent|augmented-home|dev-project|green-home|trade-trial)-(\d+)$/.exec(link || '');
   return m ? { kind: m[1], id: Number(m[2]) } : null;
 }
 
@@ -1992,6 +2483,18 @@ async function openAppLink(link) {
   // The weekly delivery notice ("Your weekly agent messages are here") points at the Messages tab as a whole.
   if (hash === '#messages') {
     goToTab('messages');
+    return true;
+  }
+  if (HD_SAVED_TAB_HASHES[hash]) {
+    goToTab('saved');
+    openAgentTabSection(HD_SAVED_TAB_HASHES[hash]);
+    return true;
+  }
+  // The Ideas tab, when it's showing for this person (otherwise the link falls back like any plain /app link).
+  if (hash === '#ideas') {
+    const ideasTab = document.querySelector ? document.querySelector('.tab[data-tab="ideas"]') : null;
+    if (!ideasTab || ideasTab.classList.contains('hidden')) return false;
+    goToTab('ideas');
     return true;
   }
 
@@ -2015,6 +2518,12 @@ async function openAppLink(link) {
   if (target.kind === 'augmented-home') { goToTab('augmented'); openAugmentedHomeDetail(target.id); return true; }
   if (target.kind === 'dev-project') { goToTab('findermine'); openProjectDetail(target.id); return true; }
   if (target.kind === 'green-home') { goToTab('greenhomes'); openGreenHomeDetail(target.id); return true; }
+  // A trial stay on a mutual match: the Matches tab, then the trial itself (neighbors.js), when that tool is live.
+  if (target.kind === 'trade-trial') {
+    goToTab('matches');
+    if (window.NUANCED && window.NUANCED.testDrive === true && typeof nbOpenTradeTrial === 'function') nbOpenTradeTrial(target.id);
+    return true;
+  }
   goToTab('marketplace');
   if (target.kind === 'pre-listing') openPreListingDetail(target.id);
   else openTransactionDetail(target.id);
@@ -2102,6 +2611,7 @@ function preListingTeaserCardHtml(p, isNewSinceLastVisit = false, timingFits = f
         </div>
         <div class="mini-block">${Number(p.beds) || 0}bd/${Number(p.baths) || 0}ba · ${escapeHtml(p.city)}, ${escapeHtml(p.state)} ${escapeHtml(p.zip || '')}<br>${price}</div>
         <p class="tiny">${daysOnMarketLabel(p.createdAt)}</p>
+        ${hdStandingInterestButtonHtml(p)}
       </div>`;
 }
 
@@ -2268,6 +2778,7 @@ function applyAgentOnlyListingTools() {
   document.getElementById('bulkUploadWrap')?.classList.toggle('hidden', !ok);
   document.getElementById('clientNameField')?.classList.toggle('hidden', !ok);
   if (!ok) { const input = document.getElementById('clientName'); if (input) input.value = ''; }
+  hdRefreshHeadStartFields();
 }
 function isApprovedAgentNow() {
   return !!currentAgentProfile && currentAgentProfile.status === 'approved';
@@ -2393,7 +2904,7 @@ function preListingFactsHtml(p, { zip = '' } = {}) {
   const price = isPriceOpen(p)
     ? `<span class="price-open">${PRICE_OPEN_LABEL}</span>`
     : `${money(p.askingPrice)} asking${pricePerSqftLabel(p.askingPrice, p.sqft)} ${priceTrendBadge(p.priceSeries)}`;
-  return `${sparklineHtml(p.priceSeries)}${escapeHtml(p.propertyType)} · ${p.beds}bd/${p.baths}ba in ${escapeHtml(p.city)}, ${escapeHtml(p.state)} ${escapeHtml(zip)}<br>${price}`;
+  return `${sparklineHtml(p.priceSeries)}${escapeHtml(p.propertyType)} · ${p.beds}bd/${p.baths}ba in ${escapeHtml(p.city)}, ${escapeHtml(p.state)} ${escapeHtml(zip)}<br>${price}${hdSellStayBadgeHtml(p, '<br>')}`;
 }
 
 // "New proposals paused" (the owner paused new proposals; agents who already sent one can still update it).
@@ -2488,6 +2999,7 @@ async function loadMarketplaceBrowse() {
   const params = new URLSearchParams();
   if (city) params.set('city', city);
   if (state) params.set('state', state);
+  hdPreListingFilterParams(params);
   try {
     const [{ preListings, timingFitIds }, { transactions }] = await Promise.all([
       apiGet(`/api/pre-listings?${params.toString()}`),
@@ -2497,6 +3009,7 @@ async function loadMarketplaceBrowse() {
     // pointer to post their own; only approved local agents can open one.
     const teaserMode = preListings.some(p => p.teaser);
     document.getElementById('openRequestsTeaserNote').classList.toggle('hidden', !teaserMode);
+    hdSyncPreListingFilter(teaserMode, preListings.length > 0 || isApprovedAgentNow() || (!!currentUser && currentUser.role === 'admin'));
     document.getElementById('marketOnlyInArea').closest('.checkbox-row').classList.toggle('hidden', teaserMode);
     const onlyInArea = !teaserMode && document.getElementById('marketOnlyInArea').checked;
     const filteredPreListings = onlyInArea ? preListings.filter(p => p.inServiceArea) : preListings;
@@ -3223,7 +3736,7 @@ function renderPreListingOwnerBar(p) {
       <button type="button" class="btn btn-ghost btn-sm" data-action="close-pre-listing">Close pre-listing</button>
       ${deleteBtn}
     </div>
-    ${p.proposalsPaused ? '<p class="inline-note paused-note">New proposals are paused. Agents who already sent one can still update it.</p>' : ''}`;
+    ${p.proposalsPaused ? '<p class="inline-note paused-note">New proposals are paused. Agents who already sent one can still update it.</p>' : ''}${hdOwnerBarExtrasHtml(p)}`;
   }
   if (p.status === 'closed') return `<p class="tiny">You closed this pre-listing, so agents can no longer vote or send proposals.</p><div class="card-actions">${deleteBtn}</div>`;
   return ''; // awarded — deletion is blocked server-side too, same protection as closing/editing
@@ -3290,6 +3803,8 @@ function renderPreListingEditForm(p) {
       </div>
       ${homeCostsFieldsHtml('plec', p.costs)}
       ${homeFactsFieldsHtml('plef', p.facts, { kind: 'pre_listing' })}
+      ${hdTermsLive() && typeof ltFieldsHtml === 'function' ? ltFieldsHtml('plec', p, { kind: 'pre_listing', isRental: false, agentPosted: isApprovedAgentNow() }) : ''}
+      ${homeDataFieldsHtml('plef', p.homeData, { kind: 'pre_listing', facts: p.facts })}
       <div class="form-actions">
         <button type="button" class="btn btn-primary btn-sm" data-action="save-pre-listing">Save changes</button>
         <button type="button" class="btn btn-ghost btn-sm" data-action="cancel-edit-pre-listing">Cancel</button>
@@ -3342,6 +3857,8 @@ async function savePreListingEdit(id) {
   try {
     const costs = readHomeCosts('plec');
     const facts = readHomeFacts('plef');
+    const homeData = readHomeData('plef');
+    const terms = hdReadTerms('plec');
     const result = await apiPut(`/api/pre-listings/${id}`, {
       title: val('Title').trim(),
       askingPrice, // null = open to price opinions
@@ -3367,6 +3884,8 @@ async function savePreListingEdit(id) {
     });
     await saveHomeCosts('pre_listing', id, costs);
     await saveHomeFacts('pre_listing', id, facts);
+    if (terms && typeof ltSave === 'function') await ltSave('pre_listing', id, terms);
+    await saveHomeData('pre_listing', id, homeData);
     // Privacy Sweep: the swept copies where the owner made them, else the picked files (privacy-sweep.js).
     const photoResult = await uploadPhotos(`/api/pre-listings/${id}/photos`, typeof sweepPickedFiles === 'function' ? await sweepPickedFiles('plePhotos') : [...document.getElementById('plePhotos').files]);
     toastWithPhotoResult(result.votesCleared ? 'Saved — the old price votes were cleared so agents can weigh in on the new price.' : 'Pre-listing updated.', photoResult);
@@ -3593,6 +4112,7 @@ async function openPreListingDetail(id, opts = {}) {
         ${homeCostsDetailHtml(p.costs)}
         ${homeFactsDetailHtml(p.facts, p.costs, { isRental: false })}
         ${hfPlanLineHtml(p.facts)}
+        ${hdPreListingExtrasHtml(p, isOwner)}
         ${renderStipulations(p)}
         ${p.distanceMiles !== null && p.distanceMiles !== undefined ? `<p class="tiny">${p.inServiceArea ? `✅ ${p.distanceMiles} miles from your nearest service zip — within your 20-mile area.` : `⚠️ ${p.distanceMiles} miles from your nearest service zip — outside your declared 20-mile area.`}</p>` : ''}
         ${p.description ? `<p>${escapeHtml(p.description)}</p>` : ''}
@@ -3622,6 +4142,7 @@ async function openPreListingDetail(id, opts = {}) {
     if (!isOwner && currentAgentProfile && currentAgentProfile.status === 'approved' && !isAwardedAgent && document.getElementById('bidServicesEditor')) {
       renderServicesEditor('bidServicesEditor', myBid ? myBid.services : []);
     }
+    hdMountFitCheckers(contentEl);
     if (opts.edit && isOwner && p.status === 'open') showPreListingEditor(true);
     if (p.status === 'awarded' && (isOwner || isAwardedAgent)) loadMilestonesInto('pre_listing', id);
     if (isOwner && p.status === 'open') loadInvitedAgentsInto('pre_listing', id);
@@ -5119,6 +5640,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   const user = await requireAuthOrRedirect();
   if (!user) return;
   document.getElementById('whoami').textContent = user.displayName;
+  // Which nuanced-ideas tools this person can use (the live ones; all of them for an admin). Asked once, before the
+  // first tab draws; if it can't be read, none of them show.
+  try { window.NUANCED = (await apiGet('/api/nuanced-tools')).tools || {}; } catch { window.NUANCED = {}; }
+  hdSyncIdeasTab();
+  hdWireHomeDataForms();
+  hdResetSavedSearchDeal();
   initTermsUpdateBanner(user);
   hfInitEsAppBanner(user);
   primeAgentListingTools();
@@ -5248,6 +5775,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       clientName: isApprovedAgentNow() ? document.getElementById('clientName').value.trim() : '',
       city: document.getElementById('city').value.trim(),
       state: document.getElementById('state').value.trim(),
+      // Optional ZIP code (a buyer profile has no home, so it sends none).
+      zip: document.getElementById('isBuyerOnly').checked ? '' : document.getElementById('listingZip').value.trim(),
       neighborhood: document.getElementById('neighborhood').value.trim(),
       address: document.getElementById('address').value.trim(),
       propertyType: document.getElementById('propertyType').value,
@@ -5270,9 +5799,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     const wasEditing = !!editingListingId;
     try {
       const costs = readHomeCosts('lc');
+      let homeData = null;
       // Home facts and the floor plan go in the listing body (stored with the listing, so a saved search sees them
       // at create). A buyer profile has no home, so it sends neither.
       if (!payload.isBuyerOnly) {
+        // Sale terms ride in the body too; a head start only when the listing is created. Bills, sizes and signal
+        // are read now (a bad number stops the submit) and saved right after the listing.
+        const terms = hdReadTerms('lf');
+        if (terms) payload.terms = terms;
+        const headStart = editingListingId ? null : hdReadHeadStart('lf');
+        if (headStart) payload.headStart = headStart;
+        homeData = readHomeData('lf');
         const homeFacts = readHomeFacts('lf');
         if (homeFacts && !payload.isRental) homeFacts.pets.rental = '';
         if (homeFacts) payload.homeFacts = homeFacts;
@@ -5280,16 +5817,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (floorPlan) payload.floorPlan = floorPlan;
       }
       let listingId = editingListingId;
+      let stepNote = '';
       if (editingListingId) {
-        await apiPut(`/api/listings/${editingListingId}`, { ...payload, action: 'edit' });
+        const saved = await apiPut(`/api/listings/${editingListingId}`, { ...payload, action: 'edit' });
+        // A price change stops a running price schedule (listing-terms.js has the line).
+        if (saved && saved.stepDownStopped && typeof LT_STEP_STOPPED_LINE === 'string') {
+          stepNote = ` ${saved.stepDownStoppedFor === 'client' && typeof LT_STEP_STOPPED_CLIENT_LINE === 'string' ? LT_STEP_STOPPED_CLIENT_LINE : LT_STEP_STOPPED_LINE}`;
+        }
       } else {
         ({ id: listingId } = await apiPost('/api/listings', cloneSourceListingId ? { ...payload, cloneOf: cloneSourceListingId } : payload));
       }
 
       await saveHomeCosts('listing', listingId, costs);
+      const dataNote = await hdSaveAfterPost(() => saveHomeData('listing', listingId, homeData, { isNew: !wasEditing }));
       const photoResult = await uploadPhotos(`/api/listings/${listingId}/photos`, [...document.getElementById('listingPhotos').files]);
 
-      toastWithPhotoResult(wasEditing ? 'Listing updated!' : 'Listing created!', photoResult);
+      toastWithPhotoResult(`${wasEditing ? 'Listing updated!' : 'Listing created!'}${stepNote}${dataNote}`, photoResult);
       document.getElementById('listingForm').reset();
       document.getElementById('ownerConfirmListing').checked = false;
       setBuyerOnlyFieldsetState(false);
@@ -5539,6 +6082,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         priceMin: priceMin || 0,
         priceMax: priceMax || 0,
         ...savedSearchTimingFromForm(),
+        ...hdSavedSearchDeal(),
         // Only homes whose owner shared these details can match (an unknown is never a match).
         toy: {
           rv: document.getElementById('ssRv').checked, sideAccess: document.getElementById('ssSideAccess').checked,
@@ -5550,6 +6094,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       ['savedLocations', 'savedPriceMin', 'savedPriceMax', 'ssGateMin', 'ssGarageMin'].forEach(id => { document.getElementById(id).value = ''; });
       ['ssRv', 'ssSideAccess', 'ssWorkshop', 'ssEv240'].forEach(id => { document.getElementById(id).checked = false; });
       resetSavedSearchTimingForm();
+      hdResetSavedSearchDeal();
       toast('Saved search added.');
       loadSavedSearches();
     } catch (err) { toastActionError(err); } finally { btn.disabled = false; }
@@ -5715,8 +6260,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   wireControlPanel();
   resetHomeCostsFields('listingCostsFields', 'lc');
   hfResetListingFactsFields();
+  hdResetListingMounts();
   resetHomeCostsFields('plCostsFields', 'plc');
   resetHomeFactsFields('plFactsFields', 'plf', { kind: 'pre_listing' });
+  hdResetPreListingMounts();
+  document.getElementById('marketPreListingFilter').addEventListener('change', () => loadMarketplaceBrowse());
   // The owner's yard, sun, parking and pets editor on an AugmentedHomes or GreenHomes detail view.
   document.addEventListener('click', async (e) => {
     const btn = e.target.closest('[data-action="save-home-facts"]');
@@ -5765,6 +6313,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       const costs = readHomeCosts('plc');
       const facts = readHomeFacts('plf');
+      const homeData = readHomeData('plf');
+      const terms = hdReadTerms('plc');
+      const headStart = hdReadHeadStart('plc');
       const { id } = await apiPost('/api/pre-listings', {
         title: document.getElementById('plTitle').value.trim(),
         askingPrice: parseAskingPriceInput(document.getElementById('plAskingPrice').value).value, // null = open to price opinions
@@ -5788,11 +6339,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         prefersExclusive: document.getElementById('plPrefersExclusive').checked,
         prefersLocalSpecialist: document.getElementById('plPrefersLocalSpecialist').checked,
         ...timingFromPostForm(),
+        ...(headStart ? { headStart } : {}),
       });
       await saveHomeCosts('pre_listing', id, costs);
       resetHomeCostsFields('plCostsFields', 'plc');
       await saveHomeFacts('pre_listing', id, facts);
       resetHomeFactsFields('plFactsFields', 'plf', { kind: 'pre_listing' });
+      // Sale terms, then bills, sizes and signal (after the facts, which say whether the home has solar).
+      const extrasNote = await hdSaveAfterPost(async () => {
+        if (terms && typeof ltSave === 'function') await ltSave('pre_listing', id, terms);
+        await saveHomeData('pre_listing', id, homeData, { isNew: true });
+      });
+      hdResetPreListingMounts();
       // The contact dial is a setting on the person, not the home: saved only when it changed. A hiccup here never
       // undoes the post; the You're in Control panel below shows what's actually saved.
       let dialNote = '';
@@ -5802,7 +6360,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       // Privacy Sweep: the swept copies where the owner made them, else the picked files (privacy-sweep.js).
       const photoResult = await uploadPhotos(`/api/pre-listings/${id}/photos`, typeof sweepPickedFiles === 'function' ? await sweepPickedFiles('plPhotos') : [...document.getElementById('plPhotos').files]);
-      toastWithPhotoResult(`Pre-listing posted — agents can now weigh in on your price.${dialNote}`, photoResult);
+      toastWithPhotoResult(`Pre-listing posted — agents can now weigh in on your price.${dialNote}${extrasNote}`, photoResult);
       document.getElementById('postHomeWrap').open = false;
       ['plTitle', 'plAskingPrice', 'plCity', 'plState', 'plZip', 'plNeighborhood', 'plAddress', 'plSqft', 'plDescription', 'plShowingNoticeHours', 'plSpecialInstructions', 'plMinYearsExperience', 'plPreferredLanguage', 'plPreferredAgreementMonths'].forEach(f => document.getElementById(f).value = '');
       document.getElementById('plBeds').value = '';
@@ -6946,7 +7504,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // two runs, so the tab's data isn't fetched twice. The Feed loads when its tab is opened.
   const openedByLink = location.hash ? await openAppLink(location.hash) : false;
   if (!openedByLink) {
-    const VALID_TABS = ['marketplace', 'feed', 'marketpulse', 'listing', 'groups', 'matches', 'saved', 'messages', 'augmented', 'findermine', 'greenhomes'];
+    const VALID_TABS = ['marketplace', 'feed', 'marketpulse', 'listing', 'groups', 'matches', 'saved', 'messages', 'augmented', 'findermine', 'greenhomes', ...(hdIdeasTabOn() ? ['ideas'] : [])];
     let lastTab = 'marketplace';
     try { if (VALID_TABS.includes(localStorage.getItem('ah_last_tab'))) lastTab = localStorage.getItem('ah_last_tab'); } catch {}
     goToTab(lastTab);

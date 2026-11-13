@@ -250,7 +250,7 @@ const HF_YARD_SIZES = { small: 'small', medium: 'medium', large: 'large' };
 const HF_FENCED = { yes: 'yes', partly: 'partly', no: 'no' };
 const HF_AFTERNOON_SUN = { mostly_sun: 'mostly sun', part_shade: 'part sun, part shade', mostly_shade: 'mostly shade' };
 const HF_SHADE = { covered_patio: 'covered patio', pergola: 'pergola', shade_trees: 'shade trees', awning: 'awning' };
-const HF_SOLAR = { none: 'none', owned: 'owned', leased: 'leased' };
+const HF_SOLAR = { none: 'none', owned: 'owned', leased: 'leased', ppa: 'power purchase agreement (PPA)' };
 const HF_YES_NO = { yes: 'yes', no: 'no' };
 const HF_RV_SPOTS = { driveway: 'driveway', side_yard: 'side yard', pad: 'pad' };
 const HF_RENTAL_PETS = { considered: 'pets considered', some: 'some pets (see notes)', none: 'no pets' };
@@ -308,6 +308,332 @@ function homeFactsDetailHtml(facts, costs, { isRental = false } = {}) {
   const pets = g.pets.length ? `<p class="tiny home-facts"><span class="label">${escapeHtml(HF_PETS_HEADING)}</span> ${escapeHtml(g.pets.slice(0, -1).join(' · '))}</p><p class="tiny assist-note">${escapeHtml(g.pets[g.pets.length - 1])}</p>` : '';
   return block(HF_YARD_HEADING, g.yard, HF_YARD_SEASON_LINE) + block(HF_TOY_HEADING, g.toy, HF_TOY_CONFIRM_LINE) + pets;
 }
+
+// ---- True Cost to Run, Will It Fit? and Signal Map: the owner's bills and solar details, measurements, and their own
+// speed tests and cell bars. Kept in sync by hand with functions/_lib/homeData.js (labels, headings and lines word for
+// word; tools/nuanced-ui-test.mjs compares the HTML with the server's). Nothing is added up or estimated, and the fit
+// checker below only compares numbers in the visitor's browser.
+const HD_BILLS = { electric: 'Electric', gas: 'Gas', water: 'Water', trashSewer: 'Trash and sewer' };
+const HD_BILL_BASIS = { last_12: "from the owner's last 12 months of bills", estimate: "the owner's rough estimate" };
+const HD_SOLAR_PROGRAMS = { nem1: 'NEM 1.0', nem2: 'NEM 2.0', nbt: 'Net Billing (NBT)', not_sure: "the owner isn't sure" };
+const HD_FIT_ROOMS = {
+  living: 'Living room', family: 'Family room', dining: 'Dining room', kitchen: 'Kitchen', primary_bed: 'Primary bedroom',
+  bed2: 'Bedroom 2', bed3: 'Bedroom 3', bed4: 'Bedroom 4', bed5: 'Bedroom 5', office: 'Office', bonus: 'Bonus room', laundry: 'Laundry room',
+};
+const HD_ISPS = { cox: 'Cox', att: 'AT&T', spectrum: 'Spectrum', tmobile_home: 'T-Mobile Home Internet', verizon_home: 'Verizon Home Internet', starlink: 'Starlink', other: 'another provider' };
+const HD_CONNS = { wifi: 'Wi-Fi', wired: 'wired' };
+const HD_CARRIERS = { att: 'AT&T', tmobile: 'T-Mobile', verizon: 'Verizon', other: 'another carrier' };
+const HD_SIGNAL_AREAS = {
+  inside_front: 'inside at the front', inside_back: 'inside at the back', upstairs: 'upstairs', kitchen: 'in the kitchen',
+  primary_bed: 'in the primary bedroom', office: 'in the office', garage: 'in the garage', backyard: 'in the backyard', front_yard: 'out front',
+};
+const HD_NETS = { '5g': '5G', lte: 'LTE', not_sure: '' };
+const HD_COVER = ['not reported', 'in parts of the ZIP', 'in most of the ZIP', 'across the ZIP'];
+const HD_RUN_COSTS_HEADING = "Cost to run (the owner's own bills)";
+const HD_RUN_COSTS_CONFIRM_LINE = "These are this owner's bills, not a prediction of yours. Bills change with rates, weather, who lives in a home and how they use it. Ask to see recent bills.";
+const HD_SOLAR_HEADING = 'Solar (from the owner)';
+const HD_SOLAR_CONFIRM_LINE = "A billing program, a lease or a PPA doesn't always pass to a new owner the same way. Ask the utility and the solar company, and read the contract.";
+const HD_FIT_HEADING = "Will it fit? (from the owner's measurements)";
+const HD_FIT_CONFIRM_LINE = "Based on the owner's measurements; measure before you move. Stairs, hallways, turns and slopes aren't included.";
+const HD_SIGNAL_HEADING = 'Signal and internet (from the owner)';
+const HD_SIGNAL_CONFIRM_LINE = "The owner's own tests on their own devices and plans, on the dates shown. Signal and speed change with the device, the plan, the weather and where you stand, so test it yourself on your visit.";
+const HD_COVERAGE_LINE = "Reported by the carrier to the FCC; real signal varies. It's outdoor coverage across the whole ZIP code as carriers report it, not a test at this home.";
+const HD_AREA_CONTEXT_BUTTON = 'How do bills run nearby?';
+const HD_AREA_CONTEXT_NOTE = 'What other owners and the utility reported, not checked by Amico Haus and not a prediction for this home.';
+const HD_AREA_CONTEXT_EMPTY = 'Nothing to show for this ZIP code yet.';
+const HD_FCC_MAP_URL = 'https://broadbandmap.fcc.gov/';
+const HD_FCC_MAP_LINK = 'Check an exact address on the FCC map ↗';
+const HD_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// "2026-11" -> "Nov 2026"; 170 -> "14 ft 2 in."
+function hdMonthLabel(ym) {
+  const m = /^(\d{4})-(\d{2})$/.exec(String(ym || ''));
+  return m && HD_MONTHS[Number(m[2]) - 1] ? `${HD_MONTHS[Number(m[2]) - 1]} ${m[1]}` : '';
+}
+function hdFtIn(inches) {
+  const ft = Math.floor(inches / 12), inch = inches % 12;
+  return ft && inch ? `${ft} ft ${inch} in.` : ft ? `${ft} ft` : `${inch} in.`;
+}
+
+// The lines each block prints (homeData.js homeDataLines). reported = a ZIP's carrier coverage ({ att: [4G, 5G], ... })
+// when the page was given one; the app's own views have none.
+function hdDataLines(data, facts, { reported = null } = {}) {
+  const obj = v => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
+  const d = obj(data), rc = obj(d.runCosts), fit = obj(d.fit), sig = obj(d.signal), yard = obj(obj(facts).yard);
+  const dollars = n => `$${Number(n).toLocaleString('en-US')}`;
+  const runCosts = [];
+  const bills = obj(rc.bills);
+  for (const [k, label] of Object.entries(HD_BILLS)) {
+    if (!Number.isInteger(bills[k])) continue;
+    runCosts.push(bills[k] === 0 ? `${label} $0/mo` : `${label} about ${dollars(bills[k])}/mo`);
+  }
+  if (runCosts.length) runCosts.push(`Monthly averages ${HD_BILL_BASIS[rc.basis] || ''}, entered ${hdMonthLabel(rc.asOf)}`);
+  const solar = [];
+  const s = obj(rc.solar);
+  if (HF_SOLAR[yard.solar] && yard.solar !== 'none' && Object.keys(s).length) {
+    solar.push(`Solar panels: ${HF_SOLAR[yard.solar]}`);
+    if (s.kw) solar.push(`System size ${s.kw} kW`);
+    if (s.year) solar.push(`Installed ${s.year}`);
+    if (Number.isInteger(s.kwh12)) solar.push(`Made about ${s.kwh12.toLocaleString('en-US')} kWh in the last 12 months (owner's reading)`);
+    if (s.warrantyEnd) solar.push(`Warranty through ${s.warrantyEnd}`);
+    if (HD_SOLAR_PROGRAMS[s.program]) solar.push(`Billing program: ${HD_SOLAR_PROGRAMS[s.program]}`);
+  }
+  const fitLines = [];
+  for (const r of Array.isArray(fit.rooms) ? fit.rooms : []) {
+    if (!HD_FIT_ROOMS[r.room]) continue;
+    fitLines.push(`${HD_FIT_ROOMS[r.room]} about ${hdFtIn(r.widthIn)} × ${hdFtIn(r.lengthIn)}${r.doorIn ? `, doorway ${r.doorIn} in.` : ''}`);
+  }
+  const g = obj(fit.garage), a = obj(fit.access);
+  const pair = (x, xWord, y, yWord) => [x ? `${hdFtIn(x)} ${xWord}` : '', y ? `${hdFtIn(y)} ${yWord}` : ''].filter(Boolean).join(' × ');
+  if (g.doorWidthIn || g.doorHeightIn) fitLines.push(`Garage door about ${pair(g.doorWidthIn, 'wide', g.doorHeightIn, 'high')}`);
+  if (g.depthIn || g.widthIn) fitLines.push(`Garage inside about ${pair(g.depthIn, 'deep', g.widthIn, 'wide')}`);
+  if (a.sideWidthIn) {
+    fitLines.push(`Side-yard path about ${hdFtIn(a.sideWidthIn)} wide at its narrowest`);
+    if (a.overheadIn) fitLines.push(`Lowest overhead along it about ${hdFtIn(a.overheadIn)}`);
+  }
+  const signal = [];
+  for (const t of Array.isArray(sig.speedTests) ? sig.speedTests : []) {
+    const isp = t.provider === 'other' && t.providerOther ? t.providerOther : HD_ISPS[t.provider];
+    signal.push(`Internet speed test: ${t.down} Mbps down / ${t.up} Mbps up${isp ? ` on ${isp}` : ''}${HD_CONNS[t.conn] ? ` (${HD_CONNS[t.conn]})` : ''}, ${hdMonthLabel(t.date)}`);
+  }
+  const bars = Array.isArray(sig.bars) ? sig.bars : [];
+  for (const r of bars) {
+    const carrier = r.carrier === 'other' && r.carrierOther ? r.carrierOther : HD_CARRIERS[r.carrier];
+    signal.push(`Cell bars: ${carrier} ${r.bars} of 5 ${HD_SIGNAL_AREAS[r.area]}${HD_NETS[r.net] ? ` (${HD_NETS[r.net]})` : ''}`);
+  }
+  if (bars.length) signal.push(`Bars checked ${hdMonthLabel(sig.date)}`);
+  const coverage = [];
+  const rep = obj(reported);
+  for (const [k, label] of Object.entries(HD_CARRIERS)) {
+    if (!Array.isArray(rep[k])) continue;
+    coverage.push(`${label}: 5G reported ${HD_COVER[rep[k][1]] || HD_COVER[0]}; 4G reported ${HD_COVER[rep[k][0]] || HD_COVER[0]}`);
+  }
+  return { runCosts, solar, fit: fitLines, signal, coverage };
+}
+
+// What the fit checker reads: numbers and fixed room keys only (homeData.js fitSpaces).
+function hdFitSpaces(data, facts) {
+  const obj = v => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
+  const fit = obj(obj(data).fit), toy = obj(obj(facts).toy);
+  const out = {};
+  if (Array.isArray(fit.rooms) && fit.rooms.length) out.rooms = fit.rooms;
+  if (Object.keys(obj(fit.garage)).length) out.garage = fit.garage;
+  if (Object.keys(obj(fit.access)).length) out.access = fit.access;
+  if (Number.isInteger(toy.gateIn)) out.gateIn = toy.gateIn;
+  if (Number.isInteger(toy.drivewayFt)) out.drivewayFt = toy.drivewayFt;
+  return out;
+}
+
+// The detail-view HTML: the same blocks the listing page prints (homeData.js homeDataHtml: the bills and solar
+// paragraphs, then the fit and signal cards). live = which tools show (the app passes window.NUANCED by default).
+// coverage = { asOf, reported } when the caller has the ZIP's carrier-reported coverage.
+function homeDataDetailHtml(data, facts, { zip = '', live = null, signedIn = true, kind = '', id = 0, coverage = null } = {}) {
+  const on = live || (typeof window !== 'undefined' && window.NUANCED) || {};
+  const g = hdDataLines(data, facts, { reported: coverage && coverage.reported });
+  const block = (heading, lines, extra) => (lines.length
+    ? `<p class="tiny home-facts"><span class="label">${escapeHtml(heading)}</span> ${escapeHtml(lines.join(' · '))}</p><p class="tiny">${escapeHtml(extra)}</p>` : '');
+  let html = '';
+  if (on.runCosts) html += block(HD_RUN_COSTS_HEADING, g.runCosts, HD_RUN_COSTS_CONFIRM_LINE) + block(HD_SOLAR_HEADING, g.solar, HD_SOLAR_CONFIRM_LINE);
+  if (on.areaContext && signedIn && /^\d{5}$/.test(String(zip || '')) && kind && Number(id) > 0) {
+    html += `<p class="tiny"><button type="button" class="link-btn" data-action="hd-area-context" data-kind="${escapeHtml(kind)}" data-id="${Number(id)}">${escapeHtml(HD_AREA_CONTEXT_BUTTON)}</button></p><div class="hd-context" data-hd-context></div>`;
+  }
+  const spaces = hdFitSpaces(data, facts);
+  if (on.willItFit && Object.keys(spaces).length) {
+    const jsonText = JSON.stringify(spaces).replace(/</g, '\\u003c').replace(/&/g, '\\u0026').replace(/'/g, '\\u0027');
+    html += `<div class="card about-card" data-fit='${jsonText}'><h2>${escapeHtml(HD_FIT_HEADING)}</h2>${g.fit.length ? `<p class="tiny home-facts">${escapeHtml(g.fit.join(' · '))}</p>` : ''}<div class="fit-checker" data-fit-checker></div><p class="tiny">${escapeHtml(HD_FIT_CONFIRM_LINE)}</p></div>`;
+  }
+  if (on.signalMap && g.signal.length) {
+    const cover = on.fccCoverage && g.coverage.length
+      ? `<p class="tiny home-facts"><span class="label">${escapeHtml(`Carrier-reported coverage for ZIP ${zip} (FCC, data as of ${coverage.asOf || ''})`)}</span> ${escapeHtml(g.coverage.join(' · '))}</p><p class="tiny">${escapeHtml(HD_COVERAGE_LINE)}</p><p class="tiny"><a href="${HD_FCC_MAP_URL}" target="_blank" rel="noopener noreferrer">${escapeHtml(HD_FCC_MAP_LINK)}</a></p>`
+      : '';
+    html += `<div class="card about-card"><h2>${escapeHtml(HD_SIGNAL_HEADING)}</h2><p class="tiny home-facts">${escapeHtml(g.signal.join(' · '))}</p><p class="tiny">${escapeHtml(HD_SIGNAL_CONFIRM_LINE)}</p>${cover}</div>`;
+  }
+  return html;
+}
+
+// Will it fit? Pure arithmetic on the owner's measurements (spaces: { rooms, garage, access, gateIn, drivewayFt }) and
+// the visitor's item ({ kind: 'furniture' | 'vehicle' | 'rv', lengthIn, widthIn, heightIn }). One result per space the
+// owner measured that suits the item: { ok: true | false | null, text }. The words are always "fits by the numbers",
+// "doesn't fit by the numbers" or "didn't give enough measurements": the site never says something is sure to fit.
+function fitCheck(spaces, item) {
+  const sp = spaces && typeof spaces === 'object' ? spaces : {};
+  const it = item && typeof item === 'object' ? item : {};
+  const L = Number(it.lengthIn), W = Number(it.widthIn), H = Number(it.heightIn);
+  if (![L, W, H].every(n => Number.isFinite(n) && n > 0)) return [];
+  const has = n => Number.isFinite(n) && n > 0;
+  const spare = n => Math.round(n * 10) / 10;
+  const yes = (space, extra = '') => ({ ok: true, text: `${space}: fits by the numbers${extra}` });
+  const no = (space, reason) => ({ ok: false, text: `${space}: doesn't fit by the numbers (${reason})` });
+  const unknown = space => ({ ok: null, text: `${space}: the owner didn't give enough measurements` });
+  const out = [];
+
+  if (it.kind === 'furniture') {
+    for (const r of Array.isArray(sp.rooms) ? sp.rooms : []) {
+      const name = HD_FIT_ROOMS[r && r.room];
+      if (!name) continue;
+      if (!has(r.widthIn) || !has(r.lengthIn)) { out.push(unknown(name)); continue; }
+      // The footprint may sit either way round: long side against long side, short against short.
+      const roomLong = Math.max(r.widthIn, r.lengthIn), roomShort = Math.min(r.widthIn, r.lengthIn);
+      const itemLong = Math.max(L, W), itemShort = Math.min(L, W);
+      if (itemLong > roomLong) { out.push(no(name, `${spare(itemLong - roomLong)} in. too long for the room`)); continue; }
+      if (itemShort > roomShort) { out.push(no(name, `${spare(itemShort - roomShort)} in. too wide for the room`)); continue; }
+      const smallest = Math.min(L, W, H);
+      if (!has(r.doorIn)) out.push({ ok: true, text: `${name}: floor space fits by the numbers (the owner didn't measure the doorway)` });
+      else if (smallest > r.doorIn) out.push({ ok: false, text: `${name}: floor space fits, but the doorway (${r.doorIn} in.) is narrower than the item's smallest side (${spare(smallest)} in.)` });
+      else out.push(yes(name));
+    }
+    return out;
+  }
+
+  // A car, truck, RV, boat or trailer: the garage, then the gate, the side-yard path and the driveway.
+  const g = sp.garage && typeof sp.garage === 'object' ? sp.garage : null;
+  if (g && Object.keys(g).length) {
+    if (!has(g.doorWidthIn) || !has(g.doorHeightIn) || !has(g.depthIn)) out.push(unknown('Garage'));
+    else if (H > g.doorHeightIn) out.push(no('Garage', `${spare(H - g.doorHeightIn)} in. too tall for the door`));
+    else if (W > g.doorWidthIn) out.push(no('Garage', `${spare(W - g.doorWidthIn)} in. too wide for the door`));
+    else if (L > g.depthIn) out.push(no('Garage', `${spare(L - g.depthIn)} in. too long for the garage`));
+    else out.push(yes('Garage', `, with ${spare(g.doorHeightIn - H)} in. to spare on height`));
+  }
+  if (has(sp.gateIn)) {
+    out.push(W > sp.gateIn ? no('Gate', `${spare(W - sp.gateIn)} in. too wide for the opening`) : yes('Gate', `, with ${spare(sp.gateIn - W)} in. to spare on width`));
+  }
+  const a = sp.access && typeof sp.access === 'object' ? sp.access : null;
+  if (a && Object.keys(a).length) {
+    if (!has(a.sideWidthIn)) out.push(unknown('Side yard'));
+    else if (W > a.sideWidthIn) out.push(no('Side yard', `${spare(W - a.sideWidthIn)} in. too wide for the path`));
+    else if (has(a.overheadIn) && H > a.overheadIn) out.push(no('Side yard', `${spare(H - a.overheadIn)} in. too tall for the lowest overhead`));
+    else out.push(yes('Side yard', `, with ${spare(a.sideWidthIn - W)} in. to spare on width`));
+  }
+  if (has(sp.drivewayFt)) {
+    const len = sp.drivewayFt * 12;
+    out.push(L > len ? no('Driveway', `${spare(L - len)} in. too long`) : yes('Driveway', `, with ${spare(len - L)} in. to spare on length`));
+  }
+  return out;
+}
+
+// The checker form inside every [data-fit-checker] (the listing page at load; the app calls hdMountFitCheckers() after
+// it draws a home). Built from DOM nodes. The item's size never leaves the browser: no fetch, no beacon; the last one
+// typed is remembered in this browser only.
+const HD_FIT_ITEM_KEY = 'amico.fitItem.v1';
+const HD_FIT_KINDS = [['furniture', 'Furniture or an appliance'], ['vehicle', 'A car or truck'], ['rv', 'An RV, boat or trailer']];
+const HD_FIT_EXAMPLES = [
+  ['Sofa 84 × 38 × 34', 'furniture', 84, 38, 34], ['King bed 80 × 76 × 14', 'furniture', 80, 76, 14],
+  ['Full-size pickup 232 × 80 × 78', 'vehicle', 232, 80, 78], ['Class C RV 300 × 100 × 132', 'rv', 300, 100, 132],
+];
+const HD_FIT_EXAMPLE_CAPTION = 'Example sizes only. Type the real size of yours.';
+const HD_FIT_NO_SPACE = "The owner didn't measure a space for this kind of item.";
+let hdFitCheckerCount = 0;
+function hdMountFitCheckers(root) {
+  const scope = root && typeof root.querySelectorAll === 'function' ? root : document;
+  if (typeof scope.querySelectorAll !== 'function') return;
+  scope.querySelectorAll('[data-fit-checker]').forEach(host => {
+    if (host.dataset.hdMounted) return;
+    host.dataset.hdMounted = '1';
+    const card = host.closest('[data-fit]');
+    let spaces = {};
+    try { spaces = JSON.parse((card && card.dataset.fit) || '{}') || {}; } catch { spaces = {}; }
+    const n = ++hdFitCheckerCount;
+    const make = (tag, props) => Object.assign(document.createElement(tag), props || {});
+    const field = (id, label, input) => {
+      const wrap = make('div', { className: 'field' });
+      wrap.appendChild(make('label', { htmlFor: id, textContent: label }));
+      input.id = id;
+      wrap.appendChild(input);
+      return wrap;
+    };
+    const kind = make('select');
+    HD_FIT_KINDS.forEach(([value, text]) => kind.appendChild(make('option', { value, textContent: text })));
+    const size = () => make('input', { type: 'number', min: '1', max: '2000', step: '1', inputMode: 'numeric' });
+    const len = size(), wid = size(), hei = size();
+    const row = make('div', { className: 'form-row three-col' });
+    row.appendChild(field(`hdFit${n}Length`, 'Length (in.)', len));
+    row.appendChild(field(`hdFit${n}Width`, 'Width (in.)', wid));
+    row.appendChild(field(`hdFit${n}Height`, 'Height (in.)', hei));
+    const examples = make('div', { className: 'chip-row' });
+    const results = make('div', { className: 'fit-result' });
+    results.setAttribute('role', 'status');
+    results.setAttribute('aria-live', 'polite');
+
+    const recompute = () => {
+      const item = { kind: kind.value, lengthIn: Number(len.value), widthIn: Number(wid.value), heightIn: Number(hei.value) };
+      results.textContent = '';
+      if (![item.lengthIn, item.widthIn, item.heightIn].every(v => Number.isFinite(v) && v > 0)) return;
+      try { localStorage.setItem(HD_FIT_ITEM_KEY, JSON.stringify(item)); } catch { /* storage off: this visit only */ }
+      const lines = fitCheck(spaces, item);
+      if (!lines.length) results.appendChild(make('p', { className: 'tiny', textContent: HD_FIT_NO_SPACE }));
+      lines.forEach(r => {
+        const p = make('p', { className: `tiny ${r.ok === true ? 'fit-ok' : r.ok === false ? 'fit-no' : 'fit-unknown'}` });
+        const icon = make('span', { textContent: r.ok === true ? '✓ ' : r.ok === false ? '✕ ' : '? ' });
+        icon.setAttribute('aria-hidden', 'true');
+        p.appendChild(icon);
+        p.appendChild(document.createTextNode(r.text));
+        results.appendChild(p);
+      });
+      results.appendChild(make('p', { className: 'tiny', textContent: HD_FIT_CONFIRM_LINE }));
+    };
+    HD_FIT_EXAMPLES.forEach(([text, k, l, w, h]) => {
+      const b = make('button', { type: 'button', className: 'btn btn-ghost btn-sm', textContent: text });
+      b.addEventListener('click', () => { kind.value = k; len.value = l; wid.value = w; hei.value = h; recompute(); });
+      examples.appendChild(b);
+    });
+    [kind, len, wid, hei].forEach(el => { el.addEventListener('input', recompute); el.addEventListener('change', recompute); });
+
+    host.textContent = '';
+    host.appendChild(field(`hdFit${n}Kind`, 'What are you checking?', kind));
+    host.appendChild(row);
+    host.appendChild(examples);
+    host.appendChild(make('p', { className: 'tiny', textContent: HD_FIT_EXAMPLE_CAPTION }));
+    host.appendChild(results);
+    try {
+      const last = JSON.parse(localStorage.getItem(HD_FIT_ITEM_KEY) || 'null');
+      if (last && HD_FIT_KINDS.some(([k]) => k === last.kind)) {
+        kind.value = last.kind;
+        [[len, last.lengthIn], [wid, last.widthIn], [hei, last.heightIn]].forEach(([el, v]) => { if (Number(v) > 0) el.value = Number(v); });
+        recompute();
+      }
+    } catch { /* nothing remembered */ }
+  });
+}
+(function hdStartFitCheckers() {
+  const start = () => { try { hdMountFitCheckers(document); } catch { /* the card still shows the owner's measurements */ } };
+  try {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+    else start();
+  } catch { /* optional */ }
+})();
+
+// "How do bills run nearby?" (gate areaContext; signed-in only): what SDG&E published for the ZIP, in kWh and therms
+// (never dollars), and what 5 or more other owners of similar-size homes there entered. Plain text lines.
+function hdAreaContextLines(ctx) {
+  const c = ctx && typeof ctx === 'object' ? ctx : {};
+  const lines = [];
+  const u = c.utility;
+  if (u && c.zip) {
+    lines.push(`SDG&E's published average for residential customers in ZIP ${c.zip}, ${u.period}: about ${Number(u.kwhPerMonth).toLocaleString('en-US')} kWh of electricity and ${Number(u.thermsPerMonth).toLocaleString('en-US')} therms of gas a month. All home sizes together. Source: SDG&E Energy Data Request Program.`);
+  }
+  const m = c.members && typeof c.members === 'object' ? c.members : {};
+  for (const [k, label] of Object.entries(HD_BILLS)) {
+    const b = m[k];
+    if (!b) continue;
+    lines.push(`Owners of ${b.homes} similar-size homes (${c.sqftBand}) on Amico Haus in ZIP ${c.zip} entered ${label.toLowerCase()} bills from $${Number(b.low).toLocaleString('en-US')} to $${Number(b.high).toLocaleString('en-US')} a month (middle: $${Number(b.mid).toLocaleString('en-US')}).`);
+  }
+  return lines.length ? [...lines, HD_AREA_CONTEXT_NOTE] : [HD_AREA_CONTEXT_EMPTY];
+}
+document.addEventListener('click', async e => {
+  const btn = e.target && e.target.closest ? e.target.closest('[data-action="hd-area-context"]') : null;
+  if (!btn) return;
+  const holder = btn.closest('p');
+  const box = holder && holder.nextElementSibling && holder.nextElementSibling.hasAttribute('data-hd-context') ? holder.nextElementSibling : null;
+  if (!box) return;
+  btn.disabled = true;
+  let lines;
+  try {
+    lines = hdAreaContextLines(await apiGet(`/api/home-data/context?kind=${encodeURIComponent(btn.dataset.kind || '')}&id=${encodeURIComponent(btn.dataset.id || '')}`));
+  } catch (err) { lines = [(err && err.message) || HF_SHARED_COPY.genericError]; }
+  box.textContent = '';
+  lines.forEach(text => { const p = document.createElement('p'); p.className = 'tiny'; p.textContent = text; box.appendChild(p); });
+  btn.disabled = false;
+});
 
 function escapeHtml(str) {
   return String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -824,6 +1150,10 @@ async function disablePushNotifications() {
 // so it's a plain data-action handled here like every other button on the site.
 document.addEventListener('click', e => {
   if (e.target.closest('[data-action="print-page"]')) window.print();
+});
+// The same for a plain Print button (data-action="print", the idea-outline packet page).
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-action="print"]')) window.print();
 });
 
 let toastTimer = null;

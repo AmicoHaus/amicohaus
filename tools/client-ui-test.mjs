@@ -23,10 +23,12 @@ const check = (label, cond, detail = '') => {
 // required now that the batch is integrated (a missing file fails the "is in the tree" check below).
 const OWNER_TOOLS_JS = ['share-moment.js', 'privacy-sweep.js', 'then-now.js', 'visit-feedback.js', 'handoff-binder.js', 'mystery-home.js', 'page-demo.js', 'page-admin-seed.js'];
 const OWNER_TOOLS_HTML = ['demo.html', 'admin-seed.html'];
+// Nuanced ideas batch: the three scripts app.html loads before main.js (listing-terms, neighbors, ideas).
+const NUANCED_JS = ['listing-terms.js', 'neighbors.js', 'ideas.js'];
 const present = f => { const ok = fs.existsSync(path.join(root, f)); check(`owner tools file ${f} is in the tree`, ok); return ok; };
 const JS_FILES = ['main.js', 'client.js', 'seller-prep.js', 'decision-night.js', 'agent-cards.js', 'page-account-security.js',
   'page-sell-buy.js', 'page-calculator.js', 'page-home.js', 'page-profile.js', 'timing-match.js', 'ready-meter.js', 'opinion-refresh.js',
-  ...OWNER_TOOLS_JS.filter(present)];
+  ...OWNER_TOOLS_JS.filter(present), ...NUANCED_JS.filter(f => fs.existsSync(path.join(root, f)))];
 const HTML_FILES = ['app.html', 'account-security.html', 'sell-or-buy-first.html', 'calculator.html', 'whats-new.html', ...OWNER_TOOLS_HTML.filter(present)];
 
 // ---- 1. Syntax ----
@@ -83,7 +85,7 @@ vm.runInContext(`this.__t = { licenseOnFileLabel, agentLicenseOnFileLine, dreLoo
   lifeEventCheckboxesHtml, homeCostChipsHtml, homeCostsDetailHtml, momentumBannerHtml, ratingChipHtml, agentDetailsHtml,
   directoryAgentInfo, directoryAgentCardHtml, teamDisplayName, rentMath, agentStripOrder, hiddenContentNoteHtml,
   LIFE_EVENT_ITEMS, LIFE_EVENT_LEGACY_KEYS, REPORT_REASON_PRESETS, OFFER_TOOLS_NOTE, FEE_NOTE, MONEY_TOOL_NOTE, ESTIMATE_LABEL,
-  UNBLOCK_NOTE, RATE_LIMITED_COPY, homeFactsDetailHtml };`, sandbox);
+  UNBLOCK_NOTE, RATE_LIMITED_COPY, homeFactsDetailHtml, homeDataDetailHtml, fitCheck };`, sandbox);
 const t = sandbox.__t;
 
 // License wording: "on file", never "verified" or "checked".
@@ -254,6 +256,13 @@ check('market events: an accepted offer never shows its price', r.marketEventFig
 check('milestones: never pay an agent personally or in advance', r.renderMilestonesHtml([]).includes('Never pay an agent personally or in advance.'));
 html = r.renderPostCard({ id: 3, user_id: 2, author_name: 'Sam', body: 'Hi', like_count: 0, comment_count: 0, created_at: '2026-11-01 10:00:00' });
 check('feed post: comment composer line', html.includes('Describe the home, not who should live there or who lives nearby.'));
+// Nuanced ideas batch: main.js draws without listing-terms.js, neighbors.js and ideas.js (this sandbox doesn't load them), and before the
+// launch gate is read nothing of the new tools shows (tools/nuanced-ui-test.mjs walks the gate itself).
+html = r.renderMatchCard({ a: { userId: 1, owner: 'Me', listingId: 10, propertyType: 'Condo', city: 'X', state: 'CA', estimatedValue: 1 }, b: { userId: 2, owner: 'You', listingId: 11, propertyType: 'Condo', city: 'Y', state: 'CA', estimatedValue: 1 }, scoreAWantsB: 80, scoreBWantsA: 80 });
+check('match card: still draws for a mutual match, with no trial-stay block before the gate is read', html.includes('data-action="open-to-bids"') && !/trial/i.test(html));
+check('home data: nothing shows before the launch gate is read', t.homeDataDetailHtml({ runCosts: { bills: { electric: 100 }, basis: 'estimate', asOf: '2026-11' } }, {}) === '' && vm.runInContext("homeDataFieldsHtml('lf', null, {})", app2) === '');
+check("home data: with the gate on, the bills print as the owner's own, with no sum", (() => { const h = t.homeDataDetailHtml({ runCosts: { bills: { electric: 100, gas: 40 }, basis: 'estimate', asOf: '2026-11' } }, {}, { live: { runCosts: true } }); return h.includes('Cost to run (the owner&#39;s own bills)') && h.includes('Electric about $100/mo · Gas about $40/mo') && !h.includes('140'); })());
+check(`fit check: the words are "fits by the numbers" / "doesn't fit by the numbers"`,t.fitCheck({ gateIn: 120 }, { kind: 'rv', lengthIn: 300, widthIn: 100, heightIn: 132 })[0].text === 'Gate: fits by the numbers, with 20 in. to spare on width' && t.fitCheck({ gateIn: 96 }, { kind: 'rv', lengthIn: 300, widthIn: 100, heightIn: 132 })[0].text === "Gate: doesn't fit by the numbers (4 in. too wide for the opening)");
 
 // ---- 4. Wording that must not come back, and wording that must be there ----
 const app = read('app.html');
@@ -332,7 +341,11 @@ for (const cls of ['footer-legal', 'composer-note', 'offer-tools-note', 'teaser-
   'watch-page', 'watch-cover', 'watch-links', 'watch-transcript', 'watch-cta', 'watch-nav', 'watch-hub', 'admin-mystery',
   // Home facts batch (spec 4.9)
   'home-facts', 'assist-note', 'drive-link', 'drive-places', 'drive-place-chip', 'tab-lang', 'es-app-banner', 'legal-summary-banner', 'plan-twins',
-  'plan-twin-card', 'toy-chip', 'oh-address', 'oh-plan', 'oh-plan-day', 'oh-plan-stop', 'oh-plan-stop-actions', 'oh-overlap', 'oh-share-state', 'facts-group']) {
+  'plan-twin-card', 'toy-chip', 'oh-address', 'oh-plan', 'oh-plan-day', 'oh-plan-stop', 'oh-plan-stop-actions', 'oh-overlap', 'oh-share-state', 'facts-group',
+  // Nuanced ideas batch (spec 4.9)
+  'hd-context', 'fit-checker', 'fit-result', 'fit-ok', 'fit-no', 'signal-grid', 'terms-wishlist', 'financing-flags', 'step-schedule', 'step-now', 'sell-stay-badge', 'head-start-badge',
+  'watch-areas', 'watch-area-chip', 'watch-digest', 'early-look-card', 'standing-interest-card', 'trial-card', 'trial-checklist', 'idea-card', 'idea-card-lines', 'outline-builder',
+  'outline-ladder', 'outline-option', 'outline-notes', 'sketch-grid', 'sk-cell', 'sk-area', 'sk-house', 'open-for-chip', 'open-for-long', 'packet', 'packet-line']) {
   check(`styles.css has .${cls}`, new RegExp(`\\.${cls}\\b`).test(css));
 }
 check('gold text uses --gold-text (#8a5f2c), fills keep --gold', css.includes('--gold-text: #8a5f2c') && !/(^|[;{\s])color: var\(--gold\)/.test(css) && css.includes('background: var(--gold)'));

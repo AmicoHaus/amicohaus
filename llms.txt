@@ -27,6 +27,12 @@ Each user creates a profile describing their current home (location, type, price
 - **Then & Now**: a homeowner's own before-and-after photos and dated upgrade list, shown to approved agents and labeled owner-reported, not a disclosure.
 - **Mystery Home Monday**: a weekly guessing game about a home that already sold, shown with the seller's permission. Guesses stay in the visitor's browser; it is a game, not a price opinion or an appraisal.
 - **Video pages**: Amico Haus videos have pages at amicohaus.com/watch with transcripts and links to watch them.
+- **Bills and solar**: an owner can add their own monthly bills and solar system details to a home. They are shown as the owner's own bills, never as a prediction.
+- **Will it fit?**: an owner can add room, doorway and garage measurements; a visitor checks an item against them in their own browser ("fits by the numbers"). Measure before you move.
+- **Signal log**: an owner can add their own internet speed tests and cell signal bars, with the month they checked.
+- **Terms wish list**: a seller ranks up to five sale terms that matter to them besides price, from a fixed list. It is about the sale, never about the buyer.
+- **Watch areas**: a member can watch up to 3 ZIP codes and see what is new there in one place. Any member can watch any ZIP code.
+- **Sell and stay**: a seller who would like to stay up to 29 days after closing can say so on a pre-listing; their agents write any rent-back terms.
 
 ## Key concepts (home trading)
 

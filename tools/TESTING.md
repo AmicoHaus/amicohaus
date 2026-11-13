@@ -78,6 +78,16 @@ suite plants its own link token, so it doesn't need email.
   `visit-feedback-test.mjs`, `seller-report-test.mjs`, `handoff-binder-test.mjs`, `mystery-home-test.mjs` and
   `video-twins-test.mjs`. Run each with the absolute root like the others.
 
+- Idea tools batch (migration v47) suites, all offline: `nuanced-lib-test.mjs` (the launch gate, shared text checks,
+  limits, export, schema), `home-data-test.mjs` and `nuanced-ui-test.mjs` (bills, room sizes, signal, the app wiring
+  and both loaders on fixtures), `land-ideas-test.mjs` (idea outlines, Open For, idea cards, the packet, copy pages),
+  `neighbors-test.mjs` and `trade-trial-test.mjs` (watch areas, head start, standing interest, trial stays),
+  `listing-terms-test.mjs` and `step-down-test.mjs` (terms wish list, financing flags, Sell and Stay, price
+  schedules). Each one runs both launch states: every tool on (`NUANCED_ALL_LIVE = '1'`, tests and the preview test
+  env only) and the gate as it ships (`functions/_lib/nuancedGate.js`).
+- `tools/load-fcc-mobile.mjs` and `tools/load-sdge-usage.mjs` are run by hand on downloaded public files and write the
+  two data modules in `functions/_lib`. Nothing in a request ever runs them.
+
 - `tools/amico-growth-report.js` reads production with small `--command` batches only (never `--file`, which goes
   through the D1 import API: no rows come back and the database can't serve queries while it runs). Its offline tests
   are in `tools/launch-test.mjs` and `tools/compliance2-test.mjs`.

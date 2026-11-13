@@ -9,12 +9,16 @@ import { fetchPriceSeriesBatch } from '../../_lib/priceSeries.js';
 import { notBlockedSql } from '../../_lib/blocks.js';
 import { validateOwnerTiming, timingAlertLine } from '../../_lib/timingMatch.js';
 import { timingFitIdsFor } from '../../_lib/buyerDemand.js';
+import { liveTools } from '../../_lib/nuancedGate.js';
+import { validateHeadStart, headStartUntil, headStartTeaserSql, notifyWatchers } from '../../_lib/watchAreas.js';
+import { claimUserAction, rateLimited } from '../../_lib/rateLimits.js';
 
 const LIST_FIELDS = `pre_listings.id, pre_listings.user_id, pre_listings.title, pre_listings.city, pre_listings.state,
             pre_listings.zip, pre_listings.occupancy_status,
             pre_listings.property_type, pre_listings.beds, pre_listings.baths, pre_listings.sqft, pre_listings.asking_price,
             pre_listings.status, pre_listings.proposals_paused, pre_listings.created_at, users.display_name AS owner_name,
-            pre_listings.close_from, pre_listings.close_to, pre_listings.stay_after_days`;
+            pre_listings.close_from, pre_listings.close_to, pre_listings.stay_after_days,
+            pre_listings.owner_carry, pre_listings.assumable`;
 
 // The browse list and the owner's own list differ per viewer, so no browser or shared cache keeps them.
 const NO_STORE = { headers: { 'Cache-Control': 'private, no-store' } };
@@ -24,6 +28,10 @@ const NO_STORE = { headers: { 'Cache-Control': 'private, no-store' } };
 // shows the inside of a home that isn't on the market yet. Homes whose owner blocked the viewer, or that the viewer
 // blocked, are left out either way. The browse also sends timingFitIds: the homes whose timing fits one of the
 // viewer's own timed saved searches (a "Timing fits" tag; the owner's dates never leave the server).
+// Nuanced ideas (migration_v47): a pre-listing in its Neighbors First head start is held back from the teaser (except
+// for its owner and members who watch its ZIP), never from approved agents. ?stay=1 (approved agents and admins only)
+// keeps homes whose owner would like to stay after closing. Full cards carry stayAfterDays, and the owner's two
+// financing flags while that tool is live for the viewer; the teaser carries none of them.
 export async function onRequestGet(context) {
   const user = await getSessionUser(context);
   if (!user) return unauthorized();
@@ -32,6 +40,8 @@ export async function onRequestGet(context) {
   const mine = url.searchParams.get('mine') === '1';
   const agentProfile = await getAgentProfile(db, user.id);
   const isApprovedAgent = !!agentProfile && agentProfile.status === 'approved';
+  const fullCards = isApprovedAgent || user.role === 'admin';
+  const live = liveTools(context.env, user);
 
   let rows;
   let timingFitIds = null;
@@ -48,13 +58,15 @@ export async function onRequestGet(context) {
     const params = [user.id];
     if (city) { params.push(`%${city}%`); conditions.push(`pre_listings.city LIKE ?${params.length}`); }
     if (state) { params.push(`%${state}%`); conditions.push(`pre_listings.state LIKE ?${params.length}`); }
+    if (!fullCards) conditions.push(headStartTeaserSql('?1'));
+    if (fullCards && live.sellAndStay && url.searchParams.get('stay') === '1') conditions.push('pre_listings.stay_after_days > 0');
     params.push(60);
     rows = await db.prepare(
       `SELECT ${LIST_FIELDS} FROM pre_listings JOIN users ON users.id = pre_listings.user_id
        WHERE ${conditions.join(' AND ')} ORDER BY pre_listings.created_at DESC LIMIT ?${params.length}`
     ).bind(...params).all();
     timingFitIds = await timingFitIdsFor(db, user.id, rows.results);
-    if (!isApprovedAgent && user.role !== 'admin') {
+    if (!fullCards) {
       const preListings = rows.results.map(r => ({
         id: r.id, city: r.city, state: r.state, zip: r.zip, propertyType: r.property_type, beds: r.beds, baths: r.baths,
         askingPrice: shownAskingPrice(r.asking_price), priceOpen: priceIsOpen(r.asking_price), proposalsPaused: !!r.proposals_paused,
@@ -118,6 +130,9 @@ export async function onRequestGet(context) {
       distanceMiles: distanceMiles === null ? null : Math.round(distanceMiles),
       inServiceArea: distanceMiles === null ? null : distanceMiles <= SERVICE_RADIUS_MILES,
       pendingBidCount, pendingShowingCount,
+      // Sell and Stay: the owner's stay after closing (days only), for the people who see the full card.
+      ...(live.sellAndStay ? { stayAfterDays: Number(r.stay_after_days) || 0 } : {}),
+      ...(live.ownerCarry ? { ownerCarry: Number(r.owner_carry) === 1 ? 1 : 0, assumable: Number(r.assumable) === 1 ? 1 : 0 } : {}),
     });
   }
   return json(mine ? { preListings } : { preListings, timingFitIds }, NO_STORE);
@@ -136,7 +151,24 @@ export async function onRequestPost(context) {
   const timing = validateOwnerTiming(body);
   if (timing.error) return badRequest(timing.error);
 
-  const id = await insertPreListing(context.env.DB, user.id, validated.data);
+  // Neighbors First head start (watchAreas.js): the member teaser is held back for the ZIP's watchers first; agents
+  // still get the request at once. Never for a home posted by an approved agent. Ignored while the tool isn't live
+  // for this person.
+  const db = context.env.DB;
+  let until = null;
+  if (liveTools(context.env, user).headStart && body.headStart && Number(body.headStart.hours) > 0) {
+    const agentProfile = await getAgentProfile(db, user.id);
+    const headStart = validateHeadStart(body.headStart, { agentPosted: !!agentProfile && agentProfile.status === 'approved', zip: validated.data.zip });
+    if (headStart.error) return badRequest(headStart.error);
+    until = headStart.data.hours > 0 ? headStartUntil(headStart.data.hours, Date.now()) : null;
+    if (until && !(await claimUserAction(db, 'head_start', user.id))) return rateLimited();
+  }
+
+  const id = await insertPreListing(context.env.DB, user.id, validated.data, { headStartUntil: until });
+  if (until) {
+    context.waitUntil(Promise.resolve(notifyWatchers(context, { kind: 'pre_listing', id, ownerId: user.id, zip: validated.data.zip, until }))
+      .catch(err => console.log(`[watch notify failed] ${err.message}`)));
+  }
   const t = timing.data;
   if (t.closeFrom || t.stayAfterDays > 0) {
     await context.env.DB.prepare('UPDATE pre_listings SET close_from = ?, close_to = ?, stay_after_days = ? WHERE id = ?')
@@ -155,5 +187,5 @@ export async function onRequestPost(context) {
       ...(timingAlertLine(t) ? [timingAlertLine(t)] : []),
     ],
   });
-  return json({ id }, { status: 201 });
+  return json(until ? { id, headStartUntil: until } : { id }, { status: 201 });
 }

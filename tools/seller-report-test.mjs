@@ -273,7 +273,7 @@ check("account page script: checked = !sellerReportOptOut, PUT on change, revert
 
 // ---- 8. Lazy jobs ----
 const mw = read('functions/api/_middleware.js');
-check('_middleware.js job order exact', mw.includes('[runDueDecisionNights, runDueHeldEmails, runDueWeeklyMessages, runDueScorecards, runDueReadyNudges, runDueVisitFeedbackPrompts, runDueSellerReports, runPurgeExpiredTrash, runPruneActionLogs]'));
+check('_middleware.js job order exact', mw.includes('[runDueDecisionNights, runDueHeldEmails, runDueWeeklyMessages, runDueScorecards, runDueReadyNudges, runDueVisitFeedbackPrompts, runDueSellerReports, runDueHeadStarts, runDueStepDowns, runPurgeExpiredTrash, runPruneActionLogs]'));
 check('_middleware.js: the jobs share a statement budget (D1 Free ~50 per invocation) and run on a counting view',
   mw.includes('const JOB_STATEMENT_BUDGET = 30;') && mw.includes('if (Date.now() - now > 22000 || used.n >= JOB_STATEMENT_BUDGET) break;') &&
   mw.includes('try { await job(jobContext); }') && mw.includes('batch: (stmts) => { used.n += stmts.length;'));

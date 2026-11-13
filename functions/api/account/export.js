@@ -73,6 +73,10 @@ const QUERIES = {
     FROM pre_listing_visit_feedback WHERE agent_user_id = ?1`,
   // Open houses: the ones you RSVP'd to (all three kinds of home, with rsvp_named: 1 = the owner sees your name), and the
   // ones you hosted with their address-sharing choice. Who RSVP'd to yours stays out (their data).
+  // The 5th term carries the nuanced-ideas rows (watch areas, home claims, standing interest, idea outlines, Open For
+  // flags, trial stays) so the export stays at 46 statements. onRequestGet moves it to its own key (nuancedIdeas).
+  // Only your side of a trial stay (never the other owner's checklist); who a standing interest reached stays out.
+  // D1 allows 32 arguments per SQL function, so each json_object here holds at most 16 pairs.
   openHouses: `SELECT 'rsvp_listing' AS kind, oh.listing_id AS home_id, r.open_house_id, oh.starts_at, oh.ends_at, json_object('rsvp_named', r.rsvp_named) AS details_json, r.created_at
       FROM open_house_rsvps r JOIN open_houses oh ON oh.id = r.open_house_id WHERE r.user_id = ?1
     UNION ALL SELECT 'rsvp_augmented_home', oh.augmented_home_id, r.open_house_id, oh.starts_at, oh.ends_at, json_object('rsvp_named', r.rsvp_named), r.created_at
@@ -82,7 +86,26 @@ const QUERIES = {
     UNION ALL SELECT 'hosted', NULL, NULL, NULL, NULL, json_object(
         'listings', (SELECT json_group_array(json_object('id', id, 'home_id', listing_id, 'starts_at', starts_at, 'ends_at', ends_at, 'note', note, 'share_address_with_rsvps', share_address_with_rsvps)) FROM open_houses WHERE listing_id IN (SELECT id FROM listings WHERE user_id = ?1)),
         'augmented_homes', (SELECT json_group_array(json_object('id', id, 'home_id', augmented_home_id, 'starts_at', starts_at, 'ends_at', ends_at, 'note', note, 'share_address_with_rsvps', share_address_with_rsvps)) FROM augmented_home_open_houses WHERE augmented_home_id IN (SELECT id FROM augmented_homes WHERE user_id = ?1)),
-        'green_homes', (SELECT json_group_array(json_object('id', id, 'home_id', green_home_id, 'starts_at', starts_at, 'ends_at', ends_at, 'note', note, 'share_address_with_rsvps', share_address_with_rsvps)) FROM green_home_open_houses WHERE green_home_id IN (SELECT id FROM green_homes WHERE user_id = ?1))), NULL`,
+        'green_homes', (SELECT json_group_array(json_object('id', id, 'home_id', green_home_id, 'starts_at', starts_at, 'ends_at', ends_at, 'note', note, 'share_address_with_rsvps', share_address_with_rsvps)) FROM green_home_open_houses WHERE green_home_id IN (SELECT id FROM green_homes WHERE user_id = ?1))), NULL
+    UNION ALL SELECT 'nuanced_ideas', NULL, NULL, NULL, NULL, json_object(
+        'watchAreas', (SELECT json_group_array(json_object('zip', zip, 'label', label, 'created_at', created_at)) FROM watch_areas WHERE user_id = ?1),
+        'homeClaims', (SELECT json_group_array(json_object('zip', zip, 'street', street_label, 'created_at', created_at)) FROM home_claims WHERE user_id = ?1),
+        'standingInterests', (SELECT json_group_array(json_object('id', id, 'target_kind', target_kind, 'zip', zip, 'street', street_label, 'pre_listing_id', pre_listing_id,
+            'amount', amount, 'property_type', property_type, 'min_beds', min_beds, 'financing', financing, 'timing', timing, 'status', status,
+            'expires_at', expires_at, 'created_at', created_at)) FROM standing_interests WHERE user_id = ?1),
+        'dealOutlines', (SELECT json_group_array(json_object('id', id, 'kind', kind, 'use_key', use_key, 'use_note', use_note, 'area_note', area_note,
+            'sketch_json', sketch_json, 'term_option', term_option, 'ask', json_object('amount', ask_amount, 'per', ask_per), 'questions_json', questions_json,
+            'area', json_object('zip', zip, 'city', city, 'state', state), 'listed', listed, 'status', status, 'created_at', created_at, 'updated_at', updated_at))
+            FROM deal_outlines WHERE user_id = ?1),
+        'openFor', (SELECT json_group_array(json_object('id', id, 'property_kind', property_kind, 'zip', zip, 'city', city, 'state', state, 'uses_json', uses_json,
+            'facts_json', facts_json, 'status', status, 'created_at', created_at, 'updated_at', updated_at)) FROM open_for WHERE user_id = ?1),
+        'tradeTrials', (SELECT json_group_array(json_object('id', id,
+            'my_listing_id', CASE WHEN user_a_id = ?1 THEN listing_a_id ELSE listing_b_id END,
+            'other_listing_id', CASE WHEN user_a_id = ?1 THEN listing_b_id ELSE listing_a_id END,
+            'start_date', start_date, 'end_date', end_date, 'nights', nights, 'long_stay', long_stay,
+            'my_checklist_json', CASE WHEN user_a_id = ?1 THEN checklist_a_json ELSE checklist_b_json END,
+            'my_agreed_at', CASE WHEN user_a_id = ?1 THEN a_agreed_at ELSE b_agreed_at END,
+            'status', status, 'created_at', created_at)) FROM trade_trials WHERE user_a_id = ?1 OR user_b_id = ?1)), NULL`,
 
   // As an agent.
   agentProfile: 'SELECT * FROM agent_profiles WHERE user_id = ?1',
@@ -165,6 +188,20 @@ export async function onRequestGet(context) {
   data.proposalsReceived = data.proposalsReceived.map(b => sealedDue.has(b.request_id)
     ? { id: b.id, request_type: b.request_type, request_id: b.request_id, agent_user_id: b.agent_user_id, status: b.status, created_at: b.created_at, sealedUntil: sealedDue.get(b.request_id) }
     : b);
+  // The nuanced-ideas row rode along as the 5th term of openHouses (see QUERIES): it moves to its own key, so
+  // openHouses keeps exactly the rows it always had.
+  const EMPTY_IDEAS = { watchAreas: [], homeClaims: [], standingInterests: [], dealOutlines: [], openFor: [], tradeTrials: [] };
+  const ideasRow = data.openHouses.find(r => r.kind === 'nuanced_ideas');
+  data.openHouses = data.openHouses.filter(r => r.kind !== 'nuanced_ideas');
+  let nuancedIdeas = { ...EMPTY_IDEAS };
+  try {
+    const parsed = JSON.parse(ideasRow.details_json);
+    for (const key of Object.keys(EMPTY_IDEAS)) {
+      // A list arrives as an array, or as its JSON text if the database hands a subquery's result back as plain text.
+      const list = typeof parsed[key] === 'string' ? JSON.parse(parsed[key]) : parsed[key];
+      nuancedIdeas[key] = Array.isArray(list) ? list : [];
+    }
+  } catch { nuancedIdeas = { ...EMPTY_IDEAS }; }
 
   const exportData = {
     account: {
@@ -180,6 +217,7 @@ export async function onRequestGet(context) {
     },
     contactSettings: { contactMode: user.contact_mode, quietStart: user.quiet_start, quietEnd: user.quiet_end, phonePublic: !!user.phone_public },
     ...data,
+    nuancedIdeas,
     agentProfile: data.agentProfile[0] || null,
     exportedAt: new Date().toISOString(),
   };

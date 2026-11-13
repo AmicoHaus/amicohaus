@@ -4,7 +4,8 @@ import { fetchRecentActivityBatch } from '../_lib/marketEvents.js';
 import { fetchListingFavoriteCountBatch } from '../_lib/priceSeries.js';
 import { fetchCommentCountBatch } from '../_lib/dealThreads.js';
 
-// Listings the current user thumbed up — feeds the app's "Saved" tab.
+// Listings the current user thumbed up — feeds the app's "Saved" tab. A home in its Neighbors First head start
+// (watchAreas.js) is never listed here: it is shown only through the watchers' early-look route.
 export async function onRequestGet(context) {
   const user = await getSessionUser(context);
   if (!user) return unauthorized();
@@ -19,6 +20,7 @@ export async function onRequestGet(context) {
      JOIN listings ON listings.id = listing_feedback.listing_id
      JOIN users ON users.id = listings.user_id
      WHERE listing_feedback.user_id = ? AND listing_feedback.feedback = 'up'
+       AND listings.head_start_until IS NULL
      ORDER BY listing_feedback.created_at DESC`
   ).bind(user.id).all();
 

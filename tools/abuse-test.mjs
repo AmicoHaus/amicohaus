@@ -128,6 +128,12 @@ const want = {
   price_vote: [[15, 60, false], [60, 1440, false], [6, 1440, true]],
   showing_request: [[10, 1440, false], [3, 10080, true]],
   preview_rsvp: [[20, 1440, false]], open_house_rsvp: [[30, 1440, false]], agent_invite: [[20, 1440, false]], saved_search: [[20, 1440, false]], timing_edit: [[10, 1440, false]], photo_sweep: [[40, 60, false], [120, 1440, false]], report: [[10, 1440, false]],
+  // Nuanced ideas batch (migration_v47), in the order rateLimits.js lists them.
+  watch_area_edit: [[10, 1440, false]], head_start: [[3, 1440, false]], home_claim: [[3, 43200, false]],
+  standing_interest: [[5, 1440, false], [15, 43200, false]],
+  interest_reply: [[10, 1440, false], [1, 129600, true]],
+  trade_trial: [[5, 1440, false], [3, 10080, true]],
+  idea_post: [[20, 1440, false]], step_down_edit: [[6, 1440, false]],
 };
 const got = Object.fromEntries(Object.entries(rl.USER_LIMITS).map(([k, ws]) => [k, ws.map(w => [w.max, w.minutes, !!w.perRef])]));
 check('USER_LIMITS matches the spec table exactly', JSON.stringify(got) === JSON.stringify(want), JSON.stringify(got));

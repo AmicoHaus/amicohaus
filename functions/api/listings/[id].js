@@ -10,6 +10,10 @@ import { snapshotListingForTrash } from '../../_lib/trash.js';
 import { DEMO_EMAIL_PATTERN } from '../../_lib/util.js';
 import { logMarketEventUnlessDemo } from '../../_lib/marketEvents.js';
 import { deleteR2Keys } from '../../_lib/r2Cleanup.js';
+import { liveTools } from '../../_lib/nuancedGate.js';
+import { claimUserAction, rateLimited } from '../../_lib/rateLimits.js';
+import { termsForEdit, creditTermsProblem } from '../../_lib/listingTerms.js';
+import { endHeadStart } from '../../_lib/watchAreas.js';
 
 async function loadListing(db, id) {
   return db.prepare(
@@ -57,6 +61,13 @@ export async function onRequestGet(context) {
       delete safe.plan_community;
       delete safe.plan_key;
     }
+    // Nuanced-ideas columns (migration_v47): the head start is the owner's; the financing flags, the price schedule
+    // and the terms wish list go out only when that tool is live for this viewer (nuancedGate.js).
+    const live = liveTools(context.env, viewer);
+    delete safe.head_start_until;
+    if (!live.ownerCarry) { delete safe.owner_carry; delete safe.assumable; }
+    if (!live.stepDown) { delete safe.step_down_json; delete safe.step_next_at; }
+    if (!live.termsWishlist) delete safe.terms_wishlist_json;
   }
   safe.external_links = parseJsonSafe(listing.external_links, []);
   // Why the owner is moving (optional) is shown only to the owner and their matches (functions/api/matches.js),
@@ -73,7 +84,7 @@ export async function onRequestPut(context) {
   if (!user) return unauthorized();
 
   const db = context.env.DB;
-  const existing = await db.prepare('SELECT user_id, is_buyer_only, is_rental, is_portfolio, estimated_value, hidden_at, hidden_reason FROM listings WHERE id = ?').bind(id).first();
+  const existing = await db.prepare('SELECT user_id, is_buyer_only, is_rental, is_portfolio, estimated_value, hidden_at, hidden_reason, title, neighborhood, owner_carry, assumable, step_down_json, head_start_until, zip FROM listings WHERE id = ?').bind(id).first();
   if (!existing) return notFound('Listing not found.');
   if (existing.user_id !== user.id && user.role !== 'admin') return forbidden();
 
@@ -94,9 +105,14 @@ export async function onRequestPut(context) {
     return forbidden("An admin can hide or remove someone else's listing, but not edit it.");
   }
 
+  // Nuanced-ideas tools (nuancedGate.js) as they are for the person making the change.
+  const live = liveTools(context.env, user);
+
   // Full edit: the client sends the whole create-shaped payload plus
   // action: 'edit'. A portfolio's membership can't be edited (dissolve and
   // re-bundle for that), only its "what would make you move" side.
+  let stepDownStopped = false;
+  let stepDownStoppedFor = '';
   if (body.action === 'edit') {
     if (existing.is_portfolio) {
       const result = await updatePortfolioCriteria(db, id, body);
@@ -108,8 +124,29 @@ export async function onRequestPut(context) {
       if (validated.data.clientName && !(await isApprovedAgent(db, user.id))) {
         return forbidden('Only approved agents can post a home for a client.');
       }
+      // Terms (wish list, financing flags): only what the body sent and this person's live tools cover is written.
+      const d = validated.data;
+      if (d.terms !== undefined) d.terms = termsForEdit(body.terms, d.terms, live);
+      // With a financing flag on (as saved now, or as this edit leaves it), the text can't state loan terms.
+      const flagged = d.terms && d.terms.ownerCarry !== undefined ? (d.terms.ownerCarry || d.terms.assumable) : (existing.owner_carry || existing.assumable);
+      if (live.ownerCarry && flagged) {
+        const creditError = creditTermsProblem(`${d.title} ${d.neighborhood || ''} ${d.description}`);
+        if (creditError) return badRequest(creditError);
+      }
+      // Changing the price by hand stops a running price schedule (stepDown.js): the owner's new number stands. So
+      // does naming a client: a home posted for a client never carries a schedule.
+      const hasSchedule = !!existing.step_down_json && existing.step_down_json !== '{}';
+      const priceChanged = Number(d.estimatedValue) !== Number(existing.estimated_value);
+      stepDownStopped = hasSchedule && (priceChanged || !!d.clientName);
+      if (stepDownStopped) { d.clearStepDown = true; if (!priceChanged) stepDownStoppedFor = 'client'; }
+      // Moving a listing to another ZIP changes which standing interest reaches its owner (standingInterest.js), so
+      // it counts toward the same small budget as a home claim. Only while that tool is on for this person.
+      if (live.standingOffer && existing.zip && d.zip !== undefined && (d.zip || '') !== existing.zip) {
+        if (!(await claimUserAction(db, 'home_claim', user.id))) return rateLimited();
+      }
       await updateListing(db, id, existing.user_id, validated.data);
-      if (!existing.is_buyer_only && Number(validated.data.estimatedValue) < Number(existing.estimated_value)) {
+      // A home still in its Neighbors First head start (watchAreas.js) isn't public yet: no Market Pulse event.
+      if (!existing.is_buyer_only && !existing.head_start_until && Number(validated.data.estimatedValue) < Number(existing.estimated_value)) {
         const oldPrice = '$' + Number(existing.estimated_value).toLocaleString('en-US');
         const newPrice = '$' + Number(validated.data.estimatedValue).toLocaleString('en-US');
         context.waitUntil(logMarketEventUnlessDemo(context.env.DB, existing.user_id, {
@@ -124,7 +161,7 @@ export async function onRequestPut(context) {
     // widens a price range or drops a beds/baths minimum can surface a wave
     // of new matches at once.
     context.waitUntil(notifyNewMatches(context, id));
-    return json({ ok: true });
+    return json(stepDownStopped ? { ok: true, stepDownStopped: true, ...(stepDownStoppedFor ? { stepDownStoppedFor } : {}) } : { ok: true });
   }
 
   if (body.status && !['active', 'paused'].includes(body.status)) return badRequest('Invalid status.');
@@ -151,10 +188,25 @@ export async function onRequestPut(context) {
     const sourceOfIncomeError = sourceOfIncomeLimitError(clampString(body.description, 2000));
     if (sourceOfIncomeError) return badRequest(sourceOfIncomeError);
   }
+  // A listing with a financing flag can't state loan terms in its text, the same rule as a full edit.
+  if (body.description !== undefined && live.ownerCarry && (existing.owner_carry || existing.assumable)) {
+    const creditError = creditTermsProblem(`${existing.title || ''} ${existing.neighborhood || ''} ${clampString(body.description, 2000)}`);
+    if (creditError) return badRequest(creditError);
+  }
 
   const fields = [];
   const values = [];
-  if (body.status) { fields.push('status = ?'); values.push(body.status); }
+  // Neighbors First head start (watchAreas.js): making the listing active opens it to everyone now, with the alerts a
+  // new listing sends (in the background, like a create); pausing it ends the head start for good.
+  let openedFromHeadStart = false;
+  if (existing.head_start_until && body.status === 'active' && !existing.hidden_at) {
+    openedFromHeadStart = true;
+    context.waitUntil(Promise.resolve(endHeadStart(context, id)).catch(err => console.log(`[head start open failed] ${err.message}`)));
+  }
+  if (body.status && !openedFromHeadStart) {
+    fields.push('status = ?'); values.push(body.status);
+    if (existing.head_start_until) fields.push('head_start_until = NULL');
+  }
   if (user.role === 'admin' && body.status === 'active') {
     fields.push('hidden_at = NULL', 'hidden_reason = NULL');
   }

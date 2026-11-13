@@ -59,7 +59,8 @@ home(11, 1, { due: later });                                  // sealed
 home(12, 1);                                                  // no Decision Night, open
 home(20, 1, { createdSql: "datetime('now', '-4 days', '-12 hours')" }); // hired through acceptBid, after 4.5 days
 home(21, 1);                                                  // hired the same day
-home(22, 1, { due: past, createdSql: "datetime('now', '-2 days')" });  // hired the operator, 2 interviews done
+// An hour short of 2 days, so a clock tick between this insert and the hire can't push the count to 3.
+home(22, 1, { due: past, createdSql: "datetime('now', '-2 days', '+1 hour')" });  // hired the operator, 2 interviews done
 home(23, 1, { status: 'awarded' });                           // awarded before v45: no awarded_at
 home(30, 7, { status: 'awarded' });                           // a demo owner
 let bidId = 100;

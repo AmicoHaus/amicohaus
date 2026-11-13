@@ -88,18 +88,20 @@ export function validatePreListingInput(body) {
   };
 }
 
-export async function insertPreListing(db, userId, d) {
+// headStartUntil (Neighbors First, watchAreas.js) is written in the same INSERT, so the member teaser is never
+// visible for even a moment before the head start is on. Approved agents see the pre-listing as always.
+export async function insertPreListing(db, userId, d, { headStartUntil = null } = {}) {
   const result = await db.prepare(
     `INSERT INTO pre_listings (user_id, title, description, address, neighborhood, city, state, zip, property_type,
        beds, baths, sqft, asking_price, occupancy_status, showing_notice_hours, special_instructions,
        min_years_experience, preferred_language, require_dedicated_contact, prefers_exclusive, preferred_agreement_months,
-       prefers_local_specialist)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       prefers_local_specialist, head_start_until)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     userId, d.title, d.description, d.address, d.neighborhood, d.city, d.state, d.zip, d.propertyType,
     d.beds, d.baths, d.sqft, d.askingPrice, d.occupancyStatus, d.showingNoticeHours, d.specialInstructions,
     d.minYearsExperience, d.preferredLanguage, d.requireDedicatedContact ? 1 : 0, d.prefersExclusive ? 1 : 0, d.preferredAgreementMonths,
-    d.prefersLocalSpecialist ? 1 : 0
+    d.prefersLocalSpecialist ? 1 : 0, headStartUntil || null
   ).run();
   return result.meta.last_row_id;
 }

@@ -91,3 +91,9 @@ suite plants its own link token, so it doesn't need email.
 - `tools/amico-growth-report.js` reads production with small `--command` batches only (never `--file`, which goes
   through the D1 import API: no rows come back and the database can't serve queries while it runs). Its offline tests
   are in `tools/launch-test.mjs` and `tools/compliance2-test.mjs`.
+- MLS tools (11.16; gate on since Rudy's broker OK, phase 2 the same night; sign-in only since Rudy's 11.17 answer): `mls-tools-test.mjs` (the generated CRMLS
+  module `functions/_lib/mlsAreaStats.js` with its 28 ZIPs, the strict share rule and the never-carried keys, the gate, every view's
+  wording incl. the new cells and Five Years with its months-of-supply asterisk and footnote, who each `/api/mls/*` endpoint answers
+  (signed out: the same 401 and no data from all three; members, agents and admins: 200, `private, no-store`), `mls-tools.js`).
+  `nuanced-lib-test.mjs` also checks that all three endpoint files send signed-out visitors the 401 with no public cache. It needs the generated module: in the sites folder run
+  `node _tools/mls-data.js` and `node _tools/mls-amico-export.js` first.

@@ -25,6 +25,11 @@
 # Press/outreach drafts — business material, not part of the public site's source
 /Press/
 
+# MLS tools (11.16): the CRMLS aggregates are generated on Rudy's machine by sites/_tools/mls-amico-export.js and stay
+# out of this public repo until the CRMLS / broker question is settled; the notes file is a working draft.
+/functions/_lib/mlsAreaStats.js
+/MLS-TOOLS-NOTES.md
+
 # OS/editor noise
 .DS_Store
 Thumbs.db

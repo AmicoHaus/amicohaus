@@ -7,6 +7,10 @@ export const NUANCED_TOOLS = {
   fccCoverage: false,   // on after tools/load-fcc-mobile.mjs has been run and Rudy has looked at the output
   headStart: false,     // on after CB West OKs the Clear Cooperation note
   easementIdeas: false, openFor: false, standingOffer: false, stepDown: false, ownerCarry: false, testDrive: false, // attorney list, §14
+  // MLS tools (11.16, mlsTools.js): CRMLS aggregates by ZIP. On for everyone: Rudy's broker approved them (11.16). Each
+  // endpoint still decides sign-in (MLS-TOOLS-NOTES.md: all three MLS endpoints need a sign-in, Rudy 11.17; no public
+  // page). The Area Pulse monthly email has its own switch, AREA_PULSE_EMAIL_LIVE in mlsTools.js (still off).
+  areaPulse: true, pricePath: true, marketPace: true, homeFits: true, featureLens: true, daysCurve: true, watchersPulse: true,
 };
 // env.NUANCED_ALL_LIVE === '1' turns everything on: the test harness and the preview test env only, never production.
 export function toolLive(env, name, user = null) {

@@ -1444,6 +1444,51 @@ svg.sketch-grid text { fill: var(--muted); font-size: 12px; }
   #openHousePlan a { color: inherit; text-decoration: none; }
 }
 
+/* MLS tools (mls-tools.js, 11.16): neutral colors only, no good/bad shading; SVG widths are attributes, never inline CSS. */
+.ml-pulse, .ml-lens { margin: 0 0 24px; }
+.ml-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; margin: 10px 0; }
+.ml-card { padding: 16px; overflow-wrap: anywhere; min-width: 0; }
+/* Long area names in the pickers and wide tables must not widen the page: grid tracks and fields may shrink below
+   their content (tables scroll inside .ml-table-wrap; a select shows its chosen option, cut at the edge). */
+.ml-lens .form-row > .field, .ml-fits .form-row > .field { min-width: 0; }
+.ml-lens select, .ml-fits select { max-width: 100%; min-width: 0; width: 100%; text-overflow: ellipsis; }
+.ml-card h3 { margin: 0 0 4px; }
+.ml-scope, .ml-note, .ml-credit, .ml-trending, .ml-gauge-unit { color: var(--muted); }
+.ml-scope, .ml-note, .ml-trending, .ml-gauge-unit { font-size: 0.85rem; margin: 6px 0; }
+.ml-credit { margin-top: 10px; font-size: 0.78rem; }
+.ml-footnote { margin-top: 2px; font-style: italic; }
+.ml-lines { margin: 8px 0; padding-left: 18px; }
+.ml-lines li { margin: 4px 0; }
+.ml-table-wrap { overflow-x: auto; margin: 8px 0; }
+.ml-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.ml-table caption { text-align: left; color: var(--muted); font-size: 0.8rem; padding-bottom: 4px; }
+.ml-table th, .ml-table td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: normal; word-break: normal; }
+.ml-grid .ml-card[data-ml-tool="featureLens"] { grid-column: 1 / -1; }
+.ml-table th { font-weight: 600; }
+.ml-gauge-wrap, .ml-curve-wrap { margin: 10px 0; }
+.ml-gauge { display: block; width: 100%; height: 18px; }
+.ml-gauge-track { fill: var(--border); }
+.ml-gauge-fill { fill: var(--muted); }
+.ml-gauge-dot { fill: var(--ink); stroke: var(--card); stroke-width: 1; }
+.ml-gauge-ticks, .ml-curve-ticks { display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--muted); }
+.ml-curve { display: block; width: 100%; height: 120px; }
+.ml-curve-axis { stroke: var(--border); stroke-width: 0.6; }
+.ml-curve-line { fill: none; stroke: var(--muted); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.ml-curve-dot { fill: var(--ink); }
+.ml-cta { margin: 12px 0 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--card); }
+.ml-cta p { margin: 0 0 8px; }
+.ml-fits { margin: 0 0 12px; }
+.ml-fits-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0 12px; }
+/* Five Years card (phase 2): homes sold as bars, months of supply as a line; neutral colors, no good/bad shading. */
+.ml-grid .ml-card[data-ml-tool="fiveYear"] { grid-column: 1 / -1; }
+.ml-trend-wrap { margin: 10px 0; }
+.ml-trend { display: block; width: 100%; height: auto; max-height: 220px; }
+.ml-trend-grid { stroke: var(--border); stroke-width: 0.5; }
+.ml-trend-year { fill: var(--muted); font-size: 8px; }
+.ml-trend-bar { fill: var(--muted); }
+.ml-trend-line { fill: none; stroke: var(--ink); stroke-width: 1.2; }
+.ml-trend-dot { fill: var(--ink); }
+
 /* Phones. Kept at the END of the file on purpose: several rules it overrides (e.g. #globalSearchInput) appear
    after the main 720px block above, so source order matters here. */
 @media (max-width: 720px) {
@@ -1471,5 +1516,10 @@ svg.sketch-grid text { fill: var(--muted); font-size: 12px; }
   .signal-grid { grid-template-columns: 1fr 1fr; }
   .fit-checker .chip-row .btn { flex: 1 1 100%; }
   .outline-builder, .idea-card { padding: 12px; }
+  /* MLS tools */
+  .ml-grid { grid-template-columns: minmax(0, 1fr); }
+  .ml-lens .form-row.two-col, .ml-fits .form-row.two-col { grid-template-columns: minmax(0, 1fr); }
+  .ml-card { padding: 12px; }
+  .ml-fits-fields { grid-template-columns: 1fr 1fr; }
 }
 

@@ -60,17 +60,27 @@ user(1); user(2); user(3); user(5, 'admin');
 
 // ================= 1. The launch gate =================
 const gate = await mod('functions/_lib/nuancedGate.js');
-const LIVE = ['runCosts', 'willItFit', 'signalMap', 'termsWishlist', 'sellAndStay', 'watchAreas'];
+// MLS tools (11.16): the gate is on for everyone since Rudy's broker OK, but every MLS endpoint needs a sign-in (Rudy 11.17,
+// no public page; tools/mls-tools-test.mjs covers who each endpoint answers).
+const MLS = ['areaPulse', 'pricePath', 'marketPace', 'homeFits', 'featureLens', 'daysCurve', 'watchersPulse'];
+const LIVE = ['runCosts', 'willItFit', 'signalMap', 'termsWishlist', 'sellAndStay', 'watchAreas', ...MLS];
 const DARK = ['areaContext', 'fccCoverage', 'headStart', 'easementIdeas', 'openFor', 'standingOffer', 'stepDown', 'ownerCarry', 'testDrive'];
-const ALL = [...LIVE, ...DARK];
+const ALL = [...LIVE.filter(k => !MLS.includes(k)), ...DARK, ...MLS];
 const member = { id: 3, role: 'user' };
 const admin = { id: 5, role: 'admin' };
-check('gate: exactly the 15 tool names, in the written order', JSON.stringify(Object.keys(gate.NUANCED_TOOLS)) === JSON.stringify(ALL), JSON.stringify(Object.keys(gate.NUANCED_TOOLS)));
-check('gate (Rudy 11.13): the six live tools are true, the nine others false', LIVE.every(k => gate.NUANCED_TOOLS[k] === true) && DARK.every(k => gate.NUANCED_TOOLS[k] === false));
+check('gate: exactly the 22 tool names, in the written order', JSON.stringify(Object.keys(gate.NUANCED_TOOLS)) === JSON.stringify(ALL), JSON.stringify(Object.keys(gate.NUANCED_TOOLS)));
+check('gate (Rudy 11.13, 11.16): the thirteen live tools are true (six nuanced, seven MLS), the nine others false', LIVE.every(k => gate.NUANCED_TOOLS[k] === true) && DARK.every(k => gate.NUANCED_TOOLS[k] === false));
 check('gate: a dark tool is off for a signed-out visitor and for a member, on for an admin',
   DARK.every(k => gate.toolLive({}, k, null) === false && gate.toolLive({}, k, member) === false && gate.toolLive({}, k, admin) === true));
 check('gate: toolLive(env, "easementIdeas") with no user argument is false', gate.toolLive({}, 'easementIdeas') === false && gate.toolLive(undefined, 'easementIdeas') === false);
-check('gate: the six live tools are on for a signed-out visitor', LIVE.every(k => gate.toolLive({}, k, null) === true && gate.toolLive(null, k) === true));
+check('gate: the thirteen live tools are on for a signed-out visitor', LIVE.every(k => gate.toolLive({}, k, null) === true && gate.toolLive(null, k) === true));
+{
+  // Rudy 11.17: the gate says a tool is on; the three MLS endpoints still turn signed-out visitors away (unauthorized(), private, no-store).
+  const mlsApi = ['lens', 'area-pulse', 'home-fits'].map(n => [n, readFileSync(`${root}/functions/api/mls/${n}.js`, 'utf8').replace(/^\s*\/\/.*$/gm, '')]);
+  const signInOnly = src => /if \(!user\) return unauthorized\(\);/.test(src) && src.includes("'Cache-Control': 'private, no-store'") && !/public|max-age|Vary/.test(src);
+  check('MLS endpoints (Rudy 11.17): lens, area-pulse and home-fits each send signed-out visitors the 401, cache private, no-store, no public cache',
+    mlsApi.every(([, src]) => signInOnly(src)), mlsApi.filter(([, src]) => !signInOnly(src)).map(([n]) => n).join());
+}
 check('gate: an unknown name is false for everyone, even an admin or with the test flag',
   gate.toolLive({}, 'nope', admin) === false && gate.toolLive({ NUANCED_ALL_LIVE: '1' }, 'nope', admin) === false
   && gate.toolLive({}, 'toString', admin) === false && gate.toolLive({}, 'constructor', admin) === false && gate.toolLive({}, '', admin) === false);
@@ -87,9 +97,9 @@ check('nuancedGate.js never reads the database or the request', !/\bDB\b|prepare
 const toolsApi = await mod('functions/api/nuanced-tools.js');
 used.n = 0;
 let r = await call(toolsApi.onRequestGet, 'GET', '/api/nuanced-tools', null);
-check('GET /api/nuanced-tools signed out: 200, private no-store, exactly the 15 names, no statement', r.status === 200 && noStore(r)
+check('GET /api/nuanced-tools signed out: 200, private no-store, exactly the 22 names, no statement', r.status === 200 && noStore(r)
   && JSON.stringify(Object.keys(r.json)) === '["tools"]' && JSON.stringify(Object.keys(r.json.tools)) === JSON.stringify(ALL) && used.n === 0, `${used.n} ${JSON.stringify(r.json)}`);
-check('GET /api/nuanced-tools signed out: the live six true, every dark tool false', LIVE.every(k => r.json.tools[k] === true) && DARK.every(k => r.json.tools[k] === false));
+check('GET /api/nuanced-tools signed out: the live thirteen true, every dark tool false', LIVE.every(k => r.json.tools[k] === true) && DARK.every(k => r.json.tools[k] === false));
 used.n = 0;
 r = await call(toolsApi.onRequestGet, 'GET', '/api/nuanced-tools', 3);
 check('GET /api/nuanced-tools as a member: the same answer, 1 statement (the session)', noStore(r) && DARK.every(k => r.json.tools[k] === false) && LIVE.every(k => r.json.tools[k] === true) && used.n === 1, String(used.n));

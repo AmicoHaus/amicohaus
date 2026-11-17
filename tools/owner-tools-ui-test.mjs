@@ -47,7 +47,7 @@ const app = read('app.html');
 const localScripts = html => [...html.matchAll(/<script\b[^>]*\bsrc="([^"]+)"[^>]*>/g)].map(m => m[1]).filter(s => !/^https?:/.test(s));
 const WANT_ORDER = ['client.js', 'agent-cards.js', 'seller-prep.js', 'decision-night.js', 'share-moment.js', 'timing-match.js', 'ready-meter.js', 'opinion-refresh.js',
   'privacy-sweep.js', 'then-now.js', 'visit-feedback.js', 'handoff-binder.js', 'agent-growth.js', 'open-house-plan.js',
-  'listing-terms.js', 'neighbors.js', 'ideas.js', 'main.js']; // the nuanced ideas batch adds its three files before main.js
+  'listing-terms.js', 'neighbors.js', 'ideas.js', 'mls-tools.js', 'main.js']; // the nuanced ideas batch adds its three files before main.js, the MLS tools one more (11.16)
 check('app.html: script order exact', JSON.stringify(localScripts(app)) === JSON.stringify(WANT_ORDER), JSON.stringify(localScripts(app)));
 const PHOTO_RIGHTS_NOTE = (read('client.js').match(/const PHOTO_RIGHTS_NOTE = '([^']+)';/) || [])[1];
 const HINT = '<p class="tiny field-hint">By adding photos you confirm: I took these photos or have permission to use them. When you pick photos, Privacy Sweep opens so you can blur or cover anything private first.</p>';

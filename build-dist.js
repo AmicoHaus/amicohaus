@@ -16,6 +16,9 @@ const OUT = path.join(ROOT, 'dist');
 const SKIP_NAMES = new Set([
   'dist', 'functions', 'tools', 'node_modules', '.wrangler', '.git', '.claude', 'property-art', 'Press',
   'wrangler.toml', 'build-dist.js', 'package.json', 'package-lock.json',
+  // MLS tools (11.16): Rudy's notes on the CRMLS / broker question. The CRMLS numbers themselves live in
+  // functions/_lib/mlsAreaStats.js, which is under functions/ (never copied here) and reaches a viewer only through the gated API.
+  'MLS-TOOLS-NOTES.md',
 ]);
 const SKIP_EXTS = new Set(['.sql', '.zip', '.md', '.log']);
 

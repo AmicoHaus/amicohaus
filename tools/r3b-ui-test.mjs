@@ -27,7 +27,7 @@ const scripts = [...app.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => 
 // The owner tools batch adds share-moment.js after decision-night.js and its four tool files after opinion-refresh.js.
 const WANT_ORDER = ['client.js', 'agent-cards.js', 'seller-prep.js', 'decision-night.js', 'share-moment.js', 'timing-match.js', 'ready-meter.js', 'opinion-refresh.js',
   'privacy-sweep.js', 'then-now.js', 'visit-feedback.js', 'handoff-binder.js', 'agent-growth.js', 'open-house-plan.js',
-  'listing-terms.js', 'neighbors.js', 'ideas.js', 'main.js']; // the nuanced ideas batch adds its three files before main.js
+  'listing-terms.js', 'neighbors.js', 'ideas.js', 'mls-tools.js', 'main.js']; // the nuanced ideas batch adds its three files before main.js, the MLS tools one more (11.16)
 check('app.html: script order', JSON.stringify(scripts) === JSON.stringify(WANT_ORDER), JSON.stringify(scripts));
 
 for (const id of ['plCloseFrom', 'plCloseTo', 'plStayAfterDays', 'savedMoveFrom', 'savedMoveTo', 'savedStayOffer']) {

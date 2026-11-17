@@ -151,6 +151,10 @@ function goToTab(name) {
   if (name === 'augmented') loadAugmentedTab();
   if (name === 'findermine') loadFinderMineTab();
   if (name === 'greenhomes') loadGreenTab();
+  // The MLS tools (mls-tools.js; each draws nothing unless its tool is live for this viewer).
+  if (name === 'saved' && typeof mlLoadAreaPulse === 'function') mlLoadAreaPulse();
+  if (name === 'marketpulse' && typeof mlLoadLens === 'function') mlLoadLens();
+  if (name === 'marketplace' && typeof mlMountHomeFits === 'function') mlMountHomeFits();
 }
 
 function listingLabel(l) {

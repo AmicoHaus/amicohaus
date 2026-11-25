@@ -91,7 +91,7 @@ const order = [...readyBox.__order];
 check('ownerSegments: exactly 16 keys', segKeys.length === 16 && new Set(segKeys).size === 16, JSON.stringify(segKeys));
 check('ownerSegments: the same keys as READY_DEFAULT_ORDER', JSON.stringify([...segKeys].sort()) === JSON.stringify([...order].sort()), `${segKeys} vs ${order}`);
 check('READY_DEFAULT_ORDER exact (16)', order.join() === 'video,opinions,agent_view,address,edit,then_now,disclosures,listing_ready,timing,previews,interviews,showings,visit_feedback,decision_night,proposals,binder');
-check('new tool keys are never promoted by a topic', !/READY_PROMOTED = \{[\s\S]*?(then_now|visit_feedback|binder)[\s\S]*?\};/.test(read('ready-meter.js')));
+check('new tool keys are never promoted by a topic', !/READY_PROMOTED = \{[^;]*?(then_now|visit_feedback|binder)[^;]*?\};/.test(read('ready-meter.js')));
 
 // ---- Global names: no top-level name declared twice across a page's scripts ----
 // Top-level declarations start at column 0 in this codebase (function, async function, const, let, var, class).

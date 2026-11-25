@@ -333,9 +333,17 @@ check('tool order: the exact promotions', c.readyToolOrder('timing').slice(0, 3)
   && c.readyToolOrder('house_ready').slice(0, 5).join() === 'listing_ready,video,opinions,previews,disclosures' && c.readyToolOrder('picking_agent').slice(0, 3).join() === 'proposals,interviews,decision_night');
 check('client topic labels match the server', JSON.stringify(c.READY_TOPIC_LABELS) === JSON.stringify(lib.READY_TOPICS));
 const tools = c.ownerToolsHtml({ video: '<p>V</p>', opinions: '', proposals: '<p>P</p>' }, { latest: { topic: 'money', fresh: true } });
-check('owner tools: empty segments skipped, the rest wrapped by data-tool in the topic order', tools === '<div id="ownerTools"><div class="owner-tool" data-tool="proposals"><p>P</p></div><div class="owner-tool" data-tool="video"><p>V</p></div></div>', tools);
-const staleTools = c.ownerToolsHtml({ video: '<p>V</p>', proposals: '<p>P</p>' }, { latest: { topic: 'money', fresh: false } });
-check('owner tools: a stale answer keeps the default order', staleTools.indexOf('data-tool="video"') < staleTools.indexOf('data-tool="proposals"'));
+// Back to basics (11.22): the core path on top (.owner-core), every other tool in a closed drawer; empty drawers hidden.
+const coreOf = html => (html.match(/<div class="owner-core">([\s\S]*?)<\/div><details/) || [])[1] || '';
+const drawerOf = (html, key) => (html.match(new RegExp(`<details class="panel owner-drawer( hidden)?" data-drawer="${key}">[\\s\\S]*?</details>`)) || [''])[0];
+check('owner tools: empty segments skipped, wrapped by data-tool; proposals on top, video in the "Get ready" drawer',
+  coreOf(tools) === '<div class="owner-tool" data-tool="proposals"><p>P</p></div>' && !tools.includes('data-tool="opinions"')
+  && drawerOf(tools, 'prep').includes('<div class="owner-tool" data-tool="video"><p>V</p></div>') && !drawerOf(tools, 'prep').includes('owner-drawer hidden')
+  && drawerOf(tools, 'home').includes('owner-drawer hidden') && drawerOf(tools, 'after').includes('owner-drawer hidden'), tools);
+const staleTools = c.ownerToolsHtml({ video: '<p>V</p>', proposals: '<p>P</p>' }, { latest: { topic: 'house_ready', fresh: false } });
+check('owner tools: a stale answer promotes nothing (video stays in its drawer)', !coreOf(staleTools).includes('data-tool="video"') && drawerOf(staleTools, 'prep').includes('data-tool="video"'));
+const promoted = c.ownerToolsHtml({ video: '<p>V</p>', proposals: '<p>P</p>' }, { latest: { topic: 'house_ready', fresh: true } });
+check('owner tools: a fresh check-in brings its tools up out of the drawers, in the promoted order', coreOf(promoted) === '<div class="owner-tool" data-tool="video"><p>V</p></div><div class="owner-tool" data-tool="proposals"><p>P</p></div>' && drawerOf(promoted, 'prep').includes('owner-drawer hidden'), promoted);
 const rmBase = { weekKey: '2026-11-02', due: true, latest: null, shareReadiness: false, remindersOff: false };
 const card = c.readyCheckInHtml({ id: 10, status: 'open', readyMeter: rmBase });
 check('check-in card: 5 numbers and 5 topics, nothing pressed', (card.match(/data-rm-action="pick-readiness"/g) || []).length === 5 && (card.match(/data-rm-action="pick-topic"/g) || []).length === 5 && !card.includes('aria-pressed="true"'));

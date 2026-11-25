@@ -414,7 +414,8 @@ for (const [file, names] of Object.entries(CLIENT)) {
 const app = readFileSync(`${root}/app.html`, 'utf8');
 check('app.html: listing-terms.js, neighbors.js, ideas.js after open-house-plan.js and before main.js, in that order',
   ['open-house-plan.js', 'listing-terms.js', 'neighbors.js', 'ideas.js', 'main.js'].map(n => app.indexOf(`<script src="${n}"></script>`)).every((at, i, all) => at > 0 && (i === 0 || at > all[i - 1])));
-check('app.html: the Ideas tab button right after Saved, and its panel with #ideasRoot', /<button class="tab" data-tab="saved">Saved<\/button>\s*<button class="tab" data-tab="ideas">Ideas<\/button>/.test(app)
+// Back to basics (11.22): Ideas moved from the top row into the More menu.
+check('app.html: the Ideas tab button in the More menu, and its panel with #ideasRoot', /<div class="tab-more-menu hidden" id="tabMoreMenu">(?:(?!<\/div>)[\s\S])*<button class="tab" data-tab="ideas">Ideas<\/button>/.test(app)
   && app.includes('<section id="tab-ideas" class="tab-panel"><h1>Ideas</h1><div id="ideasRoot"></div></section>'));
 check('app.html: #watchAreasPanel right after #openHousePlan in the Saved tab', /<div id="openHousePlan"><\/div>\s*<div id="watchAreasPanel"><\/div>/.test(app)
   && app.indexOf('id="watchAreasPanel"') > app.indexOf('id="tab-saved"') && app.indexOf('id="watchAreasPanel"') < app.indexOf('id="tab-ideas"'));

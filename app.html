@@ -23,18 +23,22 @@
     </a>
     <nav class="tabs" id="tabs">
       <button class="tab active" data-tab="marketplace">Agent Strategy</button>
+      <a class="tab" href="/#directory">Browse homes</a>
+      <button class="tab" data-tab="saved">Saved</button>
+      <button class="tab" data-tab="matches">Trades</button>
+      <button class="tab" data-tab="messages">Messages <span id="messagesTabBadge" class="tab-badge hidden"></span></button>
+      <button type="button" class="tab tab-more-btn" id="tabMoreBtn" aria-expanded="false" aria-controls="tabMoreMenu">More <span aria-hidden="true">▾</span></button>
+    </nav>
+    <div class="tab-more-menu hidden" id="tabMoreMenu">
+      <button class="tab" data-tab="listing">My Listings</button>
       <button class="tab" data-tab="feed">Feed</button>
       <button class="tab" data-tab="marketpulse">Market Pulse <span class="unseen-dot hidden" id="marketPulseUnseenDot"></span></button>
-      <button class="tab" data-tab="listing">My Listing</button>
       <button class="tab" data-tab="groups">Groups</button>
-      <button class="tab" data-tab="matches">Matches</button>
-      <button class="tab" data-tab="saved">Saved</button>
       <button class="tab" data-tab="ideas">Ideas</button>
-      <button class="tab" data-tab="messages">Messages <span id="messagesTabBadge" class="tab-badge hidden"></span></button>
-      <button class="tab" data-tab="augmented">AugmentedHomes</button>
-      <button class="tab" data-tab="findermine">FinderMine</button>
-      <button class="tab" data-tab="greenhomes">GreenHomes</button>
-    </nav>
+      <button class="tab" data-tab="augmented">Homes with accessibility features</button>
+      <button class="tab" data-tab="greenhomes">Green homes</button>
+      <button class="tab" data-tab="findermine">Projects (FinderMine)</button>
+    </div>
     <div class="auth-cta">
       <a class="tab tab-lang" href="/es/" hreflang="es" lang="es">Español</a>
       <div class="search-box">
@@ -738,7 +742,7 @@
     <!-- AUGMENTED HOMES -->
     <section id="tab-augmented" class="tab-panel">
       <h1>AugmentedHomes</h1>
-      <p class="section-sub">A marketplace for homes modified for a disability — wheelchair access, roll-in showers, lowered counters, stair lifts, and more. List the adaptations your home has so the right buyer finds it, instead of it getting stripped out at resale. Or save what you need and get notified the moment a matching home is listed.</p>
+      <p class="section-sub">A marketplace for homes with accessibility features — wheelchair access, roll-in showers, lowered counters, stair lifts, and more. List the adaptations your home has so the right buyer finds it, instead of it getting stripped out at resale. Or save what you need and get notified the moment a matching home is listed.</p>
 
       <div id="augmentedListView">
         <details class="panel bulk-upload" id="postAugmentedWrap">

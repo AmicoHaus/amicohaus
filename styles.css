@@ -1491,6 +1491,46 @@ svg.sketch-grid text { fill: var(--muted); font-size: 12px; }
 
 /* Phones. Kept at the END of the file on purpose: several rules it overrides (e.g. #globalSearchInput) appear
    after the main 720px block above, so source order matters here. */
+/* ---- Back to basics (11.22): five tabs + More menu, the owner's six-step path, optional drawers ---- */
+.tab-more-btn { white-space: nowrap; }
+.tab-more-menu {
+  position: absolute;
+  z-index: 40;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 250px;
+  max-width: calc(100vw - 16px);
+  padding: 8px;
+  background: var(--navy);
+  border: 1px solid rgba(255,255,255,0.16);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+}
+.tab-more-menu:not(.hidden) { display: flex; }
+.tab-more-menu .tab { text-align: left; border-radius: 8px; width: 100%; }
+
+.owner-path { margin: 16px 0; padding: 14px 16px; }
+.owner-path ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+.path-step { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; font-size: 0.82rem; color: var(--muted); }
+.path-num {
+  width: 30px; height: 30px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 2px solid var(--border); font-weight: 700; background: var(--card);
+}
+.path-label { font-weight: 600; line-height: 1.2; }
+.path-sub { font-size: 0.74rem; }
+.path-done .path-num { background: var(--success); border-color: var(--success); color: #fff; }
+.path-current .path-num { background: var(--gold); border-color: var(--gold); color: #1a1005; }
+.path-current .path-label { color: var(--gold-text); }
+:root[data-theme="dark"] .path-current .path-label { color: var(--gold-light); }
+
+.owner-drawer { margin: 16px 0; }
+.owner-drawer > summary { cursor: pointer; font-weight: 600; font-size: 1.02rem; color: var(--navy-2); }
+.owner-drawer > summary .tiny { font-weight: 400; color: var(--muted); margin-left: 6px; }
+:root[data-theme="dark"] .owner-drawer > summary { color: var(--gold-light); }
+.owner-drawer > p.tiny { margin: 8px 0 4px; }
+.owner-drawer-body { margin-top: 8px; }
+
 @media (max-width: 720px) {
   /* iOS (and the TikTok/Instagram in-app browsers) zoom the page in when a field under 16px gets focus. */
   .field input, .field select, .field textarea, #globalSearchInput, .post-form textarea, .comment-form input { font-size: 16px; }
@@ -1521,5 +1561,7 @@ svg.sketch-grid text { fill: var(--muted); font-size: 12px; }
   .ml-lens .form-row.two-col, .ml-fits .form-row.two-col { grid-template-columns: minmax(0, 1fr); }
   .ml-card { padding: 12px; }
   .ml-fits-fields { grid-template-columns: 1fr 1fr; }
+  /* Back to basics (11.22) */
+  .topbar { position: relative; }
+  .owner-path ol { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 14px; }
 }
-

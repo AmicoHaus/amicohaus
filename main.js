@@ -132,6 +132,14 @@ function fillTypeSelect(select, includeAny) {
 
 function goToTab(name) {
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  // Back to basics (11.22): five tabs up top, the rest in the More menu (same data-tab names, so deep links and the
+  // remembered tab work as before). More lights up while one of its tabs is open, and the menu closes on any pick.
+  const moreBtn = document.getElementById('tabMoreBtn'), moreMenu = document.getElementById('tabMoreMenu');
+  if (moreBtn && moreMenu) {
+    moreBtn.classList.toggle('active', !!moreMenu.querySelector(`.tab[data-tab="${name}"]`));
+    moreMenu.classList.add('hidden');
+    moreBtn.setAttribute('aria-expanded', 'false');
+  }
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${name}`));
   window.scrollTo({ top: 0, behavior: 'smooth' });
   // Per-device convenience only (never read back by the server) — so a plain /app visit lands wherever this
@@ -4133,7 +4141,7 @@ async function openPreListingDetail(id, opts = {}) {
         ${isOwner ? renderPreListingOwnerBar(p) : ''}
       </div>
       ${isOwner
-        ? `${readyCheckInHtml(p)}${ownerToolsHtml(ownerSegments, p.readyMeter)}`
+        ? `${readyPathHtml(p, { opinions: opinionCount || 0, votes: (p.votes && p.votes.total) || 0, proposals: p.decisionNight && p.decisionNight.sealed ? (p.decisionNight.sealedCount || 0) : (bids || []).length })}${readyCheckInHtml(p)}${ownerToolsHtml(ownerSegments, p.readyMeter)}`
         : `${sharedContactHtml(sharedContact)}
       ${isApprovedAgentViewer ? renderVideoTourPanel(p, false) : ''}
       ${isApprovedAgentViewer ? '<div id="previewsPanel"></div><div id="interviewsPanel"></div>' : ''}
@@ -5662,8 +5670,37 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   document.getElementById('tabs').addEventListener('click', e => {
     const btn = e.target.closest('.tab');
-    if (btn) goToTab(btn.dataset.tab);
+    if (btn && btn.dataset.tab) goToTab(btn.dataset.tab); // "Browse homes" is a plain link and More opens its own menu
   });
+  // The More menu: opens under its button (kept on screen; the strip scrolls sideways on phones), closes on a pick,
+  // an outside click or Escape.
+  {
+    const moreBtn = document.getElementById('tabMoreBtn'), moreMenu = document.getElementById('tabMoreMenu');
+    const closeMore = () => { moreMenu.classList.add('hidden'); moreBtn.setAttribute('aria-expanded', 'false'); };
+    if (moreBtn && moreMenu) {
+      moreBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        if (!moreMenu.classList.contains('hidden')) { closeMore(); return; }
+        const bar = moreBtn.closest('.topbar');
+        moreMenu.classList.remove('hidden');
+        moreBtn.setAttribute('aria-expanded', 'true');
+        const b = moreBtn.getBoundingClientRect(), t = bar.getBoundingClientRect();
+        moreMenu.style.left = `${Math.max(8, Math.min(b.left - t.left, t.width - moreMenu.offsetWidth - 8))}px`;
+        moreMenu.style.top = `${b.bottom - t.top + 6}px`;
+        moreMenu.querySelector('.tab:not(.hidden)')?.focus();
+      });
+      moreMenu.addEventListener('click', e => {
+        const item = e.target.closest('.tab');
+        if (item && item.dataset.tab) goToTab(item.dataset.tab);
+      });
+      document.addEventListener('click', e => {
+        if (!moreMenu.classList.contains('hidden') && !moreMenu.contains(e.target) && !moreBtn.contains(e.target)) closeMore();
+      });
+      document.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && !moreMenu.classList.contains('hidden')) { closeMore(); moreBtn.focus(); }
+      });
+    }
+  }
 
   document.getElementById('logoutBtn').addEventListener('click', async () => {
     await apiPost('/api/auth/logout');

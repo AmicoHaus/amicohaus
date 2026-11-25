@@ -34,11 +34,59 @@ function readyTopicFor(readyMeter) {
   return readyMeter && readyMeter.latest && readyMeter.latest.fresh ? readyMeter.latest.topic : null;
 }
 
+// Back to basics (11.22): the core path (price opinions, proposals, your address, editing) stays on top; every other
+// tool waits in one of three drawers, closed until the owner opens one. A tool this week's check-in promotes comes
+// up out of its drawer to the top, in the promoted order. Every tool keeps its .owner-tool[data-tool] wrapper.
+const READY_CORE = ['opinions', 'proposals', 'address', 'edit'];
+const READY_DRAWERS = [
+  { key: 'prep', title: 'Get ready to sell', note: 'Your timing, a video walkthrough, the listing-ready checklist, disclosures, broker previews, interviews, showings, visit notes and Decision Night.',
+    tools: ['timing', 'video', 'listing_ready', 'disclosures', 'previews', 'interviews', 'showings', 'visit_feedback', 'decision_night'] },
+  { key: 'home', title: 'Tell agents more about your home', note: 'See what agents see on your pre-listing, and show them your upgrades with Then & Now.',
+    tools: ['agent_view', 'then_now'] },
+  { key: 'after', title: 'After you hire', note: 'A handoff binder to print for the next owner.', tools: ['binder'] },
+];
+
+// Where each tool goes for this topic: { core: [keys in order], drawers: [{ ...drawer, tools: [keys left in it] }] }.
+function readyToolPlacement(topic) {
+  const order = readyToolOrder(topic);
+  const promoted = Object.hasOwn(READY_PROMOTED, topic || '') ? READY_PROMOTED[topic] : [];
+  const core = [...promoted, ...READY_CORE.filter(k => !promoted.includes(k))];
+  const placed = new Set(core);
+  const drawers = READY_DRAWERS.map(d => ({ ...d, tools: order.filter(k => d.tools.includes(k) && !placed.has(k)) }));
+  drawers.forEach(d => d.tools.forEach(k => placed.add(k)));
+  // Anything not named above (a tool added later) stays visible on top rather than going missing.
+  order.forEach(k => { if (!placed.has(k)) core.push(k); });
+  return { core, drawers };
+}
+
 function ownerToolsHtml(segments, readyMeter) {
-  const parts = readyToolOrder(readyTopicFor(readyMeter))
-    .filter(k => segments && segments[k])
-    .map(k => `<div class="owner-tool" data-tool="${k}">${segments[k]}</div>`);
-  return `<div id="ownerTools">${parts.join('')}</div>`;
+  const { core, drawers } = readyToolPlacement(readyTopicFor(readyMeter));
+  const wrap = k => `<div class="owner-tool" data-tool="${k}">${segments[k]}</div>`;
+  const has = k => !!(segments && segments[k]);
+  const drawerHtml = drawers.map(d => {
+    const inside = d.tools.filter(has);
+    return `<details class="panel owner-drawer${inside.length ? '' : ' hidden'}" data-drawer="${d.key}"><summary>${escapeHtml(d.title)} <span class="tiny">optional</span></summary><p class="tiny">${escapeHtml(d.note)}</p><div class="owner-drawer-body">${inside.map(wrap).join('')}</div></details>`;
+  }).join('');
+  return `<div id="ownerTools"><div class="owner-core">${core.filter(has).map(wrap).join('')}</div>${drawerHtml}</div>`;
+}
+
+// The six steps of the core path, with where this home is now. Counts only (never a verdict on a price or an agent).
+function readyPathHtml(p, { opinions = 0, votes = 0, proposals = 0 } = {}) {
+  const hired = p.status === 'awarded';
+  const stage = hired ? 6 : proposals > 0 ? 4 : (opinions > 0 || votes > 0) ? 3 : 2;
+  const steps = [
+    ['Post your home', ''],
+    ['Price opinions', opinions > 0 ? `${opinions} in` : votes > 0 ? `${votes} vote${votes === 1 ? '' : 's'}` : ''],
+    ['Proposals', proposals > 0 ? `${proposals} in` : ''],
+    ['Compare', ''],
+    ['Hire', ''],
+    ['Review', ''],
+  ];
+  const items = steps.map(([label, sub], i) => {
+    const n = i + 1, state = n < stage ? 'done' : n === stage ? 'current' : 'todo';
+    return `<li class="path-step path-${state}"${state === 'current' ? ' aria-current="step"' : ''}><span class="path-num">${state === 'done' ? '✓' : n}</span><span class="path-label">${label}</span>${sub ? `<span class="path-sub">${escapeHtml(sub)}</span>` : ''}</li>`;
+  }).join('');
+  return `<nav class="panel owner-path" aria-label="Your steps"><ol>${items}</ol></nav>`;
 }
 
 function readyPrivacyLine(shareReadiness) {
@@ -156,14 +204,25 @@ function agentViewStripHtml(av) {
   let saving = false;
 
   // Moves the existing tool nodes (typed inputs survive; the detail is never redrawn). True when the order changed.
+  // Moves tools between the top and the drawers to match readyToolPlacement (drawers keep their open/closed state).
   function reorderTools(topic) {
     const box = document.getElementById('ownerTools');
-    if (!box) return false;
-    const nodes = [...box.children].filter(n => n.classList && n.classList.contains('owner-tool'));
-    const before = nodes.map(n => n.dataset.tool).join();
+    const core = box && box.querySelector('.owner-core');
+    if (!box || !core) return false;
+    const nodes = [...box.querySelectorAll('.owner-tool')];
+    const before = core.querySelectorAll('.owner-tool').length + '|' + nodes.map(n => n.dataset.tool).join();
     const byKey = new Map(nodes.map(n => [n.dataset.tool, n]));
-    for (const k of readyToolOrder(topic)) if (byKey.has(k)) box.appendChild(byKey.get(k));
-    return [...box.children].filter(n => n.classList && n.classList.contains('owner-tool')).map(n => n.dataset.tool).join() !== before;
+    const { core: coreKeys, drawers } = readyToolPlacement(topic);
+    for (const k of coreKeys) if (byKey.has(k)) core.appendChild(byKey.get(k));
+    for (const d of drawers) {
+      const drawer = box.querySelector(`.owner-drawer[data-drawer="${d.key}"]`);
+      const body = drawer && drawer.querySelector('.owner-drawer-body');
+      if (!body) continue;
+      for (const k of d.tools) if (byKey.has(k)) body.appendChild(byKey.get(k));
+      drawer.classList.toggle('hidden', !body.querySelector('.owner-tool'));
+    }
+    const after = core.querySelectorAll('.owner-tool').length + '|' + [...box.querySelectorAll('.owner-tool')].map(n => n.dataset.tool).join();
+    return after !== before;
   }
 
   async function saveCheckIn(id, card, readiness, topic) {
@@ -221,6 +280,8 @@ function agentViewStripHtml(av) {
     if (action === 'goto') {
       const target = document.querySelector(`.owner-tool[data-tool="${btn.dataset.tool}"]`);
       if (!target) return;
+      const drawer = target.closest('.owner-drawer');
+      if (drawer) drawer.open = true;
       const details = target.querySelector('details');
       if (details) details.open = true;
       target.scrollIntoView({ behavior: 'smooth', block: 'start' });
